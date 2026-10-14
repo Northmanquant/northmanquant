@@ -166,6 +166,14 @@ def build_galaxy_svg(comp_table: pd.DataFrame, score: float) -> str:
 """
 
 
+def _html(html: str) -> None:
+    """Render raw HTML reliably (st.html where available)."""
+    try:
+        st.html(html)
+    except Exception:
+        st.markdown(html, unsafe_allow_html=True)
+
+
 def _live_strip_impl(symbol: str, exchange: str, interval: str, dec: int) -> None:
     import time as _t
 
@@ -212,7 +220,7 @@ def _live_strip_impl(symbol: str, exchange: str, interval: str, dec: int) -> Non
         )
     score_txt = f"{score:+.0f}" if isinstance(score, (int, float)) else "—"
 
-    st.markdown(
+    _html(
         f"""
 <div class="nq-live-strip {flash}" dir="rtl">
   <div style="display:flex;flex-wrap:wrap;align-items:center;gap:14px">
@@ -232,8 +240,7 @@ def _live_strip_impl(symbol: str, exchange: str, interval: str, dec: int) -> Non
     </span>
   </div>
 </div>
-""",
-        unsafe_allow_html=True,
+"""
     )
 
 
@@ -669,6 +676,432 @@ def make_plan(d: pd.DataFrame, score: float, levels: pd.DataFrame) -> dict:
     }
 
 
+
+def _sma(s: pd.Series, n: int) -> pd.Series:
+    return s.rolling(n).mean()
+
+
+def _wma(s: pd.Series, n: int) -> pd.Series:
+    w = np.arange(1, n + 1, dtype=float)
+    return s.rolling(n).apply(lambda x: float(np.dot(x, w) / w.sum()), raw=True)
+
+
+def add_more(d: pd.DataFrame) -> pd.DataFrame:
+    c, h, l, v = d["close"], d["high"], d["low"], d["volume"]
+    d["ema9"] = _ema(c, 9)
+    d["ema21"] = _ema(c, 21)
+    r = d["rsi"]
+    ll = r.rolling(14).min()
+    hh = r.rolling(14).max()
+    d["stoch_rsi"] = ((r - ll) / (hh - ll).replace(0, np.nan) * 100).fillna(50)
+    median = (h + l) / 2
+    d["ao"] = median.rolling(5).mean() - median.rolling(34).mean()
+    d["mom10"] = c - c.shift(10)
+    hh14 = h.rolling(14).max()
+    ll14 = l.rolling(14).min()
+    d["willr"] = ((hh14 - c) / (hh14 - ll14).replace(0, np.nan) * -100).fillna(-50)
+    ema13 = _ema(c, 13)
+    d["bull_power"] = h - ema13
+    d["bear_power"] = l - ema13
+    prev_c = c.shift(1)
+    bp = c - pd.concat([l, prev_c], axis=1).min(axis=1)
+    tr2 = pd.concat([h, prev_c], axis=1).max(axis=1) - pd.concat([l, prev_c], axis=1).min(axis=1)
+
+    def _avg(n: int) -> pd.Series:
+        return bp.rolling(n).sum() / tr2.rolling(n).sum().replace(0, np.nan)
+
+    d["uo"] = ((4 * _avg(7) + 2 * _avg(14) + _avg(28)) / 7 * 100).fillna(50)
+    d["dc_up"] = h.rolling(20).max()
+    d["dc_lo"] = l.rolling(20).min()
+    d["vwma20"] = (c * v).rolling(20).sum() / v.rolling(20).sum().replace(0, np.nan)
+
+    def _mid(n: int) -> pd.Series:
+        return (h.rolling(n).max() + l.rolling(n).min()) / 2
+
+    d["tenkan"] = _mid(9)
+    d["kijun"] = _mid(26)
+    half = _wma(c, 5)
+    full = _wma(c, 9)
+    d["hull"] = _wma(2 * half - full, 3)
+    return d
+
+
+def _sig(v: float, buy_at: float = 0.15, sell_at: float = -0.15) -> str:
+    return "خرید 🟢" if v > buy_at else "فروش 🔴" if v < sell_at else "خنثی ⚪"
+
+
+def oscillator_table(d: pd.DataFrame) -> pd.DataFrame:
+    last = d.iloc[-1]
+    price = float(last["close"])
+    rows = [
+        ("RSI (14)", f"{last['rsi']:.2f}", "خرید 🟢" if last["rsi"] < 30 else "فروش 🔴" if last["rsi"] > 70 else "خنثی ⚪"),
+        ("MACD", f"{last['macd_hist']:.4f}", "خرید 🟢" if last["macd"] > last["macd_signal"] else "فروش 🔴"),
+        ("استوکاستیک", f"{last['stoch_k']:.1f}", "خرید 🟢" if last["stoch_k"] < 20 and last["stoch_k"] > last["stoch_d"] else "فروش 🔴" if last["stoch_k"] > 80 and last["stoch_k"] < last["stoch_d"] else "خنثی ⚪"),
+        ("استوکاستیک RSI", f"{last['stoch_rsi']:.1f}", "خرید 🟢" if last["stoch_rsi"] < 20 else "فروش 🔴" if last["stoch_rsi"] > 80 else "خنثی ⚪"),
+        ("CCI (20)", f"{last['cci']:.0f}", "خرید 🟢" if last["cci"] < -100 else "فروش 🔴" if last["cci"] > 100 else "خنثی ⚪"),
+        ("ADX (14)", f"{last['adx']:.1f}", ("خرید 🟢" if last["plus_di"] > last["minus_di"] else "فروش 🔴") if last["adx"] > 25 else "خنثی ⚪"),
+        ("Awesome (AO)", f"{last['ao']:.3f}", "خرید 🟢" if last["ao"] > 0 else "فروش 🔴"),
+        ("مومنتوم (10)", f"{last['mom10']:.3f}", "خرید 🟢" if last["mom10"] > 0 else "فروش 🔴"),
+        ("ویلیامز %R", f"{last['willr']:.1f}", "خرید 🟢" if last["willr"] < -80 else "فروش 🔴" if last["willr"] > -20 else "خنثی ⚪"),
+        ("قدرت خریدار/فروشنده", f"{last['bull_power']:.3f}/{last['bear_power']:.3f}", "خرید 🟢" if last["bull_power"] > 0 and last["bear_power"] < 0 else "فروش 🔴" if last["bull_power"] < 0 and last["bear_power"] > 0 else "خنثی ⚪"),
+        ("اسیلاتور نهایی UO", f"{last['uo']:.1f}", "خرید 🟢" if last["uo"] > 60 else "فروش 🔴" if last["uo"] < 30 else "خنثی ⚪"),
+        ("MFI (14)", f"{last['mfi']:.1f}", "خرید 🟢" if last["mfi"] < 20 else "فروش 🔴" if last["mfi"] > 80 else "خنثی ⚪"),
+        ("سوپرترند", f"{last['supertrend']:.4f}", "خرید 🟢" if last["supertrend_dir"] == 1 else "فروش 🔴"),
+        ("VWAP (60)", f"{last['vwap']:.4f}", "خرید 🟢" if price > last["vwap"] else "فروش 🔴"),
+        ("ورتکس Vortex", f"{last['vortex_plus']:.2f}/{last['vortex_minus']:.2f}", "خرید 🟢" if last["vortex_plus"] > last["vortex_minus"] else "فروش 🔴"),
+        ("جریان پول CMF", f"{last['cmf']:.3f}", "خرید 🟢" if last["cmf"] > 0.05 else "فروش 🔴" if last["cmf"] < -0.05 else "خنثی ⚪"),
+    ]
+    return pd.DataFrame(rows, columns=["اندیکاتور", "مقدار", "سیگنال"])
+
+
+def ma_table(d: pd.DataFrame) -> pd.DataFrame:
+    c = d["close"]
+    price = float(c.iloc[-1])
+    defs = [
+        ("EMA 9", _ema(c, 9)), ("SMA 10", _sma(c, 10)), ("EMA 20", _ema(c, 20)), ("SMA 20", _sma(c, 20)),
+        ("EMA 30", _ema(c, 30)), ("SMA 30", _sma(c, 30)), ("EMA 50", _ema(c, 50)), ("SMA 50", _sma(c, 50)),
+        ("EMA 100", _ema(c, 100)), ("SMA 100", _sma(c, 100)), ("EMA 200", _ema(c, 200)), ("SMA 200", _sma(c, 200)),
+        ("HullMA 9", d["hull"]), ("VWMA 20", d["vwma20"]), ("ایچیموکو Kijun", d["kijun"]),
+    ]
+    rows = []
+    for name, series in defs:
+        period = int(re.search(r"\d+", name).group()) if re.search(r"\d+", name) else 20
+        if len(d) < period + 5:
+            continue
+        val = float(series.iloc[-1])
+        if not np.isfinite(val):
+            continue
+        rows.append({
+            "میانگین": name,
+            "مقدار": round(val, 6),
+            "فاصله قیمت %": round((price - val) / val * 100, 2),
+            "سیگنال": "خرید 🟢" if price > val else "فروش 🔴",
+        })
+    return pd.DataFrame(rows)
+
+
+def pivot_points(prev: pd.Series) -> dict[str, dict[str, float]]:
+    h, l, c = float(prev["high"]), float(prev["low"]), float(prev["close"])
+    rng = h - l
+    p = (h + l + c) / 3
+    return {
+        "کلاسیک": {"R3": h + 2 * (p - l), "R2": p + rng, "R1": 2 * p - l, "P": p, "S1": 2 * p - h, "S2": p - rng, "S3": l - 2 * (h - p)},
+        "فیبوناچی": {"R3": p + rng, "R2": p + rng * 0.618, "R1": p + rng * 0.382, "P": p, "S1": p - rng * 0.382, "S2": p - rng * 0.618, "S3": p - rng},
+        "کاماریلا": {"R3": c + rng * 1.1 / 4, "R2": c + rng * 1.1 / 6, "R1": c + rng * 1.1 / 12, "P": p, "S1": c - rng * 1.1 / 12, "S2": c - rng * 1.1 / 6, "S3": c - rng * 1.1 / 4},
+    }
+
+
+def fib_retracement(d: pd.DataFrame, lookback: int = 150) -> pd.DataFrame:
+    seg = d.tail(min(lookback, len(d)))
+    hi_i = int(seg["high"].idxmax())
+    lo_i = int(seg["low"].idxmin())
+    hi = float(seg.loc[hi_i, "high"])
+    lo = float(seg.loc[lo_i, "low"])
+    price = float(d["close"].iloc[-1])
+    up = hi_i > lo_i  # last extreme is the high -> retracement downwards from high
+    rows = []
+    for r in [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1]:
+        lvl = hi - (hi - lo) * r if up else lo + (hi - lo) * r
+        rows.append({"سطح فیبو": f"{r * 100:.1f}%", "قیمت": round(lvl, 6), "فاصله %": round((lvl - price) / price * 100, 2)})
+    return pd.DataFrame(rows)
+
+
+def volume_profile(d: pd.DataFrame, buckets: int = 24) -> tuple[pd.DataFrame, float, float, float]:
+    seg = d.tail(min(250, len(d)))
+    hi = float(seg["high"].max())
+    lo = float(seg["low"].min())
+    step = (hi - lo) / buckets or 1.0
+    buy = np.zeros(buckets)
+    sell = np.zeros(buckets)
+    for _, b in seg.iterrows():
+        i0 = int(max(0, min(buckets - 1, (float(b["low"]) - lo) // step)))
+        i1 = int(max(0, min(buckets - 1, (float(b["high"]) - lo) // step)))
+        per = float(b["volume"]) / (i1 - i0 + 1)
+        target = buy if float(b["close"]) >= float(b["open"]) else sell
+        for i in range(i0, i1 + 1):
+            target[i] += per
+    total = buy + sell
+    prices = lo + step * (np.arange(buckets) + 0.5)
+    poc = float(prices[int(np.argmax(total))]) if len(total) else lo
+    order = np.argsort(-total)
+    chosen: list[int] = []
+    acc = 0.0
+    total_vol = float(total.sum()) or 1.0
+    for idx in order:
+        chosen.append(int(idx))
+        acc += float(total[idx])
+        if acc >= total_vol * 0.7:
+            break
+    vah = float(prices[max(chosen)]) if chosen else hi
+    val = float(prices[min(chosen)]) if chosen else lo
+    df = pd.DataFrame({"price": prices, "buy": buy, "sell": sell, "total": total})
+    return df, poc, vah, val
+
+
+def candle_patterns(d: pd.DataFrame) -> list[dict]:
+    out: list[dict] = []
+    if len(d) < 5:
+        return out
+    bodies = (d["close"] - d["open"]).abs()
+    ref = float(bodies.tail(30).mean()) or 1e-9
+    for i in range(max(1, len(d) - 5), len(d)):
+        b, p = d.iloc[i], d.iloc[i - 1]
+        body = abs(float(b["close"] - b["open"]))
+        rng = max(float(b["high"] - b["low"]), 1e-9)
+        upper = float(b["high"]) - max(float(b["close"]), float(b["open"]))
+        lower = min(float(b["close"]), float(b["open"])) - float(b["low"])
+        bull = float(b["close"]) >= float(b["open"])
+        when = str(b["dt"])
+        if body / rng < 0.1:
+            out.append({"الگو": "دوجی (Doji)", "جهت": "خنثی ⚪", "زمان": when})
+        if lower > body * 2 and upper < body * 0.6 and body > ref * 0.3:
+            out.append({"الگو": "چکش (Hammer)", "جهت": "صعودی 🟢", "زمان": when})
+        if upper > body * 2 and lower < body * 0.6 and body > ref * 0.3:
+            out.append({"الگو": "شوتینگ استار", "جهت": "نزولی 🔴", "زمان": when})
+        p_body = abs(float(p["close"] - p["open"]))
+        if bull != (float(p["close"]) >= float(p["open"])) and body > p_body * 1.1 \
+                and max(float(b["close"]), float(b["open"])) >= max(float(p["close"]), float(p["open"])) \
+                and min(float(b["close"]), float(b["open"])) <= min(float(p["close"]), float(p["open"])):
+            out.append({"الگو": "پوشای صعودی" if bull else "پوشای نزولی", "جهت": "صعودی 🟢" if bull else "نزولی 🔴", "زمان": when})
+    return out[-6:]
+
+
+def divergence_list(d: pd.DataFrame) -> list[dict]:
+    out: list[dict] = []
+    seg = d.tail(min(70, len(d))).reset_index(drop=True)
+    if len(seg) < 20:
+        return out
+    k = 2
+    highs, lows = [], []
+    for i in range(k, len(seg) - k):
+        if seg["high"].iloc[i] == seg["high"].iloc[i - k: i + k + 1].max():
+            highs.append(i)
+        if seg["low"].iloc[i] == seg["low"].iloc[i - k: i + k + 1].min():
+            lows.append(i)
+
+    def _check(idxs: list[int], col: str, name: str, mode: str) -> None:
+        if len(idxs) < 2:
+            return
+        a, b = idxs[-2], idxs[-1]
+        if b - a < 4:
+            return
+        pa, pb = (float(seg["high"].iloc[a]), float(seg["high"].iloc[b])) if mode == "high" else (float(seg["low"].iloc[a]), float(seg["low"].iloc[b]))
+        va, vb = float(seg[col].iloc[a]), float(seg[col].iloc[b])
+        if mode == "high" and pb > pa and vb < va:
+            out.append({"واگرایی": f"نزولی 🔴 {name}", "توضیح": f"قیمت سقف بالاتر ولی {name} پایین‌تر ({vb:.2f} < {va:.2f})"})
+        if mode == "low" and pb < pa and vb > va:
+            out.append({"واگرایی": f"صعودی 🟢 {name}", "توضیح": f"قیمت کف پایین‌تر ولی {name} بالاتر ({vb:.2f} > {va:.2f})"})
+
+    _check(highs, "rsi", "RSI", "high")
+    _check(lows, "rsi", "RSI", "low")
+    _check(highs, "macd_hist", "MACD", "high")
+    _check(lows, "macd_hist", "MACD", "low")
+    return out[:4]
+
+
+def _backtest(closes: np.ndarray, desired: np.ndarray) -> dict:
+    fee = 0.0006
+    eq, peak, maxdd = 1.0, 1.0, 0.0
+    pos, entry = 0, 0.0
+    wins = losses = 0
+    gw = gl = 0.0
+    trades = 0
+    equity: list[float] = []
+    n = len(closes)
+    for i in range(n - 1):
+        want = int(desired[i]) if np.isfinite(desired[i]) else 0
+        if want != pos:
+            if pos != 0 and entry > 0:
+                ret = pos * (closes[i] - entry) / entry - fee
+                trades += 1
+                if ret > 0:
+                    wins += 1
+                    gw += ret
+                else:
+                    losses += 1
+                    gl += abs(ret)
+            if want != 0:
+                entry = closes[i]
+            pos = want
+        if pos != 0:
+            eq *= 1 + pos * (closes[i + 1] - closes[i]) / closes[i]
+        peak = max(peak, eq)
+        maxdd = max(maxdd, (peak - eq) / peak)
+        if i % 6 == 0 or i == n - 2:
+            equity.append(round((eq - 1) * 100, 3))
+    if pos != 0 and entry > 0:
+        ret = pos * (closes[-1] - entry) / entry - fee
+        trades += 1
+        if ret > 0:
+            wins += 1
+            gw += ret
+        else:
+            gl += abs(ret)
+    final = int(desired[-1]) if np.isfinite(desired[-1]) else 0
+    return {
+        "pnl": round((eq - 1) * 100, 2),
+        "winrate": int(round(wins / trades * 100)) if trades else 0,
+        "trades": trades,
+        "pf": round(gw / gl, 2) if gl > 0 else (9.99 if gw > 0 else 0.0),
+        "maxdd": round(maxdd * 100, 2),
+        "equity": equity[-90:],
+        "signal": final,
+    }
+
+
+def run_agents(d: pd.DataFrame) -> tuple[pd.DataFrame, list[float], int, dict[str, list[float]]]:
+    c = d["close"].to_numpy(dtype=float)
+    n = len(c)
+    warm = 60
+    zero = np.zeros(n)
+
+    def gate(mask: np.ndarray) -> np.ndarray:
+        out = mask.astype(float).copy()
+        out[:warm] = 0
+        return out
+
+    trend = gate(np.where((d["ema9"] > d["ema21"]) & (d["adx"] >= 16), 1, np.where((d["ema9"] < d["ema21"]) & (d["adx"] >= 16), -1, 0)))
+    momentum_s = gate(np.where((d["macd_hist"] > 0) & (d["rsi"] > 52), 1, np.where((d["macd_hist"] < 0) & (d["rsi"] < 48), -1, 0)))
+
+    mr = zero.copy()
+    state = 0
+    for i in range(n):
+        if i < warm:
+            continue
+        if state == 0:
+            if c[i] < d["bb_lo"].iloc[i] and d["rsi"].iloc[i] < 35:
+                state = 1
+            elif c[i] > d["bb_up"].iloc[i] and d["rsi"].iloc[i] > 65:
+                state = -1
+        elif state == 1 and c[i] > d["bb_mid"].iloc[i]:
+            state = 0
+        elif state == -1 and c[i] < d["bb_mid"].iloc[i]:
+            state = 0
+        mr[i] = state
+
+    brk = zero.copy()
+    state = 0
+    dc_up = d["dc_up"].shift(1).to_numpy()
+    dc_lo = d["dc_lo"].shift(1).to_numpy()
+    for i in range(n):
+        if i < warm or not np.isfinite(dc_up[i]):
+            continue
+        mid = (dc_up[i] + dc_lo[i]) / 2
+        if state == 0:
+            if c[i] > dc_up[i]:
+                state = 1
+            elif c[i] < dc_lo[i]:
+                state = -1
+        elif state == 1 and c[i] < mid:
+            state = 0
+        elif state == -1 and c[i] > mid:
+            state = 0
+        brk[i] = state
+
+    st_dir = gate(d["supertrend_dir"].to_numpy(dtype=float))
+    flow = gate(np.where((d["cmf"] > 0.04) & (d["close"] > d["vwap"]), 1, np.where((d["cmf"] < -0.04) & (d["close"] < d["vwap"]), -1, 0)))
+
+    defs = [
+        ("سوار روند (EMA+ADX)", trend),
+        ("مومنتوم (MACD+RSI)", momentum_s),
+        ("بازگشت به میانگین (بولینگر)", mr),
+        ("شکست کانال (دانشین)", brk),
+        ("سوپرترند", st_dir),
+        ("جریان پول (CMF+VWAP)", flow),
+    ]
+    rows = []
+    curves: dict[str, list[float]] = {}
+    finals = []
+    for name, desired in defs:
+        r = _backtest(c, np.nan_to_num(desired))
+        curves[name] = r["equity"]
+        finals.append(r["signal"])
+        rows.append({
+            "ایجنت": name,
+            "سود بک‌تست %": r["pnl"],
+            "وین‌ریت %": r["winrate"],
+            "معاملات": r["trades"],
+            "PF": r["pf"],
+            "حداکثر افت %": r["maxdd"],
+            "سیگنال الان": "لانگ 🟢" if r["signal"] == 1 else "شورت 🔴" if r["signal"] == -1 else "خارج ⚪",
+        })
+    maxlen = max((len(v) for v in curves.values()), default=0)
+    combined = []
+    for i in range(maxlen):
+        vals = [v[min(i, len(v) - 1)] for v in curves.values() if v]
+        combined.append(round(float(np.mean(vals)), 3) if vals else 0.0)
+    consensus = int(round(float(np.mean(finals)) * 100)) if finals else 0
+    return pd.DataFrame(rows), combined, consensus, curves
+
+
+def edge_data(d: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, float, float]:
+    closes = d["close"].to_numpy(dtype=float)
+    xs, ys = [], []
+    for i in range(60, len(d) - 5, 2):
+        comp = (
+            _clamp((float(d["rsi"].iloc[i]) - 50) / 50) * 0.4
+            + _clamp((float(d["stoch_k"].iloc[i]) - 50) / 50) * 0.3
+            + _clamp(float(d["cci"].iloc[i]) / 200) * 0.3
+        )
+        xs.append(comp)
+        ys.append((closes[i + 5] - closes[i]) / closes[i] * 100)
+    x = np.array(xs)
+    y = np.array(ys)
+    if len(x) < 10:
+        return x, y, 0.0, 0.0
+    slope, intercept = np.polyfit(x, y, 1)
+    corr = float(np.corrcoef(x, y)[0, 1]) if np.std(x) > 0 and np.std(y) > 0 else 0.0
+    return x, y, float(slope), corr
+
+
+@st.cache_data(ttl=180, show_spinner=False)
+def fetch_fundamentals(base: str) -> dict | None:
+    try:
+        r = requests.get(
+            "https://api.coingecko.com/api/v3/coins/markets",
+            params={"vs_currency": "usd", "order": "market_cap_desc", "per_page": 250, "page": 1,
+                    "price_change_percentage": "7d,30d"},
+            headers={"User-Agent": "northmanquant-lite/1.0", "accept": "application/json"},
+            timeout=20,
+        )
+        r.raise_for_status()
+        for coin in r.json():
+            if str(coin.get("symbol", "")).upper() == base.upper():
+                return coin
+    except Exception:
+        return None
+    return None
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_fear_greed() -> dict | None:
+    try:
+        r = requests.get("https://api.alternative.me/fng/?limit=1", timeout=12, headers={"User-Agent": "northmanquant-lite/1.0"})
+        row = (r.json().get("data") or [{}])[0]
+        return {"value": int(row.get("value", 0)), "label": row.get("value_classification", "")}
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=90, show_spinner=False)
+def fetch_breadth() -> dict:
+    r = requests.get(f"{KUCOIN}/api/v1/market/allTickers", timeout=25, headers={"User-Agent": "northmanquant-lite/1.0"})
+    r.raise_for_status()
+    tickers = (r.json().get("data") or {}).get("ticker") or []
+    rows = [t for t in tickers if str(t.get("symbol", "")).endswith("-USDT") and float(t.get("volValue") or 0) >= 200_000]
+    total_turnover = sum(float(t.get("volValue") or 0) for t in tickers)
+    btc = next((t for t in tickers if t.get("symbol") == "BTC-USDT"), None)
+    changes = sorted(float(t.get("changeRate") or 0) * 100 for t in rows)
+    return {
+        "gainers": sum(1 for t in rows if float(t.get("changeRate") or 0) > 0.0005),
+        "losers": sum(1 for t in rows if float(t.get("changeRate") or 0) < -0.0005),
+        "total": len(rows),
+        "turnover": total_turnover,
+        "btc_share": (float(btc.get("volValue") or 0) / total_turnover * 100) if btc and total_turnover else 0.0,
+        "median_change": changes[len(changes) // 2] if changes else 0.0,
+    }
+
+
 # ------------------------------------------------------------------ image extraction (lite)
 
 def extract_candles_from_image(img: Image.Image, max_dim: int = 1400) -> pd.DataFrame:
@@ -787,7 +1220,7 @@ def main() -> None:
     with tab_live:
         try:
             df = fetch_candles(exchange, symbol, interval)
-            d = add_indicators(df)
+            d = add_more(add_indicators(df))
             score_series, comp_table = confluence(d)
             score = float(score_series.iloc[-1])
             levels = swing_levels(d)
@@ -811,6 +1244,17 @@ def main() -> None:
             else:
                 live_strip_manual(symbol, exchange, interval, dec)
 
+            st.markdown("**🧭 هم‌جهتی تایم‌فریم‌ها (MTF)**")
+            mtf_cols = st.columns(4)
+            for _col, _tf in zip(mtf_cols, ["15min", "1hour", "4hour", "1day"]):
+                try:
+                    _md = add_more(add_indicators(fetch_candles(exchange, symbol, _tf, 320)))
+                    _ms, _ = confluence(_md)
+                    _mv = float(_ms.iloc[-1])
+                    _col.metric(_tf, f"{_mv:+.0f}", delta="خرید" if _mv > 12 else "فروش" if _mv < -12 else "خنثی")
+                except Exception:
+                    _col.metric(_tf, "—")
+
             fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.78, 0.22],
                                 vertical_spacing=0.04, subplot_titles=(f"{symbol} · {interval}", "حجم"))
             fig.add_trace(go.Candlestick(x=d["dt"], open=d["open"], high=d["high"], low=d["low"], close=d["close"],
@@ -830,40 +1274,196 @@ def main() -> None:
                               legend=dict(orientation="h", y=1.02), margin=dict(l=10, r=10, t=40, b=10))
             st.plotly_chart(fig, use_container_width=True)
 
-            left, right = st.columns(2)
-            with left:
-                st.subheader("🎯 طرح معامله")
-                p1, p2, p3, p4 = st.columns(4)
-                p1.metric("جهت", plan["direction"])
-                p2.metric("ورود", f"{plan['entry']:,.{dec}f}")
-                p3.metric("حد ضرر", f"{plan['stop']:,.{dec}f}")
-                p4.metric("R:R / اطمینان", f"1:{plan['rr']} · {plan['confidence']}٪")
-                for i, (t_price, t_rr) in enumerate(plan["targets"]):
-                    st.write(f"هدف {i + 1}: **{t_price:,.{dec}f}** ({t_rr}R)")
-                st.subheader("🌀 کهکشان همگرایی (چرخان)")
-                st.markdown(build_galaxy_svg(comp_table, score), unsafe_allow_html=True)
-                st.dataframe(comp_table, use_container_width=True, hide_index=True)
-            with right:
-                st.subheader("🧱 حمایت و مقاومت (سوئینگ)")
-                if levels.empty:
-                    st.info("سطح معناداری پیدا نشد.")
+            sub_plan, sub_ind, sub_agents, sub_funda = st.tabs(
+                ["🎯 طرح و سطوح", "🧭 اندیکاتورها", "🤖 ایجنت‌ها و Edge", "💰 فاندامنتال"]
+            )
+            with sub_plan:
+                left, right = st.columns(2)
+                with left:
+                    st.subheader("🎯 طرح معامله")
+                    p1, p2, p3, p4 = st.columns(4)
+                    p1.metric("جهت", plan["direction"])
+                    p2.metric("ورود", f"{plan['entry']:,.{dec}f}")
+                    p3.metric("حد ضرر", f"{plan['stop']:,.{dec}f}")
+                    p4.metric("R:R / اطمینان", f"1:{plan['rr']} · {plan['confidence']}٪")
+                    for i, (t_price, t_rr) in enumerate(plan["targets"]):
+                        st.write(f"هدف {i + 1}: **{t_price:,.{dec}f}** ({t_rr}R)")
+                    st.subheader("🌀 کهکشان همگرایی (چرخان)")
+                    _html(build_galaxy_svg(comp_table, score))
+                    st.dataframe(comp_table, use_container_width=True, hide_index=True)
+                with right:
+                    st.subheader("🧱 حمایت و مقاومت (سوئینگ)")
+                    if levels.empty:
+                        st.info("سطح معناداری پیدا نشد.")
+                    else:
+                        show = levels.copy()
+                        show["سطح"] = show["سطح"].map(lambda v: f"{v:,.{dec}f}")
+                        st.dataframe(show, use_container_width=True, hide_index=True)
+                    st.subheader("📜 رویدادهای ورود/خروج همگرایی")
+                    if events.empty:
+                        st.info("در این بازه رویدادی ثبت نشده است.")
+                    else:
+                        ev_show = events.tail(10).iloc[::-1].copy()
+                        ev_show["PnL%"] = ev_show["PnL%"].apply(lambda v: "—" if v is None or (isinstance(v, float) and np.isnan(v)) else v)
+                        st.dataframe(ev_show, use_container_width=True, hide_index=True)
+
+                st.subheader("⚓ پیوت‌ها (بر اساس کندل قبلی)")
+                piv = pivot_points(d.iloc[-2])
+                pv_cols = st.columns(3)
+                for _col, (_name, _vals) in zip(pv_cols, piv.items()):
+                    with _col:
+                        st.markdown(f"**پیوت {_name}**")
+                        _pdf = pd.DataFrame(
+                            [{"سطح": k, "قیمت": round(v, dec)} for k, v in _vals.items()]
+                        )
+                        st.dataframe(_pdf, use_container_width=True, hide_index=True)
+
+                fb_col, vp_col = st.columns(2)
+                with fb_col:
+                    st.subheader("🌀 فیبوناچی اصلاحی (۱۵۰ کندل)")
+                    st.dataframe(fib_retracement(d), use_container_width=True, hide_index=True)
+                with vp_col:
+                    st.subheader("📊 پروفایل حجم (POC)")
+                    try:
+                        _vp, _poc, _vah, _val = volume_profile(d)
+                        vm1, vm2, vm3 = st.columns(3)
+                        vm1.metric("POC", f"{_poc:,.{dec}f}")
+                        vm2.metric("VAH", f"{_vah:,.{dec}f}")
+                        vm3.metric("VAL", f"{_val:,.{dec}f}")
+                        _vfig = go.Figure()
+                        _vfig.add_trace(go.Bar(y=_vp["price"], x=_vp["buy"], orientation="h", marker_color="#22c55e", name="خرید"))
+                        _vfig.add_trace(go.Bar(y=_vp["price"], x=-_vp["sell"], orientation="h", marker_color="#f43f5e", name="فروش"))
+                        _vfig.add_hline(y=_poc, line_color="#f59e0b", line_width=2)
+                        _vfig.update_layout(height=280, barmode="relative", template="plotly_dark",
+                                            margin=dict(l=10, r=10, t=10, b=10), legend=dict(orientation="h", y=1.08))
+                        st.plotly_chart(_vfig, use_container_width=True)
+                    except Exception:
+                        st.info("پروفایل حجم قابل محاسبه نیست.")
+
+                st.subheader("📈 روند امتیاز همگرایی")
+                _tail_n = min(120, len(score_series))
+                _sfig = go.Figure()
+                _sfig.add_trace(go.Scatter(x=d["dt"].tail(_tail_n), y=score_series.tail(_tail_n),
+                                           line=dict(color="#38bdf8", width=1.6), name="امتیاز همگرایی"))
+                _sfig.add_hline(y=40, line_color="#22c55e", line_dash="dot")
+                _sfig.add_hline(y=-10, line_color="#f59e0b", line_dash="dot")
+                _sfig.add_hline(y=-40, line_color="#ef4444", line_dash="dot")
+                _sfig.update_layout(height=190, template="plotly_dark", yaxis=dict(range=[-100, 100]),
+                                    margin=dict(l=10, r=10, t=10, b=10), showlegend=False)
+                st.plotly_chart(_sfig, use_container_width=True)
+                st.caption("داده: API عمومی صرافی (کش ۶۰ ثانیه). این ابزار توصیه‌ی سرمایه‌گذاری نیست.")
+
+            with sub_ind:
+                osc_df = oscillator_table(d)
+                ma_df = ma_table(d)
+                _buy = int((osc_df["سیگنال"].str.contains("خرید") | ma_df["سیگنال"].str.contains("خرید")).sum()) if not ma_df.empty else int(osc_df["سیگنال"].str.contains("خرید").sum())
+                _sell = int((osc_df["سیگنال"].str.contains("فروش") | ma_df["سیگنال"].str.contains("فروش")).sum()) if not ma_df.empty else int(osc_df["سیگنال"].str.contains("فروش").sum())
+                _total = len(osc_df) + len(ma_df)
+                _neu = _total - _buy - _sell
+                _score2 = round((_buy - _sell) / _total * 100) if _total else 0
+                st.subheader("🧭 جمع‌بندی تکنیکال (مثل TradingView)")
+                sm1, sm2, sm3, sm4 = st.columns(4)
+                sm1.metric("امتیاز جمع‌بندی", f"{_score2:+d}", delta="خرید قوی" if _score2 > 40 else "خرید" if _score2 > 12 else "خنثی" if _score2 > -12 else "فروش" if _score2 > -40 else "فروش قوی")
+                sm2.metric("🟢 خرید", _buy)
+                sm3.metric("⚪ خنثی", _neu)
+                sm4.metric("🔴 فروش", _sell)
+                st.progress(min(1.0, max(0.0, (_score2 + 100) / 200)))
+                oc, mc = st.columns(2)
+                with oc:
+                    st.markdown("**اسیلاتورها**")
+                    st.dataframe(osc_df, use_container_width=True, hide_index=True)
+                with mc:
+                    st.markdown("**میانگین‌های متحرک**")
+                    st.dataframe(ma_df, use_container_width=True, hide_index=True)
+                pc, dc = st.columns(2)
+                with pc:
+                    st.markdown("**الگوهای کندلی اخیر**")
+                    _pats = candle_patterns(d)
+                    if _pats:
+                        st.dataframe(pd.DataFrame(_pats), use_container_width=True, hide_index=True)
+                    else:
+                        st.info("الگوی مشخصی در کندل‌های اخیر نیست.")
+                with dc:
+                    st.markdown("**واگرایی‌ها (RSI / MACD)**")
+                    _divs = divergence_list(d)
+                    if _divs:
+                        st.dataframe(pd.DataFrame(_divs), use_container_width=True, hide_index=True)
+                    else:
+                        st.info("واگرایی معناداری نیست.")
+
+            with sub_agents:
+                st.subheader("🤖 شش ایجنت استراتژی — بک‌تست روی همین داده (با کارمزد)")
+                try:
+                    _stats, _combined, _consensus, _curves = run_agents(d)
+                    ag1, ag2, ag3 = st.columns(3)
+                    ag1.metric("اجماع ایجنت‌ها", f"{_consensus:+d}")
+                    ag2.metric("سود میانگین", f"{_stats['سود بک‌تست %'].mean():+.2f}٪")
+                    ag3.metric("ایجنت فعال الان", f"{int(_stats['سیگنال الان'].str.contains('لانگ|شورت').sum())}/6")
+                    st.dataframe(_stats, use_container_width=True, hide_index=True)
+                    _efig = go.Figure()
+                    _efig.add_trace(go.Scatter(y=_combined, line=dict(color="#34d399", width=1.8), name="سود تجمیعی (میانگین)"))
+                    _efig.add_hline(y=0, line_color="#64748b", line_dash="dot")
+                    _efig.update_layout(height=220, template="plotly_dark", margin=dict(l=10, r=10, t=24, b=10),
+                                        title="منحنی سود تجمیعی ایجنت‌ها (%)")
+                    st.plotly_chart(_efig, use_container_width=True)
+                except Exception:
+                    st.info("بک‌تست ایجنت‌ها روی این داده ممکن نشد.")
+                st.subheader("🎯 ماتریس لبه (Edge) — امتیاز اسیلاتور در برابر بازده ۵ کندل بعد")
+                try:
+                    _xs, _ys, _slope, _corr = edge_data(d)
+                    if len(_xs) >= 10:
+                        _colors = ["#22c55e" if y > 0 else "#f43f5e" for y in _ys]
+                        _xline = np.array([-1.0, 1.0])
+                        _yline = _slope * _xline + float(np.mean(_ys) - _slope * np.mean(_xs))
+                        _efig2 = go.Figure()
+                        _efig2.add_trace(go.Scatter(x=_xs, y=_ys, mode="markers", marker=dict(color=_colors, size=5, opacity=0.6), name="نمونه‌ها"))
+                        _efig2.add_trace(go.Scatter(x=_xline, y=_yline, line=dict(color="#facc15", dash="dash"), name="رگرسیون"))
+                        _efig2.update_layout(height=300, template="plotly_dark", margin=dict(l=10, r=10, t=24, b=10),
+                                             xaxis_title="امتیاز اسیلاتور", yaxis_title="بازده ۵ کندل بعد %")
+                        st.plotly_chart(_efig2, use_container_width=True)
+                        st.caption(f"شیب رگرسیون: {_slope:.2f} · همبستگی: {_corr:.2f} · {'لبه‌ی مثبت (مومنتوم)' if _corr > 0.05 else 'لبه‌ی معکوس (بازگشت)' if _corr < -0.05 else 'لبه‌ی معنادار نیست'}")
+                    else:
+                        st.info("نمونه‌ی کافی برای ماتریس لبه نیست.")
+                except Exception:
+                    st.info("ماتریس لبه قابل محاسبه نیست.")
+
+            with sub_funda:
+                st.subheader("💰 فاندامنتال (CoinGecko)")
+                _base = symbol.split("-")[0]
+                _fund = fetch_fundamentals(_base)
+                if not _fund:
+                    st.info("داده‌ی فاندامنتال برای این نماد پیدا نشد (فقط رمزارزهای شناخته‌شده).")
                 else:
-                    show = levels.copy()
-                    show["سطح"] = show["سطح"].map(lambda v: f"{v:,.{dec}f}")
-                    st.dataframe(show, use_container_width=True, hide_index=True)
-                st.subheader("📜 رویدادهای ورود/خروج همگرایی")
-                if events.empty:
-                    st.info("در این بازه رویدادی ثبت نشده است.")
-                else:
-                    st.dataframe(events.tail(10).iloc[::-1], use_container_width=True, hide_index=True)
-            st.line_chart(score_series.tail(120), height=140)
-            st.caption("نمودار بالا: روند امتیاز همگرایی ۱۲۰ کندل اخیر. داده: API عمومی صرافی (کش ۶۰ ثانیه). این ابزار توصیه‌ی سرمایه‌گذاری نیست.")
+                    def _cmp(v: float) -> str:
+                        a = abs(float(v))
+                        return f"${a/1e12:.2f}T" if a >= 1e12 else f"${a/1e9:.2f}B" if a >= 1e9 else f"${a/1e6:.2f}M" if a >= 1e6 else f"${a:,.0f}"
+                    f1, f2, f3, f4 = st.columns(4)
+                    f1.metric("رتبه بازار", f"#{_fund.get('market_cap_rank', '—')}")
+                    f2.metric("ارزش بازار", _cmp(_fund.get("market_cap", 0)))
+                    f3.metric("حجم ۲۴س", _cmp(_fund.get("total_volume", 0)))
+                    f4.metric("سقف تاریخی ATH", f"{float(_fund.get('ath', 0)):,.4g} ({float(_fund.get('ath_change_percentage', 0)):.1f}٪)")
+                    f5, f6, f7, f8 = st.columns(4)
+                    f5.metric("عرضه در گردش", f"{float(_fund.get('circulating_supply', 0)):,.0f}")
+                    f6.metric("تغییر ۲۴س", f"{float(_fund.get('price_change_percentage_24h') or 0):+.2f}٪")
+                    f7.metric("تغییر ۷ روز", f"{float((_fund.get('price_change_percentage_7d_in_currency') or 0)):+.2f}٪")
+                    f8.metric("تغییر ۳۰ روز", f"{float((_fund.get('price_change_percentage_30d_in_currency') or 0)):+.2f}٪")
+                    st.caption("منبع: CoinGecko (رایگان، کش ۳ دقیقه).")
         except Exception as e:  # noqa: BLE001
             st.error(f"خطا در دریافت/تحلیل داده: {e}")
             st.info("نماد را مثل BTC-USDT بنویس؛ اگر صرافی انتخابی در منطقه‌ات مسدود است، KuCoin را انتخاب کن.")
 
     with tab_top:
         try:
+            try:
+                _fg = fetch_fear_greed()
+                _br = fetch_breadth()
+                b1, b2, b3, b4 = st.columns(4)
+                b1.metric("شاخص ترس و طمع", f"{_fg['value']} · {_fg['label']}" if _fg else "—")
+                b2.metric("وسعت بازار (صعودی)", f"{round(_br['gainers'] / max(1, _br['total']) * 100)}٪ از {_br['total']} بازار")
+                b3.metric("تغییر میانه بازار", f"{_br['median_change']:+.2f}٪")
+                b4.metric("سهم BTC از حجم", f"{_br['btc_share']:.1f}٪")
+            except Exception:
+                pass
             tops = fetch_top_coins()
             g, l, v = st.columns(3)
             with g:

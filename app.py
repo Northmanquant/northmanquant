@@ -39,7 +39,6 @@ KUCOIN_TF = {"15min": "15min", "1hour": "1hour", "4hour": "4hour", "1day": "1day
 BINANCE_TF = {"15min": "15m", "1hour": "1h", "4hour": "4h", "1day": "1d", "1week": "1w"}
 BYBIT_TF = {"15min": "15", "1hour": "60", "4hour": "240", "1day": "D", "1week": "W"}
 OKX_TF = {"15min": "15m", "1hour": "1H", "4hour": "4H", "1day": "1D", "1week": "1W"}
-# Lighter candlestick resolutions (see apidocs.lighter.xyz/reference/candles)
 LIGHTER_TF = {"15min": "15m", "1hour": "1h", "4hour": "4h", "1day": "1d", "1week": "1w"}
 
 EXCHANGES = ["KuCoin", "OKX", "Binance", "Bybit", "Lighter"]
@@ -54,6 +53,16 @@ EXCHANGE_DOCS = {
 
 ENTER = 40
 EXIT = -10
+
+# Whitelist of common perp/spot pairs across all exchanges — for the one-tap
+# "analyse a symbol" feature.
+QUICK_SYMBOLS = [
+    "BTC-USDT", "ETH-USDT", "SOL-USDT", "BNB-USDT", "XRP-USDT",
+    "DOGE-USDT", "TON-USDT", "ADA-USDT", "AVAX-USDT", "LINK-USDT",
+    "LTC-USDT", "TRX-USDT", "ATOM-USDT", "NEAR-USDT", "APT-USDT",
+    # Lighter perps (no -USDT suffix needed)
+    "BTC", "ETH", "SOL",
+]
 
 
 # ------------------------------------------------------------------ live layer
@@ -206,8 +215,8 @@ def build_galaxy_svg(comp_table: pd.DataFrame, score: float) -> str:
 def _live_strip_impl(symbol: str, exchange: str, interval: str, dec: int, extra: dict | None = None) -> None:
     """
     Live ticker strip — built with Streamlit native widgets so it re-renders
-    safely inside `st.fragment` (raw HTML inside fragments is escaped, which
-    is what made <b>+25</b> show up as plain text).
+    safely inside `st.fragment`. (Raw HTML inside fragments is escaped, which
+    is what made the previous version crash with ValueError.)
     """
     import time as _t
 
@@ -239,8 +248,8 @@ def _live_strip_impl(symbol: str, exchange: str, interval: str, dec: int, extra:
 
     with cols[0]:
         st.markdown(
-            f"<span style='color:#a5f3fc;font-size:11px;font-weight:700'>"
-            f"<span class='nq-live-dot'></span> LIVE · زنده</span>",
+            "<span style='color:#a5f3fc;font-size:11px;font-weight:700'>"
+            "<span class='nq-live-dot'></span> LIVE · زنده</span>",
             unsafe_allow_html=True,
         )
         price_txt = f"{price:,.{dec}f}" if price is not None else "—"
@@ -267,8 +276,8 @@ def _live_strip_impl(symbol: str, exchange: str, interval: str, dec: int, extra:
         if score is not None:
             tone = "#34d399" if score >= 0 else "#fb7185"
             st.markdown(
-                f"<div style='font-size:11px;color:#94a3b8;font-family:ui-monospace,monospace'>"
-                f"امتیاز همگرایی</div>"
+                "<div style='font-size:11px;color:#94a3b8;font-family:ui-monospace,monospace'>"
+                "امتیاز همگرایی</div>"
                 f"<div style='font-size:22px;font-weight:800;color:{tone};"
                 f"font-family:ui-monospace,monospace;line-height:1.1'>{score:+.0f}</div>",
                 unsafe_allow_html=True,
@@ -281,7 +290,7 @@ def _live_strip_impl(symbol: str, exchange: str, interval: str, dec: int, extra:
             label = "🟢 لانگ" if state["status"] == "long" else "🔴 شورت"
             tone = "#34d399" if pnl >= 0 else "#fb7185"
             st.markdown(
-                f"<div style='font-size:11px;color:#94a3b8'>پوزیشن فعال</div>"
+                "<div style='font-size:11px;color:#94a3b8'>پوزیشن فعال</div>"
                 f"<div style='font-size:12px;font-weight:700'>{label}</div>"
                 f"<div style='font-size:18px;font-weight:800;color:{tone};"
                 f"font-family:ui-monospace,monospace;line-height:1.1'>{pnl:+.2f}%</div>",
@@ -300,13 +309,13 @@ def _live_strip_impl(symbol: str, exchange: str, interval: str, dec: int, extra:
             parts = []
             if extra.get("mark"):
                 parts.append(
-                    f"<div style='font-size:11px;color:#94a3b8'>Mark "
+                    "<div style='font-size:11px;color:#94a3b8'>Mark "
                     f"<b style='color:#a5b4fc;font-family:ui-monospace,monospace'>"
                     f"{extra['mark']:,.{dec}f}</b></div>"
                 )
             if extra.get("open_interest") is not None:
                 parts.append(
-                    f"<div style='font-size:11px;color:#94a3b8'>OI "
+                    "<div style='font-size:11px;color:#94a3b8'>OI "
                     f"<b style='color:#fbbf24;font-family:ui-monospace,monospace'>"
                     f"{extra['open_interest']:,.2f}</b></div>"
                 )
@@ -907,7 +916,12 @@ def make_plan(d: pd.DataFrame, score: float, levels: pd.DataFrame) -> dict:
 # ------------------------------------------------------------------ image extraction (lite)
 
 def extract_candles_from_image(img: Image.Image, max_dim: int = 1400) -> pd.DataFrame:
-    """Extract normalized candles (0..100) from a chart screenshot by candle colors."""
+    """Extract candles from a chart screenshot.
+
+    Two-stage detector:
+      1) build a 1D "column activity" signal of long vertical colour runs
+      2) light-merge only the 1-2 pixel bridges caused by wicks / anti-aliasing
+    """
     im = img.convert("RGB")
     scale = min(1.0, max_dim / max(im.width, im.height))
     if scale < 1:
@@ -924,10 +938,8 @@ def extract_candles_from_image(img: Image.Image, max_dim: int = 1400) -> pd.Data
     mask = ((green | blue) | red) & (sat >= 15) & (mn <= 238)
     bull_mask = green | blue
 
-    # A candle makes a long vertical run of colour in its column; a moving
-    # average or grid line only leaves 1-2 pixels per column. Requiring a
-    # minimum run keeps EMAs from merging every candle into one cluster.
-    MIN_RUN = 4
+    # ---------- stage 1: column activity (long vertical colour runs) ----------
+    MIN_RUN = max(4, int(h * 0.008))  # 0.8% of chart height — strips wicks/EMA
     col_on = np.zeros(w, dtype=bool)
     for x in range(w):
         run = 0
@@ -937,22 +949,43 @@ def extract_candles_from_image(img: Image.Image, max_dim: int = 1400) -> pd.Data
                 col_on[x] = True
                 break
 
-    clusters: list[tuple[int, int]] = []
+    # ---------- stage 2: light merge of micro-clusters only ----------
+    raw_clusters: list[tuple[int, int]] = []
     x = 0
     while x < w:
         if col_on[x]:
             x0 = x
             while x < w and col_on[x]:
                 x += 1
-            clusters.append((x0, x - 1))
+            raw_clusters.append((x0, x - 1))
         else:
             x += 1
-    max_width = max(40, int(w * 0.25))
-    clusters = [c for c in clusters if 1 <= c[1] - c[0] + 1 <= max_width]
+
+    if not raw_clusters:
+        return pd.DataFrame()
+
+    MAX_BRIDGE = 2  # px — only merge pixel-noise bridges
+    clusters: list[tuple[int, int]] = []
+    cur = list(raw_clusters[0])
+    for i in range(1, len(raw_clusters)):
+        nxt = raw_clusters[i]
+        gap = nxt[0] - cur[1] - 1
+        if gap <= MAX_BRIDGE:
+            cur[1] = nxt[1]
+        else:
+            clusters.append((cur[0], cur[1]))
+            cur = list(nxt)
+    clusters.append((cur[0], cur[1]))
+
+    # Drop any cluster wider than 5% of image width — those are EMAs /
+    # shaded regions, not single candles.
+    max_width = max(6, int(w * 0.05))
+    clusters = [(a, b) for a, b in clusters if 1 <= b - a + 1 <= max_width]
+
     if len(clusters) < 8:
         return pd.DataFrame()
 
-    tops, bots = [], []
+    # ---------- per-cluster candle geometry ----------
     raw = []
     for (x0, x1) in clusters:
         sub = mask[:, x0: x1 + 1]
@@ -960,19 +993,25 @@ def extract_candles_from_image(img: Image.Image, max_dim: int = 1400) -> pd.Data
         if len(ys) == 0:
             continue
         top, bot = int(ys.min()), int(ys.max())
+
         row_counts = sub.sum(axis=1)
-        wide = np.where(row_counts >= max(1.0, row_counts.max() * 0.55))[0]
-        b_top, b_bot = (int(wide.min()), int(wide.max())) if len(wide) else (top, bot)
-        region = sub[top:bot + 1]
-        bull_px = bull_mask[top:bot + 1, x0:x1 + 1].sum()
-        red_px = (region & (~bull_mask[top:bot + 1, x0:x1 + 1])).sum()
-        bull = bull_px >= red_px
+        max_count = row_counts.max()
+        if max_count == 0:
+            continue
+        wide = np.where(row_counts >= max(2, max_count * 0.55))[0]
+        if len(wide) == 0:
+            wide = ys
+        b_top, b_bot = int(wide.min()), int(wide.max())
+
+        red_px = red[top: bot + 1, x0: x1 + 1].sum()
+        green_px = (green | blue)[top: bot + 1, x0: x1 + 1].sum()
+        bull = green_px >= red_px
+
         raw.append({"x": (x0 + x1) / 2 / w, "top": top, "bot": bot, "b_top": b_top, "b_bot": b_bot, "bull": bool(bull)})
-        tops.append(top)
-        bots.append(bot)
+
     if len(raw) < 8:
         return pd.DataFrame()
-    span_top, span_bot = min(tops), max(bots)
+    span_top, span_bot = min(r["top"] for r in raw), max(r["bot"] for r in raw)
     span = max(1, span_bot - span_top)
 
     def to_price(y: float) -> float:
@@ -990,11 +1029,86 @@ def extract_candles_from_image(img: Image.Image, max_dim: int = 1400) -> pd.Data
     return pd.DataFrame(rows)
 
 
+# ------------------------------------------------------------------ helpers
+
+def build_chart_image(d: pd.DataFrame, plan: dict, levels: pd.DataFrame, symbol: str, exchange: str) -> "PIL.Image.Image":
+    """Render a simple annotated candlestick chart as a PNG (matplotlib-free)."""
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.78, 0.22],
+                        vertical_spacing=0.04, subplot_titles=(f"{symbol} · {exchange}", "حجم"))
+    fig.add_trace(go.Candlestick(
+        x=d["dt"], open=d["open"], high=d["high"], low=d["low"], close=d["close"],
+        increasing_line_color="#22c55e", decreasing_line_color="#ef4444", name="قیمت",
+    ), row=1, col=1)
+    fig.add_trace(go.Scatter(x=d["dt"], y=d["ema20"], line=dict(color="#38bdf8", width=1.2), name="EMA20"), row=1, col=1)
+    fig.add_trace(go.Scatter(x=d["dt"], y=d["ema50"], line=dict(color="#f472b6", width=1.2), name="EMA50"), row=1, col=1)
+    fig.add_trace(go.Scatter(x=d["dt"], y=d["bb_up"], line=dict(color="#94a3b8", width=0.8, dash="dot"), name="BB↑"), row=1, col=1)
+    fig.add_trace(go.Scatter(x=d["dt"], y=d["bb_lo"], line=dict(color="#94a3b8", width=0.8, dash="dot"), name="BB↓"), row=1, col=1)
+    fig.add_hline(y=plan["entry"], line_color="#f59e0b", line_width=2, annotation_text="ورود", row=1, col=1)
+    fig.add_hline(y=plan["stop"], line_color="#ef4444", line_dash="dash", annotation_text="حد ضرر", row=1, col=1)
+    for i, (t_price, t_rr) in enumerate(plan["targets"]):
+        fig.add_hline(y=t_price, line_color="#38bdf8", line_dash="dash",
+                      annotation_text=f"هدف {i + 1} · {t_rr}R", row=1, col=1)
+    if not levels.empty:
+        for _, row in levels.iterrows():
+            colour = "#fb7185" if "مقاومت" in str(row["نوع"]) else "#22c55e"
+            fig.add_hline(y=float(row["سطح"]), line=dict(color=colour, width=0.8, dash="dot"),
+                          annotation_text=f"{row['نوع']} {float(row['سطح']):,.2f}",
+                          annotation_position="right", row=1, col=1)
+    colors = ["#22c55e" if c >= o else "#ef4444" for c, o in zip(d["close"], d["open"])]
+    fig.add_trace(go.Bar(x=d["dt"], y=d["volume"], marker_color=colors, name="حجم"), row=2, col=1)
+    fig.update_layout(
+        height=620, xaxis_rangeslider_visible=False, template="plotly_dark",
+        legend=dict(orientation="h", y=1.02),
+        margin=dict(l=10, r=10, t=40, b=10),
+        paper_bgcolor="#0b1220", plot_bgcolor="#0b1220",
+    )
+
+    try:
+        png_bytes = fig.to_image(format="png", width=1200, height=620, scale=2)
+        return Image.open(io.BytesIO(png_bytes))
+    except Exception:
+        return None
+
+
+# ------------------------------------------------------------------ one-tap analysis
+
+def analyse_symbol(symbol_in: str, exchange: str, interval: str) -> dict:
+    """Top-level orchestration: candles → indicators → levels → plan → chart PNG."""
+    symbol = normalize_symbol(symbol_in, exchange)
+    df = fetch_candles(exchange, symbol, interval)
+    d = add_indicators(df)
+    score_series, comp_table = confluence(d)
+    score = float(score_series.iloc[-1])
+    levels = swing_levels(d)
+    plan = make_plan(d, score, levels)
+    events, state = signal_events(d, score_series)
+    price = float(d["close"].iloc[-1])
+    return {
+        "symbol": symbol,
+        "exchange": exchange,
+        "interval": interval,
+        "price": price,
+        "decimals": 2 if price >= 1000 else 4 if price >= 1 else 6,
+        "score": score,
+        "comp_table": comp_table,
+        "levels": levels,
+        "plan": plan,
+        "events": events,
+        "state": state,
+        "score_series": score_series,
+        "df": d,
+    }
+
+
 # ------------------------------------------------------------------ UI
 
 def main() -> None:
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
+    import io
 
     st.set_page_config(page_title="NorthmanQuant — نسخه رایگان", page_icon="📈", layout="wide")
     st.markdown(
@@ -1012,7 +1126,41 @@ def main() -> None:
         live_on = st.checkbox("🔴 حالت زنده (قیمت هر ۵ ثانیه)", value=True)
         auto = st.checkbox("بازخوانی کامل خودکار (۶۰ ثانیه)", value=False)
 
-    symbol = normalize_symbol(symbol_in, exchange)
+        st.divider()
+        st.subheader("⚡ تحلیل خودکار")
+        st.caption("نماد + صرافی + تایم‌فریم را انتخاب کن و دکمه را بزن.")
+        quick = st.selectbox(
+            "یا از این لیست سریع انتخاب کن",
+            options=["(انتخاب دستی)"] + QUICK_SYMBOLS,
+            index=0,
+        )
+        if quick != "(انتخاب دستی)":
+            st.session_state["quick_symbol"] = quick
+        if "quick_symbol" in st.session_state and st.session_state.get("quick_symbol") and st.button("🚀 تحلیل کن", type="primary", use_container_width=True):
+            qsym = st.session_state["quick_symbol"]
+            qex = "Lighter" if not qsym.endswith("-USDT") else "KuCoin"
+            qint = "1hour"
+            st.session_state["auto_analyse"] = {
+                "symbol": qsym,
+                "exchange": qex,
+                "interval": qint,
+            }
+            st.session_state["active_tab"] = "tab_analyser"
+            try:
+                st.rerun()
+            except Exception:
+                pass
+
+    # Honour the auto-analyse jump
+    if st.session_state.get("auto_analyse"):
+        symbol = st.session_state["auto_analyse"]["symbol"]
+        exchange = st.session_state["auto_analyse"]["exchange"]
+        interval = st.session_state["auto_analyse"]["interval"]
+        st.session_state["active_tab"] = "tab_analyser"
+    else:
+        symbol = normalize_symbol(symbol_in, exchange)
+        interval = interval
+
     st.markdown(LIVE_CSS, unsafe_allow_html=True)
 
     # market ticker (spot for CEXes, perps for Lighter)
@@ -1032,10 +1180,110 @@ def main() -> None:
     except Exception:
         pass
 
-    tab_live, tab_top, tab_news, tab_img, tab_docs = st.tabs(
-        ["📊 تحلیل زنده", "🏆 برترین‌ها", "📰 اخبار", "📷 تحلیل عکس", "📚 منابع داده"]
-    )
+    tabs_list = [
+        "🚀 تحلیل خودکار",
+        "📊 تحلیل زنده",
+        "🏆 برترین‌ها",
+        "📰 اخبار",
+        "📷 تحلیل عکس",
+        "📚 منابع داده",
+    ]
+    active = tabs_list.index("🚀 تحلیل خودکار") if st.session_state.get("active_tab") == "tab_analyser" else 1
+    tab_analyser, tab_live, tab_top, tab_news, tab_img, tab_docs = st.tabs(tabs_list)
+    st.session_state.pop("active_tab", None)
+    st.session_state.pop("auto_analyse", None)
 
+    # ============================================================== 🚀 Auto
+    with tab_analyser:
+        st.markdown(
+            f"<div dir='rtl' style='margin:0 0 10px'><b>تحلیل خودکار</b> · "
+            f"<span style='color:#94a3b8'>{symbol} روی {exchange} ({interval})</span></div>",
+            unsafe_allow_html=True,
+        )
+
+        run = st.button("🚀 اجرای تحلیل کامل", type="primary", use_container_width=True)
+        if run or st.session_state.get("auto_run"):
+            st.session_state["auto_run"] = True
+            with st.spinner(f"در حال دریافت داده از {exchange} و تحلیل {symbol}…"):
+                try:
+                    res = analyse_symbol(symbol, exchange, interval)
+                except Exception as e:
+                    st.error(f"خطا: {e}")
+                    st.info("صرافی دیگری را امتحان کنید یا نماد را به شکل صحیح وارد کنید (مثل BTC-USDT).")
+                    res = None
+
+            if res:
+                dec = res["decimals"]
+                price = res["price"]
+                score = res["score"]
+                plan = res["plan"]
+                levels = res["levels"]
+                d = res["df"]
+
+                c1, c2, c3, c4, c5 = st.columns(5)
+                label = (
+                    "خرید قوی" if score > 40 else "خرید" if score > 12 else
+                    "خنثی" if score > -12 else "فروش" if score > -40 else "فروش قوی"
+                )
+                c1.metric("قیمت لحظه‌ای", f"{price:,.{dec}f}", f"{res['symbol']} · {res['exchange']}")
+                c2.metric("امتیاز همگرایی", f"{score:+.0f}", label)
+                c3.metric("ATR", f"{plan['atr']:,.{dec}f}")
+                c4.metric("R:R / اطمینان", f"1:{plan['rr']}", f"{plan['confidence']}٪")
+                c5.metric(
+                    "سیگنال",
+                    plan["direction"],
+                    "ورود" if plan["direction"].startswith("لانگ") else "خروج/شورت",
+                )
+
+                st.markdown("#### 🎯 طرح معامله")
+                p1, p2, p3, p4, p5 = st.columns(5)
+                p1.metric("جهت", plan["direction"])
+                p2.metric("ورود", f"{plan['entry']:,.{dec}f}")
+                p3.metric("حد ضرر", f"{plan['stop']:,.{dec}f}")
+                p4.metric("هدف ۱", f"{plan['targets'][0][0]:,.{dec}f}", f"1:{plan['targets'][0][1]}R")
+                p5.metric("هدف ۲", f"{plan['targets'][1][0]:,.{dec}f}", f"1:{plan['targets'][1][1]}R")
+
+                st.markdown("#### 📈 نمودار تحلیلی")
+                chart_img = build_chart_image(d, plan, levels, res["symbol"], res["exchange"])
+                if chart_img is not None:
+                    st.image(chart_img, caption=f"{res['symbol']} · {res['interval']} — خطوط ورود/حد ضرر/اهداف/حمایت و مقاومت رسم شده", use_container_width=True)
+                    buf = io.BytesIO()
+                    chart_img.save(buf, format="PNG")
+                    st.download_button(
+                        "⬇️ دانلود نمودار (PNG)",
+                        data=buf.getvalue(),
+                        file_name=f"{res['symbol'].replace('-', '')}_analysis.png",
+                        mime="image/png",
+                    )
+                else:
+                    st.caption("⚠️ برای دریافت خروجی PNG، پکیج `kaleido` روی Streamlit Cloud نصب نیست — "
+                               "نمودار زنده در تب «تحلیل زنده» همان اطلاعات را تعاملی نشان می‌دهد.")
+
+                st.markdown("#### 🧱 سطوح کلیدی")
+                if not levels.empty:
+                    show = levels.copy()
+                    show["سطح"] = show["سطح"].map(lambda v: f"{v:,.{dec}f}")
+                    st.dataframe(show, use_container_width=True, hide_index=True)
+                else:
+                    st.info("سطح معناداری پیدا نشد — تایم‌فریم را تغییر دهید.")
+
+                st.markdown("#### 🌀 اجزای همگرایی")
+                left, right = st.columns(2)
+                with left:
+                    st.markdown(build_galaxy_svg(res["comp_table"], score), unsafe_allow_html=True)
+                with right:
+                    st.dataframe(res["comp_table"], use_container_width=True, hide_index=True)
+
+                if not res["events"].empty:
+                    st.markdown("#### 📜 سیگنال‌های اخیر (۱۰ کندل آخر)")
+                    st.dataframe(res["events"].tail(10).iloc[::-1], use_container_width=True, hide_index=True)
+
+                st.markdown("#### 📊 روند امتیاز همگرایی (۱۲۰ کندل اخیر)")
+                st.line_chart(res["score_series"].tail(120), height=160)
+
+                st.caption("این تحلیل بر اساس داده‌ی زنده‌ی صرافی و ۹ اندیکاتور وزن‌دار است. صرفاً آموزشی است و توصیه‌ی سرمایه‌گذاری نیست.")
+
+    # ============================================================== 📊 Live
     with tab_live:
         try:
             df = fetch_candles(exchange, symbol, interval)
@@ -1056,7 +1304,6 @@ def main() -> None:
             state_txt = "خارج از بازار" if state["status"] == "flat" else f"{'لانگ 🟢' if state['status'] == 'long' else 'شورت 🔴'} از {state['entry']:,.{dec}f} · PnL {state['live_pnl']}%"
             c4.metric("سیگنال همگرایی", state_txt)
 
-            # Lighter-only extras (real fields from orderBookDetails)
             lighter_extra = None
             if exchange == "Lighter":
                 try:
@@ -1124,7 +1371,7 @@ def main() -> None:
                     st.dataframe(events.tail(10).iloc[::-1], use_container_width=True, hide_index=True)
             st.line_chart(score_series.tail(120), height=140)
             st.caption("نمودار بالا: روند امتیاز همگرایی ۱۲۰ کندل اخیر. داده: API عمومی صرافی (کش ۶۰ ثانیه). این ابزار توصیه‌ی سرمایه‌گذاری نیست.")
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             st.error(f"خطا در دریافت/تحلیل داده: {e}")
             st.info("نماد را مثل BTC-USDT بنویس؛ اگر صرافی انتخابی در منطقه‌ات مسدود است، KuCoin یا OKX یا Lighter را انتخاب کن.")
 
@@ -1142,7 +1389,7 @@ def main() -> None:
                 st.subheader("💧 بیشترین حجم")
                 st.dataframe(tops["volume"], use_container_width=True, hide_index=True)
             st.caption(f"منبع: {exchange} — {EXCHANGE_DOCS[exchange]}")
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             st.error(f"دریافت فهرست بازار ممکن نشد: {e}")
 
     with tab_news:
@@ -1153,7 +1400,7 @@ def main() -> None:
             else:
                 for _, row in news.iterrows():
                     st.markdown(f"**[{row['title']}]({row['link']})**  \n{row['source']} · {row['sentiment']} · {row['date']}")
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             st.error(f"دریافت اخبار ممکن نشد: {e}")
 
     with tab_img:
@@ -1169,12 +1416,12 @@ def main() -> None:
                 else:
                     full = add_indicators(cdf.assign(volume=0.0, dt=pd.RangeIndex(len(cdf))))
                     lv = swing_levels(full.assign(atr=pd.Series([1.5] * len(full))))
-                    st.success(f"{len(cdf)} کندل استخراج شد.")
+                    st.success(f"{len(cdf)} کندل استخراج شد. برای دقت بیشتر عکس با کیفیت بالاتر و کندل‌های واضح‌تر آپلود کن.")
                     st.dataframe(cdf[["open", "high", "low", "close"]].tail(15).round(2), use_container_width=True)
                     st.subheader("سطوح روی مقیاس نسبی تصویر (۰ تا ۱۰۰)")
                     st.dataframe(lv, use_container_width=True, hide_index=True)
                     st.caption("برای قیمت واقعی، سقف و کف قیمتِ دیده‌شده در عکس را در نسخه‌ی کامل سایت وارد کن (کالیبراسیون قیمت).")
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 st.error(f"پردازش عکس ممکن نشد: {e}")
 
     with tab_docs:

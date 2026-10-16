@@ -1015,17 +1015,32 @@ BULLISH_FA = ["صعود", "رشد", "جهش", "افزایش", "رالی", "سب�
 BEARISH_FA = ["سقوط", "ریزش", "کاهش", "افت", "قرمز", "هک", "شکایت", "ممنوعیت", "خروج پول", "لیکویید",
               "ترس", "نزولی", "هشدار", "کلاهبرداری", "اصلاح", "کف", "خرسی", "منفی", "دامپ", "شکست حمایت"]
 
-# English feeds (reliable from servers) and Persian feeds (via JSON relay).
-FEEDS_EN = [
-    ("Cointelegraph", "https://cointelegraph.com/rss"),
-    ("CoinDesk", "https://www.coindesk.com/arc/outboundfeeds/rss/"),
-    ("Decrypt", "https://decrypt.co/feed"),
-]
-FEEDS_FA = [
-    ("ارزدیجیتال", "https://arzdigital.com/feed/"),
-    ("والکس", "https://wallex.ir/blog/feed/"),
-    ("زومیت", "https://www.zoomit.ir/feed/"),
-]
+# News categories — each maps to a list of (source, url, is_persian) feeds.
+# Persian sources carry full article text; English sources cover global markets.
+NEWS_CATEGORIES = {
+    "₿ کریپتو": [
+        ("ارزدیجیتال", "https://arzdigital.com/feed/", True),
+        ("Cointelegraph", "https://cointelegraph.com/rss", False),
+        ("CoinDesk", "https://www.coindesk.com/arc/outboundfeeds/rss/", False),
+        ("Decrypt", "https://decrypt.co/feed", False),
+    ],
+    "💱 فارکس": [
+        ("ForexLive", "https://www.forexlive.com/feed/", False),
+    ],
+    "🇺🇸 بازار آمریکا": [
+        ("WSJ Markets", "https://feeds.a.dj.com/rss/RSSMarketsMain.xml", False),
+        ("MarketWatch", "https://feeds.content.dowjones.io/public/rss/mw_topstories", False),
+        ("CNBC", "https://www.cnbc.com/id/100003114/device/rss/rss.html", False),
+    ],
+    "🌍 اقتصاد جهان": [
+        ("BBC Business", "https://feeds.bbci.co.uk/news/business/rss.xml", False),
+        ("زومیت", "https://www.zoomit.ir/feed/", True),
+    ],
+    "⚔️ جنگ و ژئوپلیتیک": [
+        ("BBC World", "https://feeds.bbci.co.uk/news/world/rss.xml", False),
+        ("Al Jazeera", "https://www.aljazeera.com/xml/rss/all.xml", False),
+    ],
+}
 
 RSS2JSON = "https://api.rss2json.com/v1/api.json"
 
@@ -1039,18 +1054,39 @@ def _score_title(title: str) -> str:
     return "مثبت 🟢" if score > 0 else "منفی 🔴" if score < 0 else "خنثی ⚪"
 
 
+_TAG_RE = re.compile(r"<[^>]+>")
+_WS_RE = re.compile(r"[ \t]+")
+
+
+def _clean_html(raw: str) -> str:
+    """Strip tags/scripts from RSS content:encoded for safe in-app reading."""
+    if not raw:
+        return ""
+    txt = re.sub(r"<(script|style)[\s\S]*?</\1>", "", raw, flags=re.I)
+    txt = txt.replace("</p>", "\n\n").replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")
+    txt = _TAG_RE.sub("", txt)
+    txt = (txt.replace("&nbsp;", " ").replace("&zwnj;", "\u200c").replace("&amp;", "&")
+           .replace("&quot;", '"').replace("&#8220;", "«").replace("&#8221;", "»")
+           .replace("&lt;", "<").replace("&gt;", ">").replace("&#39;", "'"))
+    txt = _WS_RE.sub(" ", txt)
+    lines = [ln.strip() for ln in txt.split("\n")]
+    return "\n".join(ln for ln in lines if ln).strip()
+
+
 def _fetch_feed_direct(url: str) -> list[dict]:
     r = requests.get(url, timeout=15, headers=HEADERS)
     if r.status_code != 200:
         return []
     root = ET.fromstring(r.content)
     out = []
+    ns = {"content": "http://purl.org/rss/1.0/modules/content/"}
     for node in root.iter("item"):
         title = (node.findtext("title") or "").strip()
         link = (node.findtext("link") or "").strip()
         date = (node.findtext("pubDate") or "").strip()
+        body = node.findtext("content:encoded", namespaces=ns) or node.findtext("description") or ""
         if title and link:
-            out.append({"title": title, "link": link, "date": date})
+            out.append({"title": title, "link": link, "date": date, "content": _clean_html(body)})
     return out
 
 
@@ -1065,24 +1101,21 @@ def _fetch_feed_relay(url: str) -> list[dict]:
         title = (it.get("title") or "").strip()
         link = (it.get("link") or "").strip()
         date = (it.get("pubDate") or "").strip()
+        body = it.get("content") or it.get("description") or ""
         if title and link:
-            out.append({"title": title, "link": link, "date": date})
+            out.append({"title": title, "link": link, "date": date, "content": _clean_html(body)})
     return out
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def fetch_news(lang: str = "fa", limit: int = 30) -> pd.DataFrame:
-    """Crypto news. lang='fa' -> Persian feeds, lang='en' -> English feeds.
-
-    Persian (.ir) feeds are blocked for direct server fetch, so they are read
-    through a JSON relay; English feeds are tried directly first, then relay.
-    """
-    feeds = FEEDS_FA if lang == "fa" else FEEDS_EN
+def fetch_news(category: str = "₿ کریپتو", limit: int = 24) -> pd.DataFrame:
+    """News for a given category. Persian feeds go through the JSON relay first;
+    English feeds are tried directly, then relay. Each row carries full text."""
+    feeds = NEWS_CATEGORIES.get(category, NEWS_CATEGORIES["₿ کریپتو"])
     items = []
-    for source, url in feeds:
+    for source, url, is_fa in feeds:
         rows = []
-        # Persian feeds: relay first (direct almost always fails on servers).
-        order = (_fetch_feed_relay, _fetch_feed_direct) if lang == "fa" else (_fetch_feed_direct, _fetch_feed_relay)
+        order = (_fetch_feed_relay, _fetch_feed_direct) if is_fa else (_fetch_feed_direct, _fetch_feed_relay)
         for fetcher in order:
             try:
                 rows = fetcher(url)
@@ -1093,7 +1126,8 @@ def fetch_news(lang: str = "fa", limit: int = 30) -> pd.DataFrame:
         for row in rows:
             items.append({
                 "title": row["title"], "link": row["link"], "source": source,
-                "date": row["date"], "sentiment": _score_title(row["title"]),
+                "date": row["date"], "content": row.get("content", ""),
+                "sentiment": _score_title(row["title"]),
             })
     df = pd.DataFrame(items)
     return df.head(limit) if not df.empty else df
@@ -1688,24 +1722,73 @@ def main() -> None:
             else:
                 live_strip_manual(symbol, exchange, interval, dec, lighter_extra)
 
-            fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.78, 0.22],
-                                vertical_spacing=0.04, subplot_titles=(f"{symbol} · {interval}", "حجم"))
-            fig.add_trace(go.Candlestick(x=d["dt"], open=d["open"], high=d["high"], low=d["low"], close=d["close"],
-                                         increasing_line_color="#22c55e", decreasing_line_color="#ef4444", name="قیمت"), row=1, col=1)
-            fig.add_trace(go.Scatter(x=d["dt"], y=d["ema20"], line=dict(color="#38bdf8", width=1.2), name="EMA20"), row=1, col=1)
-            fig.add_trace(go.Scatter(x=d["dt"], y=d["ema50"], line=dict(color="#f472b6", width=1.2), name="EMA50"), row=1, col=1)
-            fig.add_trace(go.Scatter(x=d["dt"], y=d["bb_up"], line=dict(color="#94a3b8", width=0.8, dash="dot"), name="BB↑"), row=1, col=1)
-            fig.add_trace(go.Scatter(x=d["dt"], y=d["bb_lo"], line=dict(color="#94a3b8", width=0.8, dash="dot"), name="BB↓"), row=1, col=1)
-            fig.add_hline(y=plan["entry"], line_color="#f59e0b", line_width=2, annotation_text="ورود", row=1, col=1)
-            fig.add_hline(y=plan["stop"], line_color="#ef4444", line_dash="dash", annotation_text="حد ضرر", row=1, col=1)
+            # ---- TradingView-style chart ---------------------------------
+            fig = make_subplots(
+                rows=2, cols=1, shared_xaxes=True, row_heights=[0.80, 0.20],
+                vertical_spacing=0.03,
+            )
+            # Bollinger band fill (subtle), drawn first so candles sit on top
+            fig.add_trace(go.Scatter(x=d["dt"], y=d["bb_up"], line=dict(color="rgba(148,163,184,0.35)", width=1),
+                                     name="BB بالا", hoverinfo="skip"), row=1, col=1)
+            fig.add_trace(go.Scatter(x=d["dt"], y=d["bb_lo"], line=dict(color="rgba(148,163,184,0.35)", width=1),
+                                     name="BB پایین", fill="tonexty", fillcolor="rgba(148,163,184,0.06)",
+                                     hoverinfo="skip"), row=1, col=1)
+            fig.add_trace(go.Candlestick(
+                x=d["dt"], open=d["open"], high=d["high"], low=d["low"], close=d["close"],
+                increasing_line_color="#26a69a", increasing_fillcolor="#26a69a",
+                decreasing_line_color="#ef5350", decreasing_fillcolor="#ef5350",
+                line_width=1, name="قیمت", whiskerwidth=0.6,
+            ), row=1, col=1)
+            fig.add_trace(go.Scatter(x=d["dt"], y=d["ema20"], line=dict(color="#2962ff", width=1.4),
+                                     name="EMA20"), row=1, col=1)
+            fig.add_trace(go.Scatter(x=d["dt"], y=d["ema50"], line=dict(color="#ff9800", width=1.4),
+                                     name="EMA50"), row=1, col=1)
+
+            # Entry / Stop / Targets as clean horizontal lines, labels pinned to
+            # the RIGHT price axis (no overlapping free-floating annotations).
+            x_last = d["dt"].iloc[-1]
+            level_rows = [("ورود", plan["entry"], "#f59e0b", "solid"),
+                          ("حد ضرر", plan["stop"], "#ef5350", "dash")]
             for i, (t_price, t_rr) in enumerate(plan["targets"]):
-                fig.add_hline(y=t_price, line_color="#38bdf8", line_dash="dash",
-                              annotation_text=f"هدف {i + 1} · {t_rr}R", row=1, col=1)
-            colors = ["#22c55e" if c >= o else "#ef4444" for c, o in zip(d["close"], d["open"])]
-            fig.add_trace(go.Bar(x=d["dt"], y=d["volume"], marker_color=colors, name="حجم"), row=2, col=1)
-            fig.update_layout(height=560, xaxis_rangeslider_visible=False, template="plotly_dark",
-                              legend=dict(orientation="h", y=1.02), margin=dict(l=10, r=10, t=40, b=10))
-            st.plotly_chart(fig, use_container_width=True)
+                level_rows.append((f"هدف{i + 1} · {t_rr}R", t_price, "#2962ff", "dash"))
+            for name, yv, col, dash in level_rows:
+                fig.add_hline(y=yv, line_color=col, line_width=1.4, line_dash=dash, row=1, col=1)
+                fig.add_annotation(
+                    x=x_last, y=yv, xref="x", yref="y", text=f" {name} {yv:,.{dec}f} ",
+                    showarrow=False, xanchor="left", yanchor="middle", font=dict(size=11, color="#0b1220"),
+                    bgcolor=col, borderpad=3, opacity=0.95, row=1, col=1,
+                )
+
+            vol_colors = ["#26a69a" if cl >= op else "#ef5350" for cl, op in zip(d["close"], d["open"])]
+            fig.add_trace(go.Bar(x=d["dt"], y=d["volume"], marker_color=vol_colors, marker_line_width=0,
+                                 name="حجم", opacity=0.55), row=2, col=1)
+
+            fig.update_layout(
+                height=640, template="plotly_dark", dragmode="pan", hovermode="x unified",
+                xaxis_rangeslider_visible=False,
+                paper_bgcolor="#0e1117", plot_bgcolor="#0e1117",
+                font=dict(family="ui-monospace, monospace", size=11, color="#b2b5be"),
+                legend=dict(orientation="h", y=1.03, x=0, bgcolor="rgba(0,0,0,0)",
+                            font=dict(size=10)),
+                margin=dict(l=8, r=72, t=28, b=8),
+                title=dict(text=f"{symbol} · {interval}", x=0.5, xanchor="center",
+                           font=dict(size=13, color="#e2e8f0")),
+            )
+            # TradingView-like axes: price axis on the RIGHT, thin grid, spike line
+            grid = "rgba(148,163,184,0.08)"
+            fig.update_yaxes(side="right", gridcolor=grid, zeroline=False, row=1, col=1,
+                             showspikes=True, spikemode="across", spikethickness=1,
+                             spikecolor="rgba(148,163,184,0.5)", spikedash="dot", tickformat=",")
+            fig.update_yaxes(side="right", gridcolor=grid, zeroline=False, row=2, col=1,
+                             title_text="حجم", title_font=dict(size=9))
+            fig.update_xaxes(gridcolor=grid, zeroline=False, row=1, col=1,
+                             showspikes=True, spikemode="across", spikethickness=1,
+                             spikecolor="rgba(148,163,184,0.5)", spikedash="dot", rangeslider_visible=False)
+            fig.update_xaxes(gridcolor=grid, zeroline=False, row=2, col=1)
+            st.plotly_chart(fig, use_container_width=True, config={
+                "scrollZoom": True, "displaylogo": False,
+                "modeBarButtonsToRemove": ["lasso2d", "select2d"],
+            })
 
             # THE AGENTS — live strategy backtest row (real indicators)
             st.subheader("◈ دفتر ایجنت‌ها (The Agents) — بک‌تست زنده")
@@ -1790,25 +1873,44 @@ def main() -> None:
             st.error(f"دریافت فهرست بازار ممکن نشد: {e}")
 
     with tab_news:
-        nc1, nc2 = st.columns([3, 1])
-        with nc1:
-            st.caption("پوشش خبری زنده‌ی کریپتو — زبان خبرها را انتخاب کن.")
-        with nc2:
-            news_lang_label = st.radio(
-                "زبان اخبار", ["🇮🇷 فارسی", "🌐 انگلیسی"], horizontal=True,
-                label_visibility="collapsed", key="news_lang",
-            )
-        news_lang = "fa" if "فارسی" in news_lang_label else "en"
+        st.caption("پوشش خبری زنده — کریپتو، فارکس، بازار آمریکا، اقتصاد جهان و جنگ/ژئوپلیتیک. "
+                   "روی هر خبر بزن تا **متن کامل همین‌جا** باز شود.")
+        news_cat = st.radio(
+            "دسته‌بندی اخبار", list(NEWS_CATEGORIES.keys()),
+            horizontal=True, label_visibility="collapsed", key="news_cat",
+        )
         try:
             with st.spinner("در حال دریافت اخبار…"):
-                news = fetch_news(news_lang)
+                news = fetch_news(news_cat)
             if news.empty:
-                st.info("خبری دریافت نشد. چند لحظه بعد دوباره امتحان کن (فیدهای فارسی گاهی با تأخیر کش می‌شوند).")
+                st.info("خبری دریافت نشد. چند لحظه بعد دوباره امتحان کن (فیدها گاهی با تأخیر کش می‌شوند).")
             else:
                 src = " · ".join(sorted(news["source"].unique()))
                 st.caption(f"{len(news)} خبر از: {src}")
-                for _, row in news.iterrows():
-                    st.markdown(f"**[{row['title']}]({row['link']})**  \n{row['source']} · {row['sentiment']} · {row['date']}")
+                for idx, row in news.iterrows():
+                    with st.expander(f"{row['sentiment']}  ·  {row['title']}"):
+                        st.markdown(
+                            f"<div style='color:#94a3b8;font-size:12px;margin-bottom:8px'>"
+                            f"{row['source']} · {row['date']}</div>",
+                            unsafe_allow_html=True,
+                        )
+                        body = (row.get("content") or "").strip()
+                        if body:
+                            # full article text, RTL-aware, scrollable, readable
+                            st.markdown(
+                                "<div dir='auto' style='line-height:2;font-size:15px;"
+                                "max-height:460px;overflow:auto;text-align:justify'>"
+                                + body.replace("\n", "<br>")
+                                + "</div>",
+                                unsafe_allow_html=True,
+                            )
+                        else:
+                            st.info("متن کامل این خبر در فید موجود نیست.")
+                        st.markdown(
+                            f"<a href='{row['link']}' target='_blank' "
+                            f"style='font-size:12px;color:#38bdf8'>منبع اصلی ↗</a>",
+                            unsafe_allow_html=True,
+                        )
         except Exception as e:  # noqa: BLE001
             st.error(f"دریافت اخبار ممکن نشد: {e}")
 

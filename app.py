@@ -54,16 +54,6 @@ EXCHANGE_DOCS = {
 ENTER = 40
 EXIT = -10
 
-# Whitelist of common perp/spot pairs across all exchanges — for the one-tap
-# "analyse a symbol" feature.
-QUICK_SYMBOLS = [
-    "BTC-USDT", "ETH-USDT", "SOL-USDT", "BNB-USDT", "XRP-USDT",
-    "DOGE-USDT", "TON-USDT", "ADA-USDT", "AVAX-USDT", "LINK-USDT",
-    "LTC-USDT", "TRX-USDT", "ATOM-USDT", "NEAR-USDT", "APT-USDT",
-    # Lighter perps (no -USDT suffix needed)
-    "BTC", "ETH", "SOL",
-]
-
 
 # ------------------------------------------------------------------ live layer
 
@@ -127,279 +117,177 @@ def fetch_tick(exchange: str, symbol: str) -> dict | None:
         return None
 
 
-# ------------------------------------------------------------------ NEURAL SHELL
+def _annular_sector(cx: float, cy: float, r1: float, r2: float, a1: float, a2: float) -> str:
+    import math as _m
 
-def build_neural_shell(comp_table: pd.DataFrame, score: float) -> str:
+    def pt(r: float, a: float) -> tuple[float, float]:
+        return (cx + r * _m.cos(a), cy + r * _m.sin(a))
+
+    x1, y1 = pt(r2, a1)
+    x2, y2 = pt(r2, a2)
+    x3, y3 = pt(r1, a2)
+    x4, y4 = pt(r1, a1)
+    large = 1 if (a2 - a1) > _m.pi else 0
+    return (
+        f"M {x1:.1f} {y1:.1f} A {r2} {r2} 0 {large} 1 {x2:.1f} {y2:.1f} "
+        f"L {x3:.1f} {y3:.1f} A {r1} {r1} 0 {large} 0 {x4:.1f} {y4:.1f} Z"
+    )
+
+
+def build_neural_shell_svg(comp_table: pd.DataFrame, score: float) -> str:
     """
-    ◈ NEURAL SHELL // پوسته مدل‌ها — جریان ویژگی به لبه
+    NEURAL SHELL — live animated feature-extraction flow (pure SVG + SMIL, no JS).
 
-    Live, animated SMIL-only visualisation of the 9-component confluence
-    score. Each indicator becomes a node, signal magnitude drives node
-    radius + colour, and a centre hub pulses with the global score.
-
-    Pure SVG + SMIL — no JS, no canvas, renders identically on every
-    Streamlit client. ~120 nodes, ~180 synapses, fully data-driven.
+    Left: the 9 confluence features as nodes (colour = direction, bar = strength).
+    Middle: curved synapses carrying animated particles toward the core.
+    Right: a rotating neural "shell" of orbiting nodes whose glow reflects the
+    overall confluence score. Everything animates in the browser via SMIL.
     """
-    # ----- data preparation -----
-    labels = ["روند EMA50", "سوپرترند", "MACD", "RSI", "استوکاستیک",
-              "ورتکس", "CMF", "CCI", "MFI"]
-    if comp_table is not None and not comp_table.empty and len(comp_table) == 9:
-        values = [float(v) for v in comp_table["امتیاز"].tolist()]
-    else:
-        values = [0.0] * 9
-    n = len(values)
+    import math as _m
 
-    # colour palette: 0..-1 = red, -1..0 = amber, 0..+1 = green
-    def colour_for(v: float) -> str:
-        if v > 0.4:   return "#22c55e"   # strong bull
-        if v > 0.1:   return "#86efac"   # mild bull
-        if v < -0.4:  return "#ef4444"   # strong bear
-        if v < -0.1:  return "#fca5a5"   # mild bear
-        return "#fcd34d"                  # neutral
+    W, H = 680, 360
+    rows = []
+    if comp_table is not None and not comp_table.empty and "امتیاز" in comp_table.columns:
+        rows = list(zip(comp_table["اندیکاتور"].tolist(), [float(v) for v in comp_table["امتیاز"].tolist()]))
+    if not rows:
+        rows = [("—", 0.0)] * 9
+    n = len(rows)
 
-    # shared deterministic PRNG so the same score always yields the same shell
-    rng = np.random.default_rng(7)
+    core_x, core_y, core_r = 505.0, 180.0, 96.0
+    node_x = 150.0
+    top, bottom = 48.0, 320.0
+    gap = (bottom - top) / max(1, n - 1)
 
-    W, H = 720, 460
-    cx, cy = W / 2, H / 2 + 10
-    RING = [60, 130, 175]              # radii for the 3 rings of feature nodes
-    ring_idx = [0, 1, 2, 0, 1, 2, 0, 1, 2]  # 9 indicators across 3 rings
-    node_angles = [(-90 + i * (360 / n)) * np.pi / 180 for i in range(n)]
-    nodes = []
-    for i, v in enumerate(values):
-        ri = ring_idx[i]
-        r = RING[ri] + (rng.random() - 0.5) * 14
-        ang = node_angles[i] + (rng.random() - 0.5) * 0.18
-        x = cx + r * np.cos(ang)
-        y = cy + r * np.sin(ang)
-        size = 6 + min(20, abs(v) * 18)
-        nodes.append({"x": x, "y": y, "v": v, "size": size, "color": colour_for(v), "label": labels[i]})
+    def col_of(v: float) -> str:
+        return "#10b981" if v > 0.12 else "#f43f5e" if v < -0.12 else "#64748b"
 
-    # ----- synapses (every node connects to the hub + to a few neighbours) -----
-    synapses = []
-    for i, n in enumerate(nodes):
-        # every node → hub
-        synapses.append((n, {"x": cx, "y": cy, "size": 1 + abs(n["v"]) * 4, "color": n["color"]}, i * 0.18))
-    for i in range(n):
-        j = (i + 2) % n
-        synapses.append((nodes[i], nodes[j], 0.5 + (i % 3) * 0.18))
-
-    # ----- animated travelling pulses along the 3 main radial synapses -----
-    # (3 prominent green/orange "feature flow" streams from the centre outward)
-    flow_paths = []
-    for i in (0, 4, 7):
-        if i >= n: break
-        flow_paths.append(f"M{cx:.1f},{cy:.1f} L{nodes[i]['x']:.1f},{nodes[i]['y']:.1f}")
-
-    # ----- score colour for the central hub -----
-    hub_color = "#22c55e" if score > 25 else "#ef4444" if score < -25 else "#fbbf24"
-    hub_glow = "#34d399" if score > 25 else "#fb7185" if score < -25 else "#fde68a"
-    signal_text = "خرید قوی" if score > 40 else "خرید" if score > 12 else "خنثی" if score > -12 else "فروش" if score > -40 else "فروش قوی"
-
-    # ----- rendering -----
-    W, H = 720, 460
-    out = []
-    out.append(f'<div dir="ltr" style="display:flex;justify-content:center">')
-    out.append(
-        f'<svg viewBox="0 0 {W} {H}" width="100%" style="max-width:760px;height:auto" '
-        f'role="img" aria-label="neural shell — live confluence visualisation">'
-    )
-    # ----- defs: gradients, filters -----
-    out.append("""<defs>
-  <radialGradient id="ns-core" cx="50%" cy="50%" r="50%">
-    <stop offset="0%"  stop-color="#0b1220" stop-opacity="0.0"/>
-    <stop offset="55%" stop-color="#0b1220" stop-opacity="0.55"/>
-    <stop offset="100%" stop-color="#0b1220" stop-opacity="0.0"/>
-  </radialGradient>
-  <linearGradient id="ns-flow-green" x1="0%" y1="0%" x2="100%" y2="0%">
-    <stop offset="0%"  stop-color="#22c55e" stop-opacity="0.0"/>
-    <stop offset="50%" stop-color="#86efac" stop-opacity="0.95"/>
-    <stop offset="100%" stop-color="#22c55e" stop-opacity="0.0"/>
-  </linearGradient>
-  <linearGradient id="ns-flow-red" x1="0%" y1="0%" x2="100%" y2="0%">
-    <stop offset="0%"  stop-color="#ef4444" stop-opacity="0.0"/>
-    <stop offset="50%" stop-color="#fca5a5" stop-opacity="0.95"/>
-    <stop offset="100%" stop-color="#ef4444" stop-opacity="0.0"/>
-  </linearGradient>
-  <filter id="ns-glow" x="-50%" y="-50%" width="200%" height="200%">
-    <feGaussianBlur stdDeviation="2.4"/>
-  </filter>
-</defs>""")
-
-    # ----- background dark disk (the "shell") -----
-    out.append(f'<circle cx="{cx}" cy="{cy}" r="220" fill="url(#ns-core)"/>')
-    # outer rotating ring (very faint, slow)
-    out.append(
-        f'<g><animateTransform attributeName="transform" type="rotate" '
-        f'from="0 {cx} {cy}" to="360 {cx} {cy}" dur="90s" repeatCount="indefinite"/>'
-        f'<circle cx="{cx}" cy="{cy}" r="218" fill="none" stroke="#1e293b" stroke-width="0.7" stroke-dasharray="2 6"/>'
-        f'</g>'
-    )
-    # mid rotating ring
-    out.append(
-        f'<g><animateTransform attributeName="transform" type="rotate" '
-        f'from="360 {cx} {cy}" to="0 {cx} {cy}" dur="60s" repeatCount="indefinite"/>'
-        f'<circle cx="{cx}" cy="{cy}" r="160" fill="none" stroke="#1e293b" stroke-width="0.6" stroke-dasharray="1 4"/>'
-        f'</g>'
-    )
-
-    # ----- synapses (drawn first so nodes sit on top) -----
-    out.append('<g stroke-linecap="round" fill="none">')
-    for a, b, _delay in synapses:
-        if isinstance(b, dict) and "size" in b:   # node → hub
-            sw = max(0.3, min(1.6, b["size"] * 0.5))
-            op = max(0.15, min(0.55, abs(b["size"]) / 12))
-            out.append(
-                f'<line x1="{a["x"]:.1f}" y1="{a["y"]:.1f}" x2="{b["x"]:.1f}" y2="{b["y"]:.1f}" '
-                f'stroke="{a["color"]}" stroke-width="{sw:.2f}" opacity="{op:.2f}">'
-                f'<animate attributeName="opacity" values="{op*0.35:.2f};{op:.2f};{op*0.35:.2f}" '
-                f'dur="{2.2 + (hash((a["x"], b["x"])) % 80) / 50:.1f}s" repeatCount="indefinite"/>'
-                f'</line>'
-            )
-        else:  # node ↔ node
-            sw = max(0.25, min(0.8, (abs(a["v"]) + abs(b["v"])) * 0.4))
-            op = max(0.10, min(0.35, (abs(a["v"]) + abs(b["v"])) * 0.18))
-            out.append(
-                f'<line x1="{a["x"]:.1f}" y1="{a["y"]:.1f}" x2="{b["x"]:.1f}" y2="{b["y"]:.1f}" '
-                f'stroke="#334155" stroke-width="{sw:.2f}" opacity="{op:.2f}">'
-                f'<animate attributeName="stroke-opacity" values="0.05;0.55;0.05" '
-                f'dur="{3.0 + (hash((a["x"], b["x"])) % 100) / 60:.1f}s" repeatCount="indefinite"/>'
-                f'</line>'
-            )
-    out.append('</g>')
-
-    # ----- animated radial flow streams (3 prominent data-flow lines) -----
-    out.append('<g fill="none" stroke-width="2.2">')
-    for idx, p in enumerate(flow_paths):
-        grad = "url(#ns-flow-green)" if score >= 0 else "url(#ns-flow-red)"
-        out.append(
-            f'<path d="{p}" stroke="{grad}">'
-            f'<animate attributeName="stroke-dashoffset" from="200" to="0" dur="2.4s" '
-            f'begin="{idx * 0.6}s" repeatCount="indefinite"/>'
-            f'<animate attributeName="stroke-dasharray" values="0 220; 60 160; 0 220" dur="2.4s" '
-            f'begin="{idx * 0.6}s" repeatCount="indefinite"/>'
-            f'</path>'
+    synapses, particles, nodes = [], [], []
+    for i, (label, v) in enumerate(rows):
+        y = top + i * gap
+        color = col_of(v)
+        strength = min(1.0, abs(v))
+        # bezier from node to core
+        c1x, c1y = node_x + 110, y
+        c2x, c2y = core_x - 150, core_y + (y - core_y) * 0.25
+        path = f"M {node_x + 8:.1f} {y:.1f} C {c1x:.1f} {c1y:.1f} {c2x:.1f} {c2y:.1f} {core_x - core_r * 0.7:.1f} {core_y:.1f}"
+        pid = f"nsyn{i}"
+        synapses.append(
+            f'<path id="{pid}" d="{path}" fill="none" stroke="{color}" '
+            f'stroke-opacity="{0.10 + strength * 0.45:.2f}" stroke-width="{0.6 + strength * 1.8:.2f}"/>'
         )
-    out.append('</g>')
-
-    # ----- feature nodes (9 indicator nodes) -----
-    out.append('<g>')
-    for i, nd in enumerate(nodes):
-        # glow halo
-        out.append(
-            f'<circle cx="{nd["x"]:.1f}" cy="{nd["y"]:.1f}" r="{nd["size"] + 6:.1f}" '
-            f'fill="{nd["color"]}" opacity="0.18" filter="url(#ns-glow)">'
-            f'<animate attributeName="r" values="{nd["size"] + 3:.1f};{nd["size"] + 8:.1f};{nd["size"] + 3:.1f}" '
-            f'dur="{2.6 + i * 0.15:.1f}s" repeatCount="indefinite"/>'
-            f'<animate attributeName="opacity" values="0.10;0.32;0.10" '
-            f'dur="{2.6 + i * 0.15:.1f}s" repeatCount="indefinite"/>'
-            f'</circle>'
-        )
-        # solid node
-        out.append(
-            f'<circle cx="{nd["x"]:.1f}" cy="{nd["y"]:.1f}" r="{nd["size"]:.1f}" '
-            f'fill="{nd["color"]}" stroke="#0b1220" stroke-width="1.2">'
-            f'<animate attributeName="r" values="{nd["size"]:.1f};{nd["size"] + 1.4:.1f};{nd["size"]:.1f}" '
-            f'dur="{2.6 + i * 0.15:.1f}s" repeatCount="indefinite"/>'
-            f'</circle>'
-        )
-    out.append('</g>')
-
-    # ----- ring of micro-dots around each node (the "feature extraction" look) -----
-    out.append('<g fill="#94a3b8" opacity="0.55">')
-    for i, nd in enumerate(nodes):
-        base_r = nd["size"] + 13
-        for k in range(5):
-            a = (k / 5) * 2 * np.pi + i * 0.4
-            ddx = nd["x"] + base_r * np.cos(a)
-            ddy = nd["y"] + base_r * np.sin(a)
-            out.append(
-                f'<circle cx="{ddx:.1f}" cy="{ddy:.1f}" r="0.7">'
-                f'<animate attributeName="opacity" values="0.15;0.85;0.15" dur="2.8s" '
-                f'begin="{i * 0.18 + k * 0.12:.1f}s" repeatCount="indefinite"/>'
+        # a couple of travelling particles per synapse
+        dur = 2.2 + (i % 5) * 0.6
+        for k in range(2):
+            begin = (k * dur / 2) + i * 0.17
+            particles.append(
+                f'<circle r="{1.6 + strength * 1.8:.1f}" fill="{color}">'
+                f'<animateMotion dur="{dur:.1f}s" begin="{begin:.2f}s" repeatCount="indefinite">'
+                f'<mpath href="#{pid}"/></animateMotion>'
+                f'<animate attributeName="opacity" values="0;1;1;0" dur="{dur:.1f}s" begin="{begin:.2f}s" repeatCount="indefinite"/>'
                 f'</circle>'
             )
-    out.append('</g>')
-
-    # ----- central hub (the "model") -----
-    out.append(
-        f'<circle cx="{cx}" cy="{cy}" r="34" fill="none" stroke="{hub_glow}" stroke-width="1" opacity="0.6">'
-        f'<animate attributeName="r" values="34;48;34" dur="2.8s" repeatCount="indefinite"/>'
-        f'<animate attributeName="opacity" values="0.2;0.7;0.2" dur="2.8s" repeatCount="indefinite"/>'
-        f'</circle>'
-    )
-    out.append(
-        f'<circle cx="{cx}" cy="{cy}" r="26" fill="#0b1220" stroke="{hub_color}" stroke-width="2">'
-        f'<animate attributeName="stroke-width" values="1.6;2.4;1.6" dur="2.8s" repeatCount="indefinite"/>'
-        f'</circle>'
-    )
-    # score text
-    out.append(
-        f'<text x="{cx}" y="{cy - 1}" text-anchor="middle" '
-        f'font-family="ui-monospace,monospace" font-weight="800" font-size="22" fill="{hub_color}">'
-        f'{score:+.0f}'
-        f'<animate attributeName="opacity" values="0.7;1;0.7" dur="1.6s" repeatCount="indefinite"/>'
-        f'</text>'
-    )
-    out.append(
-        f'<text x="{cx}" y="{cy + 14}" text-anchor="middle" '
-        f'font-family="ui-monospace,monospace" font-size="9" fill="#94a3b8" letter-spacing="0.5">'
-        f'همگرایی / CONFLUENCE</text>'
-    )
-    out.append(
-        f'<text x="{cx}" y="{cy + 26}" text-anchor="middle" '
-        f'font-family="ui-monospace,monospace" font-size="8" fill="{hub_glow}">'
-        f'{signal_text}</text>'
-    )
-
-    # ----- node labels (small) -----
-    out.append('<g font-family="ui-monospace,monospace" font-size="8.5" fill="#94a3b8">')
-    for i, nd in enumerate(nodes):
-        lx = nd["x"] + nd["size"] + 4
-        ly = nd["y"] + 3
-        # alternate inside / outside for readability
-        if i % 2 == 0:
-            lx = nd["x"] - nd["size"] - 4
-            anchor = "end"
-        else:
-            anchor = "start"
-        out.append(
-            f'<text x="{lx:.1f}" y="{ly:.1f}" text-anchor="{anchor}">{labels[i]}</text>'
+        # node: pulsing dot + strength bar + label
+        bar_w = 26 + strength * 42
+        short = str(label)
+        if len(short) > 13:
+            short = short[:12] + "…"
+        nodes.append(
+            f'<g>'
+            f'<rect x="20" y="{y - 9:.1f}" width="124" height="18" rx="4" fill="rgba(148,163,184,0.06)" stroke="rgba(148,163,184,0.12)"/>'
+            f'<rect x="22" y="{y + 4:.1f}" width="{bar_w:.0f}" height="2.4" rx="1.2" fill="{color}"/>'
+            f'<text x="28" y="{y + 0.5:.1f}" font-size="8.5" fill="#cbd5e1" font-family="ui-monospace,monospace">{short}</text>'
+            f'<circle cx="{node_x + 4:.1f}" cy="{y:.1f}" r="3.2" fill="{color}">'
+            f'<animate attributeName="r" values="2.4;4.2;2.4" dur="{1.8 + (i % 4) * 0.4:.1f}s" repeatCount="indefinite"/></circle>'
+            f'</g>'
         )
-    out.append('</g>')
 
-    # ----- top-left "header" tag -----
-    out.append(
-        f'<text x="20" y="22" font-family="ui-monospace,monospace" font-size="9" fill="#64748b" letter-spacing="1.2">'
-        f'◈ NEURAL SHELL · پوسته مدل‌ها</text>'
-    )
-    out.append(
-        f'<text x="{W - 20}" y="22" text-anchor="end" font-family="ui-monospace,monospace" '
-        f'font-size="9" fill="#34d399" letter-spacing="1.2">LIVE</text>'
-    )
-    # ----- bottom ticker -----
-    out.append(
-        f'<text x="20" y="{H - 12}" font-family="ui-monospace,monospace" font-size="8" fill="#475569">'
-        f'FEATURE EXTRACTION · 9 INDICATORS · CONFLUENCE TO HUB</text>'
-    )
-    out.append(
-        f'<text x="{W - 20}" y="{H - 12}" text-anchor="end" font-family="ui-monospace,monospace" '
-        f'font-size="8" fill="#475569">SCORE {score:+.0f} · {signal_text}</text>'
-    )
+    # rotating shell: orbiting nodes on 3 rings
+    shell = []
+    for i in range(70):
+        h1 = (np.sin(i * 127.1) * 43758.5453) % 1
+        h2 = (np.sin(i * 311.7) * 12543.123) % 1
+        ang = h1 * 2 * _m.pi
+        ring = 40 + h2 * (core_r - 46)
+        x = core_x + ring * _m.cos(ang)
+        y = core_y + ring * _m.sin(ang) * 0.92
+        warm = i % 3 == 0
+        c = "#f59e0b" if warm else "#7dd3fc"
+        dur = 1.6 + (i % 7) * 0.45
+        shell.append(
+            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{1.0 + h2 * 1.9:.1f}" fill="{c}">'
+            f'<animate attributeName="opacity" values="0.15;0.95;0.15" dur="{dur:.1f}s" repeatCount="indefinite"/></circle>'
+        )
 
-    out.append('</svg></div>')
-    return "".join(out)
+    score_color = "#34d399" if score > 25 else "#fb7185" if score < -25 else "#fbbf24"
+    bar_pct = max(2, min(100, int((score + 100) / 2)))
+
+    return f"""
+<div style="display:flex;justify-content:center">
+<svg viewBox="0 0 {W} {H}" width="100%" style="max-width:680px" role="img" aria-label="neural shell feature extraction">
+  <defs>
+    <radialGradient id="nsCore" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="rgba(245,158,11,0.30)"/>
+      <stop offset="55%" stop-color="rgba(56,189,248,0.10)"/>
+      <stop offset="100%" stop-color="rgba(2,6,17,0)"/>
+    </radialGradient>
+    <linearGradient id="nsHead" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#34d399"/>
+      <stop offset="100%" stop-color="#38bdf8"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0.5" y="0.5" width="{W - 1}" height="{H - 1}" rx="14" fill="rgba(2,6,17,0.55)" stroke="rgba(56,189,248,0.18)"/>
+
+  <!-- header -->
+  <text x="20" y="24" font-size="11.5" font-family="ui-monospace,monospace" font-weight="800" fill="url(#nsHead)">◈ NEURAL SHELL // پوسته مدل‌ها — جریان ویژگی به لبه</text>
+  <circle cx="{W - 120}" cy="20" r="3.5" fill="#34d399"><animate attributeName="opacity" values="0.3;1;0.3" dur="1.4s" repeatCount="indefinite"/></circle>
+  <text x="{W - 112}" y="24" font-size="9.5" font-family="ui-monospace,monospace" fill="#94a3b8">FEATURE EXTRACTION · LIVE</text>
+
+  <!-- column labels -->
+  <text x="20" y="40" font-size="8" font-family="ui-monospace,monospace" fill="#475569">MODEL INPUT</text>
+  <text x="{core_x - 30:.0f}" y="40" font-size="8" font-family="ui-monospace,monospace" fill="#475569">CORE · SHELL</text>
+
+  <!-- core glow + shell -->
+  <circle cx="{core_x}" cy="{core_y}" r="{core_r + 24}" fill="url(#nsCore)"/>
+  <g>
+    <animateTransform attributeName="transform" type="rotate" from="0 {core_x} {core_y}" to="360 {core_x} {core_y}" dur="60s" repeatCount="indefinite"/>
+    {''.join(shell)}
+  </g>
+  <circle cx="{core_x}" cy="{core_y}" r="{core_r}" fill="none" stroke="rgba(148,163,184,0.18)"/>
+  <circle cx="{core_x}" cy="{core_y}" r="{core_r * 0.55:.0f}" fill="rgba(2,6,17,0.55)" stroke="rgba(245,158,11,0.35)"/>
+
+  <!-- synapses + particles -->
+  <g>{''.join(synapses)}</g>
+  <g>{''.join(particles)}</g>
+
+  <!-- feature nodes -->
+  <g>{''.join(nodes)}</g>
+
+  <!-- core readout -->
+  <text x="{core_x}" y="{core_y - 4:.0f}" text-anchor="middle" font-family="ui-monospace,monospace" font-weight="800" font-size="30" fill="{score_color}">{score:+.0f}</text>
+  <text x="{core_x}" y="{core_y + 15:.0f}" text-anchor="middle" font-size="9" fill="#cbd5e1">همگرایی زنده</text>
+
+  <!-- bottom confidence bar -->
+  <rect x="20" y="{H - 24}" width="{W - 40}" height="6" rx="3" fill="rgba(148,163,184,0.15)"/>
+  <rect x="20" y="{H - 24}" width="{int((W - 40) * bar_pct / 100)}" height="6" rx="3" fill="url(#nsHead)">
+    <animate attributeName="opacity" values="0.7;1;0.7" dur="2.2s" repeatCount="indefinite"/>
+  </rect>
+  <text x="20" y="{H - 28}" font-size="8" font-family="ui-monospace,monospace" fill="#64748b">SIGNED FLOW</text>
+</svg>
+</div>
+"""
 
 
-# Backwards-compat alias (old code referenced the galaxy name)
-build_galaxy_svg = build_neural_shell
+# Backward-compatible alias (older call sites used build_galaxy_svg).
+build_galaxy_svg = build_neural_shell_svg
 
 
 def _live_strip_impl(symbol: str, exchange: str, interval: str, dec: int, extra: dict | None = None) -> None:
     """
-    Live ticker strip — built with Streamlit native widgets so it re-renders
-    safely inside `st.fragment`. (Raw HTML inside fragments is escaped, which
-    is what made the previous version crash with ValueError.)
+    Live ticker strip — built with Streamlit native layout (st.columns) so it
+    re-renders safely inside `st.fragment`. Every value is computed BEFORE it is
+    placed in a string, so there is never a format-specifier that depends on a
+    runtime condition (that is what used to crash the previous version).
     """
     import time as _t
 
@@ -516,7 +404,7 @@ def _live_strip_impl(symbol: str, exchange: str, interval: str, dec: int, extra:
             unsafe_allow_html=True,
         )
         st.progress(progress, text=None)
-        st.caption("<span style='font-size:9px;color:#64748b'>تا بستن کندل</span>", unsafe_allow_html=True)
+        st.caption("تا بستن کندل")
 
 
 try:
@@ -1096,14 +984,126 @@ def make_plan(d: pd.DataFrame, score: float, levels: pd.DataFrame) -> dict:
     }
 
 
+# ------------------------------------------------------------------ analysis image
+
+def render_analysis_png(
+    d: pd.DataFrame,
+    plan: dict,
+    levels: pd.DataFrame,
+    score: float,
+    symbol: str,
+    exchange: str,
+    interval: str,
+    dec: int,
+    bars: int = 120,
+) -> bytes:
+    """
+    Build a downloadable annotated chart (PNG) from REAL candles: candlesticks +
+    EMA20/50 + support/resistance + entry/stop/targets. Labels are in English so
+    they render cleanly inside the image (matplotlib does not shape Persian text).
+    """
+    import io
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Rectangle
+
+    pd_d = d.tail(bars).reset_index(drop=True)
+    n = len(pd_d)
+
+    fig, ax = plt.subplots(figsize=(13, 7), dpi=130)
+    fig.patch.set_facecolor("#0b1220")
+    ax.set_facecolor("#0b1220")
+
+    opens = pd_d["open"].to_numpy()
+    closes = pd_d["close"].to_numpy()
+    highs = pd_d["high"].to_numpy()
+    lows = pd_d["low"].to_numpy()
+
+    for i in range(n):
+        o, c, hi, lo = opens[i], closes[i], highs[i], lows[i]
+        up = c >= o
+        col = "#22c55e" if up else "#ef4444"
+        ax.plot([i, i], [lo, hi], color=col, linewidth=0.8, zorder=2)
+        body_h = max(abs(c - o), (highs.max() - lows.min()) * 0.0008)
+        ax.add_patch(Rectangle((i - 0.32, min(o, c)), 0.64, body_h, color=col, zorder=3, linewidth=0))
+
+    # EMAs
+    if "ema20" in pd_d:
+        ax.plot(range(n), pd_d["ema20"], color="#38bdf8", linewidth=1.1, zorder=4, label="EMA20")
+    if "ema50" in pd_d:
+        ax.plot(range(n), pd_d["ema50"], color="#f472b6", linewidth=1.1, zorder=4, label="EMA50")
+
+    x_right = n - 1
+
+    # support / resistance
+    if levels is not None and not levels.empty:
+        for _, lv in levels.iterrows():
+            lvl = float(lv["سطح"])
+            is_sup = "حمایت" in str(lv["نوع"])
+            col = "#34d399" if is_sup else "#fb7185"
+            tag = "S" if is_sup else "R"
+            ax.axhline(lvl, color=col, linewidth=0.8, linestyle=":", alpha=0.65, zorder=1)
+            ax.text(x_right + 0.5, lvl, f" {tag} {lvl:,.{dec}f}", color=col, fontsize=7.5,
+                    va="center", ha="left", fontweight="bold")
+
+    # entry / stop / targets
+    ax.axhline(plan["entry"], color="#f59e0b", linewidth=1.6, zorder=5)
+    ax.text(0, plan["entry"], f"ENTRY {plan['entry']:,.{dec}f} ", color="#0b1220", fontsize=8,
+            va="center", ha="left", fontweight="bold",
+            bbox=dict(boxstyle="round,pad=0.25", fc="#f59e0b", ec="none"))
+    ax.axhline(plan["stop"], color="#ef4444", linewidth=1.3, linestyle="--", zorder=5)
+    ax.text(0, plan["stop"], f"STOP {plan['stop']:,.{dec}f} ", color="#fff", fontsize=8,
+            va="center", ha="left", fontweight="bold",
+            bbox=dict(boxstyle="round,pad=0.25", fc="#ef4444", ec="none"))
+    for i, (tp, rr) in enumerate(plan["targets"]):
+        ax.axhline(tp, color="#38bdf8", linewidth=1.1, linestyle="--", zorder=5)
+        ax.text(0, tp, f"TP{i + 1} {tp:,.{dec}f} ({rr}R) ", color="#0b1220", fontsize=8,
+                va="center", ha="left", fontweight="bold",
+                bbox=dict(boxstyle="round,pad=0.25", fc="#38bdf8", ec="none"))
+
+    direction = "LONG" if plan["direction"].startswith("لانگ") else "SHORT"
+    dir_col = "#34d399" if direction == "LONG" else "#fb7185"
+    title = f"{symbol}  ·  {exchange}  ·  {interval}"
+    ax.set_title(title, color="#e2e8f0", fontsize=14, fontweight="bold", loc="left", pad=28)
+    ax.text(0.0, 1.015,
+            f"Signal: {direction}   |   Confluence: {score:+.0f}   |   R:R 1:{plan['rr']}   |   "
+            f"Confidence {plan['confidence']}%   |   ATR {plan['atr']:,.{dec}f}",
+            transform=ax.transAxes, color=dir_col, fontsize=9.5, fontweight="bold", va="bottom")
+    ax.text(0.999, 1.015, "NorthmanQuant · not financial advice",
+            transform=ax.transAxes, color="#64748b", fontsize=8, va="bottom", ha="right")
+
+    ax.grid(color="#1e293b", linewidth=0.5, alpha=0.5)
+    ax.tick_params(colors="#64748b", labelsize=8)
+    for spine in ax.spines.values():
+        spine.set_color("#1e293b")
+    ax.set_xlim(-1, n + 6)
+    ax.margins(y=0.05)
+    ax.legend(loc="upper left", fontsize=8, facecolor="#0b1220", edgecolor="#1e293b", labelcolor="#cbd5e1")
+
+    # x ticks = a handful of dates
+    if "dt" in pd_d:
+        step = max(1, n // 8)
+        idxs = list(range(0, n, step))
+        ax.set_xticks(idxs)
+        ax.set_xticklabels([pd.to_datetime(pd_d["dt"].iloc[i]).strftime("%m/%d %H:%M") for i in idxs],
+                           rotation=0, fontsize=7)
+
+    fig.tight_layout()
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", facecolor=fig.get_facecolor(), bbox_inches="tight")
+    plt.close(fig)
+    return buf.getvalue()
+
+
 # ------------------------------------------------------------------ image extraction (lite)
 
 def extract_candles_from_image(img: Image.Image, max_dim: int = 1400) -> pd.DataFrame:
-    """Extract candles from a chart screenshot.
+    """Extract normalized candles (0..100) from a chart screenshot by candle colors.
 
-    Two-stage detector:
-      1) build a 1D "column activity" signal of long vertical colour runs
-      2) light-merge only the 1-2 pixel bridges caused by wicks / anti-aliasing
+    Robust to real exchange / TradingView screenshots: it isolates the price pane
+    from the volume pane, ignores the right-hand price axis and current-price
+    marker box, and rejects non-candle noise by candle-width consistency.
     """
     im = img.convert("RGB")
     scale = min(1.0, max_dim / max(im.width, im.height))
@@ -1117,58 +1117,78 @@ def extract_candles_from_image(img: Image.Image, max_dim: int = 1400) -> pd.Data
     sat = mx - mn
     green = (g > 50) & (g - r > 22) & (g - b > -45)
     red = (r > 50) & (r - g > 22) & (r - b > 15)
-    blue = (b > 75) & (b - r > 28) & (b - g > 14)
-    mask = ((green | blue) | red) & (sat >= 15) & (mn <= 238)
-    bull_mask = green | blue
+    mask = (green | red) & (sat >= 15) & (mn <= 238)
+    bull_mask = green.copy()
 
-    # ---------- stage 1: column activity (long vertical colour runs) ----------
-    MIN_RUN = max(4, int(h * 0.008))  # 0.8% of chart height — strips wicks/EMA
+    # Ignore the right-hand price axis + current-price marker box (a big green
+    # blob at the far right that would otherwise be read as a huge candle).
+    right_cut = int(w * 0.055)
+    if right_cut:
+        mask[:, w - right_cut:] = False
+        bull_mask[:, w - right_cut:] = False
+
+    # Split the price pane from the volume pane. Volume bars form a dense band at
+    # the bottom, usually separated by a near-empty horizontal gap. Keep only the
+    # tallest contiguous block of "active" rows (the price pane) and drop the
+    # volume band below it — otherwise the 0..100 scale gets crushed.
+    row_count = mask.sum(axis=1)
+    active = row_count > max(2, w * 0.004)
+    runs: list[tuple[int, int]] = []
+    y = 0
+    while y < h:
+        if active[y]:
+            y0 = y
+            while y < h and active[y]:
+                y += 1
+            runs.append((y0, y - 1))
+        else:
+            y += 1
+    if runs:
+        tallest = max(runs, key=lambda rr: rr[1] - rr[0])
+        top, bot = tallest
+        # merge any nearby run just above (wicks can create a small gap)
+        for (ry0, ry1) in runs:
+            if ry1 < top and (top - ry1) < (bot - top) * 0.25:
+                top = ry0
+        mask[bot + 1:, :] = False
+        mask[:top, :] = False
+
+    # Column clusters: a candle is a run of columns that each contain a vertical
+    # colour run of at least MIN_RUN pixels (so thin EMA/grid lines are ignored).
+    MIN_RUN = 4
     col_on = np.zeros(w, dtype=bool)
     for x in range(w):
         run = 0
+        colm = mask[:, x]
         for y in range(h):
-            run = run + 1 if mask[y, x] else 0
+            run = run + 1 if colm[y] else 0
             if run >= MIN_RUN:
                 col_on[x] = True
                 break
 
-    # ---------- stage 2: light merge of micro-clusters only ----------
-    raw_clusters: list[tuple[int, int]] = []
+    clusters: list[tuple[int, int]] = []
     x = 0
     while x < w:
         if col_on[x]:
             x0 = x
             while x < w and col_on[x]:
                 x += 1
-            raw_clusters.append((x0, x - 1))
+            clusters.append((x0, x - 1))
         else:
             x += 1
-
-    if not raw_clusters:
-        return pd.DataFrame()
-
-    MAX_BRIDGE = 2  # px — only merge pixel-noise bridges
-    clusters: list[tuple[int, int]] = []
-    cur = list(raw_clusters[0])
-    for i in range(1, len(raw_clusters)):
-        nxt = raw_clusters[i]
-        gap = nxt[0] - cur[1] - 1
-        if gap <= MAX_BRIDGE:
-            cur[1] = nxt[1]
-        else:
-            clusters.append((cur[0], cur[1]))
-            cur = list(nxt)
-    clusters.append((cur[0], cur[1]))
-
-    # Drop any cluster wider than 5% of image width — those are EMAs /
-    # shaded regions, not single candles.
-    max_width = max(6, int(w * 0.05))
-    clusters = [(a, b) for a, b in clusters if 1 <= b - a + 1 <= max_width]
-
     if len(clusters) < 8:
         return pd.DataFrame()
 
-    # ---------- per-cluster candle geometry ----------
+    # Keep only clusters whose width is consistent with the median candle width.
+    widths = sorted(c[1] - c[0] + 1 for c in clusters)
+    med = widths[len(widths) // 2]
+    lo_w = max(1, int(med * 0.3))
+    hi_w = max(med * 3, 6)
+    clusters = [c for c in clusters if lo_w <= (c[1] - c[0] + 1) <= hi_w]
+    if len(clusters) < 8:
+        return pd.DataFrame()
+
+    tops, bots = [], []
     raw = []
     for (x0, x1) in clusters:
         sub = mask[:, x0: x1 + 1]
@@ -1176,25 +1196,19 @@ def extract_candles_from_image(img: Image.Image, max_dim: int = 1400) -> pd.Data
         if len(ys) == 0:
             continue
         top, bot = int(ys.min()), int(ys.max())
-
         row_counts = sub.sum(axis=1)
-        max_count = row_counts.max()
-        if max_count == 0:
-            continue
-        wide = np.where(row_counts >= max(2, max_count * 0.55))[0]
-        if len(wide) == 0:
-            wide = ys
-        b_top, b_bot = int(wide.min()), int(wide.max())
-
-        red_px = red[top: bot + 1, x0: x1 + 1].sum()
-        green_px = (green | blue)[top: bot + 1, x0: x1 + 1].sum()
-        bull = green_px >= red_px
-
+        wide = np.where(row_counts >= max(1.0, row_counts.max() * 0.55))[0]
+        b_top, b_bot = (int(wide.min()), int(wide.max())) if len(wide) else (top, bot)
+        region = sub[top:bot + 1]
+        bull_px = bull_mask[top:bot + 1, x0:x1 + 1].sum()
+        red_px = (region & (~bull_mask[top:bot + 1, x0:x1 + 1])).sum()
+        bull = bull_px >= red_px
         raw.append({"x": (x0 + x1) / 2 / w, "top": top, "bot": bot, "b_top": b_top, "b_bot": b_bot, "bull": bool(bull)})
-
+        tops.append(top)
+        bots.append(bot)
     if len(raw) < 8:
         return pd.DataFrame()
-    span_top, span_bot = min(r["top"] for r in raw), max(r["bot"] for r in raw)
+    span_top, span_bot = min(tops), max(bots)
     span = max(1, span_bot - span_top)
 
     def to_price(y: float) -> float:
@@ -1212,86 +1226,12 @@ def extract_candles_from_image(img: Image.Image, max_dim: int = 1400) -> pd.Data
     return pd.DataFrame(rows)
 
 
-# ------------------------------------------------------------------ helpers
-
-def build_chart_image(d: pd.DataFrame, plan: dict, levels: pd.DataFrame, symbol: str, exchange: str) -> "PIL.Image.Image":
-    """Render a simple annotated candlestick chart as a PNG (matplotlib-free)."""
-    import plotly.graph_objects as go
-    from plotly.subplots import make_subplots
-
-    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.78, 0.22],
-                        vertical_spacing=0.04, subplot_titles=(f"{symbol} · {exchange}", "حجم"))
-    fig.add_trace(go.Candlestick(
-        x=d["dt"], open=d["open"], high=d["high"], low=d["low"], close=d["close"],
-        increasing_line_color="#22c55e", decreasing_line_color="#ef4444", name="قیمت",
-    ), row=1, col=1)
-    fig.add_trace(go.Scatter(x=d["dt"], y=d["ema20"], line=dict(color="#38bdf8", width=1.2), name="EMA20"), row=1, col=1)
-    fig.add_trace(go.Scatter(x=d["dt"], y=d["ema50"], line=dict(color="#f472b6", width=1.2), name="EMA50"), row=1, col=1)
-    fig.add_trace(go.Scatter(x=d["dt"], y=d["bb_up"], line=dict(color="#94a3b8", width=0.8, dash="dot"), name="BB↑"), row=1, col=1)
-    fig.add_trace(go.Scatter(x=d["dt"], y=d["bb_lo"], line=dict(color="#94a3b8", width=0.8, dash="dot"), name="BB↓"), row=1, col=1)
-    fig.add_hline(y=plan["entry"], line_color="#f59e0b", line_width=2, annotation_text="ورود", row=1, col=1)
-    fig.add_hline(y=plan["stop"], line_color="#ef4444", line_dash="dash", annotation_text="حد ضرر", row=1, col=1)
-    for i, (t_price, t_rr) in enumerate(plan["targets"]):
-        fig.add_hline(y=t_price, line_color="#38bdf8", line_dash="dash",
-                      annotation_text=f"هدف {i + 1} · {t_rr}R", row=1, col=1)
-    if not levels.empty:
-        for _, row in levels.iterrows():
-            colour = "#fb7185" if "مقاومت" in str(row["نوع"]) else "#22c55e"
-            fig.add_hline(y=float(row["سطح"]), line=dict(color=colour, width=0.8, dash="dot"),
-                          annotation_text=f"{row['نوع']} {float(row['سطح']):,.2f}",
-                          annotation_position="right", row=1, col=1)
-    colors = ["#22c55e" if c >= o else "#ef4444" for c, o in zip(d["close"], d["open"])]
-    fig.add_trace(go.Bar(x=d["dt"], y=d["volume"], marker_color=colors, name="حجم"), row=2, col=1)
-    fig.update_layout(
-        height=620, xaxis_rangeslider_visible=False, template="plotly_dark",
-        legend=dict(orientation="h", y=1.02),
-        margin=dict(l=10, r=10, t=40, b=10),
-        paper_bgcolor="#0b1220", plot_bgcolor="#0b1220",
-    )
-
-    try:
-        png_bytes = fig.to_image(format="png", width=1200, height=620, scale=2)
-        return Image.open(io.BytesIO(png_bytes))
-    except Exception:
-        return None
-
-
-# ------------------------------------------------------------------ one-tap analysis
-
-def analyse_symbol(symbol_in: str, exchange: str, interval: str) -> dict:
-    """Top-level orchestration: candles → indicators → levels → plan → chart PNG."""
-    symbol = normalize_symbol(symbol_in, exchange)
-    df = fetch_candles(exchange, symbol, interval)
-    d = add_indicators(df)
-    score_series, comp_table = confluence(d)
-    score = float(score_series.iloc[-1])
-    levels = swing_levels(d)
-    plan = make_plan(d, score, levels)
-    events, state = signal_events(d, score_series)
-    price = float(d["close"].iloc[-1])
-    return {
-        "symbol": symbol,
-        "exchange": exchange,
-        "interval": interval,
-        "price": price,
-        "decimals": 2 if price >= 1000 else 4 if price >= 1 else 6,
-        "score": score,
-        "comp_table": comp_table,
-        "levels": levels,
-        "plan": plan,
-        "events": events,
-        "state": state,
-        "score_series": score_series,
-        "df": d,
-    }
-
-
 # ------------------------------------------------------------------ UI
 
 def main() -> None:
     import plotly.graph_objects as go
+    import streamlit.components.v1 as components
     from plotly.subplots import make_subplots
-    import io
 
     st.set_page_config(page_title="NorthmanQuant — نسخه رایگان", page_icon="📈", layout="wide")
     st.markdown(
@@ -1309,41 +1249,7 @@ def main() -> None:
         live_on = st.checkbox("🔴 حالت زنده (قیمت هر ۵ ثانیه)", value=True)
         auto = st.checkbox("بازخوانی کامل خودکار (۶۰ ثانیه)", value=False)
 
-        st.divider()
-        st.subheader("⚡ تحلیل خودکار")
-        st.caption("نماد + صرافی + تایم‌فریم را انتخاب کن و دکمه را بزن.")
-        quick = st.selectbox(
-            "یا از این لیست سریع انتخاب کن",
-            options=["(انتخاب دستی)"] + QUICK_SYMBOLS,
-            index=0,
-        )
-        if quick != "(انتخاب دستی)":
-            st.session_state["quick_symbol"] = quick
-        if "quick_symbol" in st.session_state and st.session_state.get("quick_symbol") and st.button("🚀 تحلیل کن", type="primary", use_container_width=True):
-            qsym = st.session_state["quick_symbol"]
-            qex = "Lighter" if not qsym.endswith("-USDT") else "KuCoin"
-            qint = "1hour"
-            st.session_state["auto_analyse"] = {
-                "symbol": qsym,
-                "exchange": qex,
-                "interval": qint,
-            }
-            st.session_state["active_tab"] = "tab_analyser"
-            try:
-                st.rerun()
-            except Exception:
-                pass
-
-    # Honour the auto-analyse jump
-    if st.session_state.get("auto_analyse"):
-        symbol = st.session_state["auto_analyse"]["symbol"]
-        exchange = st.session_state["auto_analyse"]["exchange"]
-        interval = st.session_state["auto_analyse"]["interval"]
-        st.session_state["active_tab"] = "tab_analyser"
-    else:
-        symbol = normalize_symbol(symbol_in, exchange)
-        interval = interval
-
+    symbol = normalize_symbol(symbol_in, exchange)
     st.markdown(LIVE_CSS, unsafe_allow_html=True)
 
     # market ticker (spot for CEXes, perps for Lighter)
@@ -1363,110 +1269,10 @@ def main() -> None:
     except Exception:
         pass
 
-    tabs_list = [
-        "🚀 تحلیل خودکار",
-        "📊 تحلیل زنده",
-        "🏆 برترین‌ها",
-        "📰 اخبار",
-        "📷 تحلیل عکس",
-        "📚 منابع داده",
-    ]
-    active = tabs_list.index("🚀 تحلیل خودکار") if st.session_state.get("active_tab") == "tab_analyser" else 1
-    tab_analyser, tab_live, tab_top, tab_news, tab_img, tab_docs = st.tabs(tabs_list)
-    st.session_state.pop("active_tab", None)
-    st.session_state.pop("auto_analyse", None)
+    tab_live, tab_top, tab_news, tab_img, tab_docs = st.tabs(
+        ["📊 تحلیل زنده", "🏆 برترین‌ها", "📰 اخبار", "🖼️ تصویر تحلیل", "📚 منابع داده"]
+    )
 
-    # ============================================================== 🚀 Auto
-    with tab_analyser:
-        st.markdown(
-            f"<div dir='rtl' style='margin:0 0 10px'><b>تحلیل خودکار</b> · "
-            f"<span style='color:#94a3b8'>{symbol} روی {exchange} ({interval})</span></div>",
-            unsafe_allow_html=True,
-        )
-
-        run = st.button("🚀 اجرای تحلیل کامل", type="primary", use_container_width=True)
-        if run or st.session_state.get("auto_run"):
-            st.session_state["auto_run"] = True
-            with st.spinner(f"در حال دریافت داده از {exchange} و تحلیل {symbol}…"):
-                try:
-                    res = analyse_symbol(symbol, exchange, interval)
-                except Exception as e:
-                    st.error(f"خطا: {e}")
-                    st.info("صرافی دیگری را امتحان کنید یا نماد را به شکل صحیح وارد کنید (مثل BTC-USDT).")
-                    res = None
-
-            if res:
-                dec = res["decimals"]
-                price = res["price"]
-                score = res["score"]
-                plan = res["plan"]
-                levels = res["levels"]
-                d = res["df"]
-
-                c1, c2, c3, c4, c5 = st.columns(5)
-                label = (
-                    "خرید قوی" if score > 40 else "خرید" if score > 12 else
-                    "خنثی" if score > -12 else "فروش" if score > -40 else "فروش قوی"
-                )
-                c1.metric("قیمت لحظه‌ای", f"{price:,.{dec}f}", f"{res['symbol']} · {res['exchange']}")
-                c2.metric("امتیاز همگرایی", f"{score:+.0f}", label)
-                c3.metric("ATR", f"{plan['atr']:,.{dec}f}")
-                c4.metric("R:R / اطمینان", f"1:{plan['rr']}", f"{plan['confidence']}٪")
-                c5.metric(
-                    "سیگنال",
-                    plan["direction"],
-                    "ورود" if plan["direction"].startswith("لانگ") else "خروج/شورت",
-                )
-
-                st.markdown("#### 🎯 طرح معامله")
-                p1, p2, p3, p4, p5 = st.columns(5)
-                p1.metric("جهت", plan["direction"])
-                p2.metric("ورود", f"{plan['entry']:,.{dec}f}")
-                p3.metric("حد ضرر", f"{plan['stop']:,.{dec}f}")
-                p4.metric("هدف ۱", f"{plan['targets'][0][0]:,.{dec}f}", f"1:{plan['targets'][0][1]}R")
-                p5.metric("هدف ۲", f"{plan['targets'][1][0]:,.{dec}f}", f"1:{plan['targets'][1][1]}R")
-
-                st.markdown("#### 📈 نمودار تحلیلی")
-                chart_img = build_chart_image(d, plan, levels, res["symbol"], res["exchange"])
-                if chart_img is not None:
-                    st.image(chart_img, caption=f"{res['symbol']} · {res['interval']} — خطوط ورود/حد ضرر/اهداف/حمایت و مقاومت رسم شده", use_container_width=True)
-                    buf = io.BytesIO()
-                    chart_img.save(buf, format="PNG")
-                    st.download_button(
-                        "⬇️ دانلود نمودار (PNG)",
-                        data=buf.getvalue(),
-                        file_name=f"{res['symbol'].replace('-', '')}_analysis.png",
-                        mime="image/png",
-                    )
-                else:
-                    st.caption("⚠️ برای دریافت خروجی PNG، پکیج `kaleido` روی Streamlit Cloud نصب نیست — "
-                               "نمودار زنده در تب «تحلیل زنده» همان اطلاعات را تعاملی نشان می‌دهد.")
-
-                st.markdown("#### 🧱 سطوح کلیدی")
-                if not levels.empty:
-                    show = levels.copy()
-                    show["سطح"] = show["سطح"].map(lambda v: f"{v:,.{dec}f}")
-                    st.dataframe(show, use_container_width=True, hide_index=True)
-                else:
-                    st.info("سطح معناداری پیدا نشد — تایم‌فریم را تغییر دهید.")
-
-                st.markdown("#### ◈ Neural Shell — لایه‌های همگرایی")
-                left, right = st.columns(2)
-                with left:
-                    st.markdown(build_neural_shell(res["comp_table"], score), unsafe_allow_html=True)
-                with right:
-                    st.dataframe(res["comp_table"], use_container_width=True, hide_index=True)
-
-                if not res["events"].empty:
-                    st.markdown("#### 📜 سیگنال‌های اخیر (۱۰ کندل آخر)")
-                    st.dataframe(res["events"].tail(10).iloc[::-1], use_container_width=True, hide_index=True)
-
-                st.markdown("#### 📊 روند امتیاز همگرایی (۱۲۰ کندل اخیر)")
-                st.line_chart(res["score_series"].tail(120), height=160)
-
-                st.caption("این تحلیل بر اساس داده‌ی زنده‌ی صرافی و ۹ اندیکاتور وزن‌دار است. صرفاً آموزشی است و توصیه‌ی سرمایه‌گذاری نیست.")
-
-    # ============================================================== 📊 Live
     with tab_live:
         try:
             df = fetch_candles(exchange, symbol, interval)
@@ -1487,6 +1293,7 @@ def main() -> None:
             state_txt = "خارج از بازار" if state["status"] == "flat" else f"{'لانگ 🟢' if state['status'] == 'long' else 'شورت 🔴'} از {state['entry']:,.{dec}f} · PnL {state['live_pnl']}%"
             c4.metric("سیگنال همگرایی", state_txt)
 
+            # Lighter-only extras (real fields from orderBookDetails)
             lighter_extra = None
             if exchange == "Lighter":
                 try:
@@ -1536,8 +1343,15 @@ def main() -> None:
                 p4.metric("R:R / اطمینان", f"1:{plan['rr']} · {plan['confidence']}٪")
                 for i, (t_price, t_rr) in enumerate(plan["targets"]):
                     st.write(f"هدف {i + 1}: **{t_price:,.{dec}f}** ({t_rr}R)")
-                st.subheader("◈ Neural Shell")
-                st.markdown(build_neural_shell(comp_table, score), unsafe_allow_html=True)
+                st.subheader("◈ پوسته مدل‌ها (Neural Shell) — زنده")
+                # Rendered via components.html (iframe) because st.markdown strips
+                # SVG/SMIL animations; the iframe keeps the live motion intact.
+                components.html(
+                    "<div style='background:#070d18;margin:0;padding:4px'>"
+                    + build_neural_shell_svg(comp_table, score)
+                    + "</div>",
+                    height=380,
+                )
                 st.dataframe(comp_table, use_container_width=True, hide_index=True)
             with right:
                 st.subheader("🧱 حمایت و مقاومت (سوئینگ)")
@@ -1554,7 +1368,7 @@ def main() -> None:
                     st.dataframe(events.tail(10).iloc[::-1], use_container_width=True, hide_index=True)
             st.line_chart(score_series.tail(120), height=140)
             st.caption("نمودار بالا: روند امتیاز همگرایی ۱۲۰ کندل اخیر. داده: API عمومی صرافی (کش ۶۰ ثانیه). این ابزار توصیه‌ی سرمایه‌گذاری نیست.")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             st.error(f"خطا در دریافت/تحلیل داده: {e}")
             st.info("نماد را مثل BTC-USDT بنویس؛ اگر صرافی انتخابی در منطقه‌ات مسدود است، KuCoin یا OKX یا Lighter را انتخاب کن.")
 
@@ -1572,7 +1386,7 @@ def main() -> None:
                 st.subheader("💧 بیشترین حجم")
                 st.dataframe(tops["volume"], use_container_width=True, hide_index=True)
             st.caption(f"منبع: {exchange} — {EXCHANGE_DOCS[exchange]}")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             st.error(f"دریافت فهرست بازار ممکن نشد: {e}")
 
     with tab_news:
@@ -1583,29 +1397,72 @@ def main() -> None:
             else:
                 for _, row in news.iterrows():
                     st.markdown(f"**[{row['title']}]({row['link']})**  \n{row['source']} · {row['sentiment']} · {row['date']}")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             st.error(f"دریافت اخبار ممکن نشد: {e}")
 
     with tab_img:
-        st.write("اسکرین‌شات چارت (روشن یا تیره) را آپلود کن؛ کندل‌ها از روی رنگ‌ها استخراج و سطوح روی مقیاس نسبی ۰ تا ۱۰۰ محاسبه می‌شوند.")
-        up = st.file_uploader("آپلود عکس چارت", type=["png", "jpg", "jpeg", "webp"])
-        if up is not None:
-            img = Image.open(up)
-            st.image(img, caption="عکس آپلودشده", use_container_width=True)
+        st.write(
+            "نماد را وارد کن تا خودش از داده‌ی **واقعی** صرافی تحلیل کند و یک **تصویر چارت آماده** "
+            "با نقاط ورود/حد ضرر/اهداف و سطوح حمایت و مقاومت بسازد — قابل دانلود و اشتراک‌گذاری."
+        )
+
+        ic1, ic2, ic3 = st.columns([1.3, 1, 1])
+        with ic1:
+            img_symbol_in = st.text_input("نماد برای تصویر", value=symbol_in, key="img_symbol",
+                                          help="مثل BTC، ETH، SOL … · برای Lighter فقط نماد پایه")
+        with ic2:
+            img_exchange = st.selectbox("صرافی", EXCHANGES, index=EXCHANGES.index(exchange), key="img_exchange")
+        with ic3:
+            img_interval = st.selectbox("تایم‌فریم", list(INTERVAL_MINUTES.keys()),
+                                        index=list(INTERVAL_MINUTES.keys()).index(interval), key="img_interval")
+
+        make_img = st.button("🖼️ ساخت تصویر تحلیل", type="primary", use_container_width=True)
+
+        if make_img:
+            img_symbol = normalize_symbol(img_symbol_in, img_exchange)
             try:
-                cdf = extract_candles_from_image(img)
-                if cdf.empty or len(cdf) < 10:
-                    st.warning("کندل کافی پیدا نشد. عکس نزدیک‌تر و خواناتر (بدون برش کندل‌ها) امتحان کن.")
-                else:
-                    full = add_indicators(cdf.assign(volume=0.0, dt=pd.RangeIndex(len(cdf))))
-                    lv = swing_levels(full.assign(atr=pd.Series([1.5] * len(full))))
-                    st.success(f"{len(cdf)} کندل استخراج شد. برای دقت بیشتر عکس با کیفیت بالاتر و کندل‌های واضح‌تر آپلود کن.")
-                    st.dataframe(cdf[["open", "high", "low", "close"]].tail(15).round(2), use_container_width=True)
-                    st.subheader("سطوح روی مقیاس نسبی تصویر (۰ تا ۱۰۰)")
-                    st.dataframe(lv, use_container_width=True, hide_index=True)
-                    st.caption("برای قیمت واقعی، سقف و کف قیمتِ دیده‌شده در عکس را در نسخه‌ی کامل سایت وارد کن (کالیبراسیون قیمت).")
-            except Exception as e:
-                st.error(f"پردازش عکس ممکن نشد: {e}")
+                with st.spinner(f"در حال تحلیل {img_symbol} روی {img_exchange} …"):
+                    idf = fetch_candles(img_exchange, img_symbol, img_interval)
+                    idd = add_indicators(idf)
+                    iscore_series, icomp = confluence(idd)
+                    iscore = float(iscore_series.iloc[-1])
+                    ilevels = swing_levels(idd)
+                    iplan = make_plan(idd, iscore, ilevels)
+                    iprice = float(idd["close"].iloc[-1])
+                    idec = 2 if iprice >= 1000 else 4 if iprice >= 1 else 6
+                    png = render_analysis_png(idd, iplan, ilevels, iscore, img_symbol, img_exchange, img_interval, idec)
+
+                ilabel = "خرید قوی" if iscore > 40 else "خرید" if iscore > 12 else "خنثی" if iscore > -12 else "فروش" if iscore > -40 else "فروش قوی"
+                st.success(f"تحلیل {img_symbol} آماده شد · قیمت {iprice:,.{idec}f} · همگرایی {iscore:+.0f} ({ilabel})")
+
+                st.image(png, use_container_width=True)
+                st.download_button(
+                    "⬇️ دانلود تصویر (PNG)",
+                    data=png,
+                    file_name=f"{img_symbol}_{img_interval}_northmanquant.png",
+                    mime="image/png",
+                    use_container_width=True,
+                )
+
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("جهت", iplan["direction"])
+                m2.metric("ورود", f"{iplan['entry']:,.{idec}f}")
+                m3.metric("حد ضرر", f"{iplan['stop']:,.{idec}f}")
+                m4.metric("R:R / اطمینان", f"1:{iplan['rr']} · {iplan['confidence']}٪")
+                for i, (t_price, t_rr) in enumerate(iplan["targets"]):
+                    st.write(f"🎯 هدف {i + 1}: **{t_price:,.{idec}f}** ({t_rr}R)")
+
+                if not ilevels.empty:
+                    st.subheader("🧱 حمایت و مقاومت")
+                    show = ilevels.copy()
+                    show["سطح"] = show["سطح"].map(lambda v: f"{v:,.{idec}f}")
+                    st.dataframe(show, use_container_width=True, hide_index=True)
+                st.caption("برچسب‌های روی تصویر انگلیسی هستند (ENTRY/STOP/TP/S/R) تا در همه‌ی سیستم‌ها درست دیده شوند. این ابزار توصیه‌ی سرمایه‌گذاری نیست.")
+            except Exception as e:  # noqa: BLE001
+                st.error(f"ساخت تصویر ممکن نشد: {e}")
+                st.info("نماد را مثل BTC یا ETH بنویس؛ اگر صرافی مسدود است، OKX یا KuCoin یا Lighter را امتحان کن.")
+        else:
+            st.info("یک نماد وارد کن و دکمه‌ی «ساخت تصویر تحلیل» را بزن.")
 
     with tab_docs:
         st.subheader("📚 منابع داده (مستندات رسمی)")
@@ -1627,7 +1484,7 @@ def main() -> None:
             """
 **نکته‌های واقعیِ داده‌ها**
 - KuCoin ردیف کندل را به ترتیب `[time, open, close, high, low, volume, turnover]` برمی‌گرداند (ترتیب باز/بسته با بقیه متفاوت است).
-- Bybit و OKX لیست کندل را از جدید به قدیم می‌دهند؛ کد قبل از استفاده сорت می‌کند.
+- Bybit و OKX لیست کندل را از جدید به قدیم می‌دهند؛ کد قبل از استفاده مرتب‌سازی می‌کند.
 - Lighter حداکثر ۵۰۰ کندل در هر درخواست می‌دهد و مقادیر صفر را از پاسخ حذف می‌کند (در کد با مقدار پیش‌فرض هندل شده).
 - Lighter مارکت‌ها «perp» هستند (مثل BTC بدون پسوند USDT) و `market_id` از اندپوینت `orderBookDetails` resolve می‌شود — هیچ شناسه‌ای هاردکد نیست.
 - اگر یک صرافی در منطقه‌ات مسدود باشد، کد به‌ترتیب بقیه‌ی صرافی‌ها fallback می‌کند.

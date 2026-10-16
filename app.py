@@ -472,15 +472,15 @@ def build_edge_matrix_svg(d: pd.DataFrame, score_series: pd.Series) -> str:
     fwd[:-1] = (c[1:] - c[:-1]) / c[:-1] * 100  # next-bar % return
     mask = np.isfinite(fwd) & np.isfinite(s)
     xs, ys = s[mask], fwd[mask]
-    if len(xs) > 118:
-        idx = np.linspace(0, len(xs) - 1, 118).astype(int)
+    if len(xs) > 160:
+        idx = np.linspace(0, len(xs) - 1, 160).astype(int)
         xs, ys = xs[idx], ys[idx]
     n = len(xs)
     if n < 5:
         return '<div style="color:#94a3b8;font-family:ui-monospace,monospace;font-size:12px">داده کافی نیست</div>'
 
-    W, H = 660, 380
-    pad_l, pad_r, pad_t, pad_b = 40, 20, 44, 40
+    W, H = 1130, 560
+    pad_l, pad_r, pad_t, pad_b = 64, 30, 60, 60
     pw, ph = W - pad_l - pad_r, H - pad_t - pad_b
 
     x_min, x_max = -100.0, 100.0
@@ -503,40 +503,83 @@ def build_edge_matrix_svg(d: pd.DataFrame, score_series: pd.Series) -> str:
         corr, b1, b0 = 0.0, 0.0, 0.0
 
     zero_x = X(0)
+    zero_y = Y(0)
+
+    # gridlines + y tick labels
+    grid = []
+    for gy in (-y_abs, -y_abs / 2, 0, y_abs / 2, y_abs):
+        yy = Y(gy)
+        grid.append(f'<line x1="{pad_l}" y1="{yy:.1f}" x2="{W - pad_r}" y2="{yy:.1f}" stroke="#eef2f7" stroke-width="1"/>')
+        grid.append(
+            f'<text x="{pad_l - 8}" y="{yy + 3:.1f}" text-anchor="end" font-size="10" '
+            f'font-family="ui-monospace,monospace" fill="#94a3b8">{gy:+.1f}%</text>'
+        )
+    for gx in (-100, -50, 0, 50, 100):
+        xx = X(gx)
+        grid.append(f'<line x1="{xx:.1f}" y1="{pad_t}" x2="{xx:.1f}" y2="{H - pad_b}" stroke="#eef2f7" stroke-width="1"/>')
+        grid.append(
+            f'<text x="{xx:.1f}" y="{H - pad_b + 18:.0f}" text-anchor="middle" font-size="10" '
+            f'font-family="ui-monospace,monospace" fill="#94a3b8">{gx:+d}</text>'
+        )
+
+    # animated dots — each fades in sequentially, then gently pulses (live feel)
     dots = []
     for i in range(n):
         px, py = X(xs[i]), Y(ys[i])
         col = "#16a34a" if ys[i] >= 0 else "#ef4444"
-        dur = 2.0 + (i % 11) * 0.3
+        appear = (i / n) * 2.0
+        pulse = 2.4 + (i % 11) * 0.35
         dots.append(
-            f'<circle cx="{px:.1f}" cy="{py:.1f}" r="3.1" fill="{col}" opacity="0.72">'
-            f'<animate attributeName="opacity" values="0.3;0.85;0.3" dur="{dur:.1f}s" '
-            f'begin="{(i % 12) * 0.12:.1f}s" repeatCount="indefinite"/></circle>'
+            f'<circle cx="{px:.1f}" cy="{py:.1f}" fill="{col}">'
+            f'<animate attributeName="r" values="0;4.5;4.0" dur="0.6s" begin="{appear:.2f}s" fill="freeze"/>'
+            f'<animate attributeName="opacity" values="0.35;0.9;0.35" dur="{pulse:.1f}s" '
+            f'begin="{appear + 0.6:.2f}s" repeatCount="indefinite"/>'
+            f'</circle>'
         )
-    reg = f'<line x1="{X(x_min):.1f}" y1="{Y(b0 + b1 * x_min):.1f}" x2="{X(x_max):.1f}" y2="{Y(b0 + b1 * x_max):.1f}" stroke="#f59e0b" stroke-width="1.6" stroke-dasharray="6 4"/>'
 
+    # regression line draws itself in, then a highlight particle rides along it
+    x1p, y1p = X(x_min), Y(b0 + b1 * x_min)
+    x2p, y2p = X(x_max), Y(b0 + b1 * x_max)
+    line_len = ((x2p - x1p) ** 2 + (y2p - y1p) ** 2) ** 0.5
+    reg = (
+        f'<line id="nqreg" x1="{x1p:.1f}" y1="{y1p:.1f}" x2="{x2p:.1f}" y2="{y2p:.1f}" '
+        f'stroke="#f59e0b" stroke-width="2.4" stroke-dasharray="{line_len:.0f}" stroke-dashoffset="{line_len:.0f}">'
+        f'<animate attributeName="stroke-dashoffset" values="{line_len:.0f};0" dur="1.6s" fill="freeze"/>'
+        f'</line>'
+        f'<circle r="4" fill="#f59e0b">'
+        f'<animateMotion dur="3.5s" begin="1.6s" repeatCount="indefinite" '
+        f'path="M {x1p:.1f} {y1p:.1f} L {x2p:.1f} {y2p:.1f}"/>'
+        f'<animate attributeName="opacity" values="0;1;1;0" dur="3.5s" begin="1.6s" repeatCount="indefinite"/>'
+        f'</circle>'
+    )
+
+    corr_col = "#16a34a" if corr >= 0 else "#ef4444"
     return (
         '<div style="display:flex;justify-content:center">'
         f'<svg viewBox="0 0 {W} {H}" width="100%" style="max-width:{W}px" role="img" aria-label="edge matrix">'
         f'<rect x="0" y="0" width="{W}" height="{H}" rx="12" fill="#f6f8fb"/>'
-        # quadrant shading: right (positive score) green, left red
-        f'<rect x="{zero_x:.1f}" y="{pad_t}" width="{X(x_max) - zero_x:.1f}" height="{ph}" fill="#16a34a" opacity="0.05"/>'
-        f'<rect x="{pad_l}" y="{pad_t}" width="{zero_x - pad_l:.1f}" height="{ph}" fill="#ef4444" opacity="0.05"/>'
+        # quadrant shading
+        f'<rect x="{zero_x:.1f}" y="{pad_t}" width="{X(x_max) - zero_x:.1f}" height="{ph}" fill="#16a34a" opacity="0.055"/>'
+        f'<rect x="{pad_l}" y="{pad_t}" width="{zero_x - pad_l:.1f}" height="{ph}" fill="#ef4444" opacity="0.055"/>'
+        + "".join(grid) +
         # header
-        f'<text x="{W - 14}" y="22" text-anchor="end" font-size="11.5" font-family="ui-monospace,monospace" '
+        f'<text x="{W - 16}" y="28" text-anchor="end" font-size="15" font-family="ui-monospace,monospace" '
         f'font-weight="800" fill="#475569">EDGE MATRIX // ماتریس لبه ◈</text>'
-        f'<text x="14" y="22" font-size="10" font-family="ui-monospace,monospace" fill="#94a3b8">{n} نمونه</text>'
-        # axes
-        f'<line x1="{pad_l}" y1="{Y(0):.1f}" x2="{W - pad_r}" y2="{Y(0):.1f}" stroke="#cbd5e1" stroke-width="1"/>'
-        f'<line x1="{zero_x:.1f}" y1="{pad_t}" x2="{zero_x:.1f}" y2="{H - pad_b}" stroke="#cbd5e1" stroke-width="1"/>'
-        f'{reg}'
-        + "".join(dots) +
-        # footer labels
-        f'<text x="14" y="{H - 12}" font-size="9.5" font-family="ui-monospace,monospace" fill="#ec4899">لبه مثبت</text>'
-        f'<text x="{W / 2:.0f}" y="{H - 12}" text-anchor="middle" font-size="9.5" '
-        f'font-family="ui-monospace,monospace" fill="#64748b">همبستگی {corr:.2f}</text>'
-        f'<text x="{W - 14}" y="{H - 12}" text-anchor="end" font-size="9.5" '
-        f'font-family="ui-monospace,monospace" fill="#16a34a">شیب {b1:.2f}</text>'
+        f'<text x="16" y="28" font-size="13" font-family="ui-monospace,monospace" fill="#94a3b8">{n} نمونه</text>'
+        f'<circle cx="200" cy="24" r="4" fill="#16a34a"><animate attributeName="opacity" values="0.3;1;0.3" dur="1.3s" repeatCount="indefinite"/></circle>'
+        # axis titles
+        f'<text x="{W / 2:.0f}" y="{pad_t - 20}" text-anchor="middle" font-size="11" '
+        f'font-family="ui-monospace,monospace" fill="#64748b">محور افقی: امتیاز همگرایی (−۱۰۰ تا +۱۰۰) · محور عمودی: بازده کندل بعدی</text>'
+        # bold zero axes on top of grid
+        f'<line x1="{pad_l}" y1="{zero_y:.1f}" x2="{W - pad_r}" y2="{zero_y:.1f}" stroke="#cbd5e1" stroke-width="1.5"/>'
+        f'<line x1="{zero_x:.1f}" y1="{pad_t}" x2="{zero_x:.1f}" y2="{H - pad_b}" stroke="#cbd5e1" stroke-width="1.5"/>'
+        + "".join(dots) + reg +
+        # footer readouts (bigger)
+        f'<text x="16" y="{H - 16}" font-size="13" font-family="ui-monospace,monospace" fill="#ec4899">◀ لبه مثبت</text>'
+        f'<text x="{W / 2:.0f}" y="{H - 16}" text-anchor="middle" font-size="13" font-weight="700" '
+        f'font-family="ui-monospace,monospace" fill="{corr_col}">همبستگی {corr:+.2f}</text>'
+        f'<text x="{W - 16}" y="{H - 16}" text-anchor="end" font-size="13" font-weight="700" '
+        f'font-family="ui-monospace,monospace" fill="#f59e0b">شیب رگرسیون {b1:+.2f}</text>'
         '</svg></div>'
     )
 
@@ -950,36 +993,93 @@ BULLISH = ["surge", "rally", "soar", "bullish", "record", "adoption", "gain", "j
            "buy", "breakout", "launch", "rise", "climbs", "boost", "recover", "rebound", "spike", "milestone"]
 BEARISH = ["crash", "plunge", "dump", "bearish", "loss", "hack", "lawsuit", "ban", "sell-off", "outflow",
            "liquidation", "fear", "drop", "falls", "decline", "warning", "fraud", "scam", "down", "sink", "slump"]
-FEEDS = [
+
+# Persian sentiment keywords (titles are matched against these too).
+BULLISH_FA = ["صعود", "رشد", "جهش", "افزایش", "رالی", "سبز", "اوج", "رکورد", "پذیرش", "تایید",
+              "ورود پول", "خرید", "صعودی", "بهبود", "بازگشت", "سقف", "گاوی", "مثبت", "پامپ", "شکست مقاومت"]
+BEARISH_FA = ["سقوط", "ریزش", "کاهش", "افت", "قرمز", "هک", "شکایت", "ممنوعیت", "خروج پول", "لیکویید",
+              "ترس", "نزولی", "هشدار", "کلاهبرداری", "اصلاح", "کف", "خرسی", "منفی", "دامپ", "شکست حمایت"]
+
+# English feeds (reliable from servers) and Persian feeds (via JSON relay).
+FEEDS_EN = [
     ("Cointelegraph", "https://cointelegraph.com/rss"),
     ("CoinDesk", "https://www.coindesk.com/arc/outboundfeeds/rss/"),
     ("Decrypt", "https://decrypt.co/feed"),
 ]
+FEEDS_FA = [
+    ("ارزدیجیتال", "https://arzdigital.com/feed/"),
+    ("والکس", "https://wallex.ir/blog/feed/"),
+    ("زومیت", "https://www.zoomit.ir/feed/"),
+]
+
+RSS2JSON = "https://api.rss2json.com/v1/api.json"
+
+
+def _score_title(title: str) -> str:
+    low = title.lower()
+    score = (
+        sum(1 for w in BULLISH if w in low) + sum(1 for w in BULLISH_FA if w in title)
+        - sum(1 for w in BEARISH if w in low) - sum(1 for w in BEARISH_FA if w in title)
+    )
+    return "مثبت 🟢" if score > 0 else "منفی 🔴" if score < 0 else "خنثی ⚪"
+
+
+def _fetch_feed_direct(url: str) -> list[dict]:
+    r = requests.get(url, timeout=15, headers=HEADERS)
+    if r.status_code != 200:
+        return []
+    root = ET.fromstring(r.content)
+    out = []
+    for node in root.iter("item"):
+        title = (node.findtext("title") or "").strip()
+        link = (node.findtext("link") or "").strip()
+        date = (node.findtext("pubDate") or "").strip()
+        if title and link:
+            out.append({"title": title, "link": link, "date": date})
+    return out
+
+
+def _fetch_feed_relay(url: str) -> list[dict]:
+    """JSON relay — needed for .ir feeds that servers can't fetch directly."""
+    r = requests.get(RSS2JSON, params={"rss_url": url}, timeout=25, headers=HEADERS)
+    data = r.json()
+    if data.get("status") != "ok":
+        return []
+    out = []
+    for it in data.get("items", []):
+        title = (it.get("title") or "").strip()
+        link = (it.get("link") or "").strip()
+        date = (it.get("pubDate") or "").strip()
+        if title and link:
+            out.append({"title": title, "link": link, "date": date})
+    return out
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def fetch_news(limit: int = 30) -> pd.DataFrame:
+def fetch_news(lang: str = "fa", limit: int = 30) -> pd.DataFrame:
+    """Crypto news. lang='fa' -> Persian feeds, lang='en' -> English feeds.
+
+    Persian (.ir) feeds are blocked for direct server fetch, so they are read
+    through a JSON relay; English feeds are tried directly first, then relay.
+    """
+    feeds = FEEDS_FA if lang == "fa" else FEEDS_EN
     items = []
-    for source, url in FEEDS:
-        try:
-            r = requests.get(url, timeout=15, headers={"User-Agent": "northmanquant-lite/1.0"})
-            if r.status_code != 200:
-                continue
-            root = ET.fromstring(r.content)
-            for node in root.iter("item"):
-                title = (node.findtext("title") or "").strip()
-                link = (node.findtext("link") or "").strip()
-                date = (node.findtext("pubDate") or "").strip()
-                if not title or not link:
-                    continue
-                low = title.lower()
-                score = sum(1 for w in BULLISH if w in low) - sum(1 for w in BEARISH if w in low)
-                items.append({
-                    "title": title, "link": link, "source": source, "date": date,
-                    "sentiment": "مثبت 🟢" if score > 0 else "منفی 🔴" if score < 0 else "خنثی ⚪",
-                })
-        except Exception:
-            continue
+    for source, url in feeds:
+        rows = []
+        # Persian feeds: relay first (direct almost always fails on servers).
+        order = (_fetch_feed_relay, _fetch_feed_direct) if lang == "fa" else (_fetch_feed_direct, _fetch_feed_relay)
+        for fetcher in order:
+            try:
+                rows = fetcher(url)
+            except Exception:
+                rows = []
+            if rows:
+                break
+        for row in rows:
+            items.append({
+                "title": row["title"], "link": row["link"], "source": source,
+                "date": row["date"], "sentiment": _score_title(row["title"]),
+            })
     df = pd.DataFrame(items)
     return df.head(limit) if not df.empty else df
 
@@ -1648,7 +1748,7 @@ def main() -> None:
                     "<div style='background:#f6f8fb;margin:0;padding:2px;border-radius:12px'>"
                     + build_edge_matrix_svg(d, score_series)
                     + "</div>",
-                    height=400,
+                    height=580,
                 )
                 st.caption("هر نقطه یک کندل است: محور افقی = امتیاز همگرایی، محور عمودی = بازده کندل بعدی. خط نارنجی رگرسیون؛ شیب و همبستگی مثبت یعنی سیگنال واقعاً پیش‌روِ سود بوده است.")
             except Exception:  # noqa: BLE001
@@ -1675,11 +1775,23 @@ def main() -> None:
             st.error(f"دریافت فهرست بازار ممکن نشد: {e}")
 
     with tab_news:
+        nc1, nc2 = st.columns([3, 1])
+        with nc1:
+            st.caption("پوشش خبری زنده‌ی کریپتو — زبان خبرها را انتخاب کن.")
+        with nc2:
+            news_lang_label = st.radio(
+                "زبان اخبار", ["🇮🇷 فارسی", "🌐 انگلیسی"], horizontal=True,
+                label_visibility="collapsed", key="news_lang",
+            )
+        news_lang = "fa" if "فارسی" in news_lang_label else "en"
         try:
-            news = fetch_news()
+            with st.spinner("در حال دریافت اخبار…"):
+                news = fetch_news(news_lang)
             if news.empty:
-                st.info("خبری دریافت نشد.")
+                st.info("خبری دریافت نشد. چند لحظه بعد دوباره امتحان کن (فیدهای فارسی گاهی با تأخیر کش می‌شوند).")
             else:
+                src = " · ".join(sorted(news["source"].unique()))
+                st.caption(f"{len(news)} خبر از: {src}")
                 for _, row in news.iterrows():
                     st.markdown(f"**[{row['title']}]({row['link']})**  \n{row['source']} · {row['sentiment']} · {row['date']}")
         except Exception as e:  # noqa: BLE001

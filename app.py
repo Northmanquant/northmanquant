@@ -1728,6 +1728,75 @@ def make_plan(d: pd.DataFrame, score: float, levels: pd.DataFrame) -> dict:
     }
 
 
+def triple_tp_plan(d: pd.DataFrame, score: float) -> dict:
+    """ATR-based plan with exactly THREE take-profits (1R / 2R / 3R) and a stop.
+
+    Used by the opportunity scanner so every row has a full SL + TP1/TP2/TP3.
+    """
+    price = float(d["close"].iloc[-1])
+    atr = float(d["atr"].iloc[-1]) if np.isfinite(d["atr"].iloc[-1]) else price * 0.01
+    direction = "long" if score >= 0 else "short"
+    recent = d.tail(10)
+    swing = float(recent["low"].min()) if direction == "long" else float(recent["high"].max())
+    if direction == "long":
+        stop = max(min(swing - atr * 0.3, price - atr), price - atr * 3)
+        risk = max(price - stop, atr)
+        tps = [price + risk * m for m in (1, 2, 3)]
+    else:
+        stop = min(max(swing + atr * 0.3, price + atr), price + atr * 3)
+        risk = max(stop - price, atr)
+        tps = [price - risk * m for m in (1, 2, 3)]
+    return {"direction": direction, "entry": price, "stop": stop,
+            "tps": tps, "atr": atr, "risk_pct": risk / price * 100}
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def scan_opportunities(exchange: str, interval: str, top_n: int = 12, min_abs_score: int = 35) -> pd.DataFrame:
+    """Scan the most liquid USDT markets and return the strongest setups
+    (long or short) with SL + triple TP. Ranked by |confluence| × ADX."""
+    try:
+        movers = fetch_top_coins(exchange, 1_000_000, 40)
+        pool = pd.concat([movers["volume"], movers["gainers"], movers["losers"]]).drop_duplicates("symbol")
+        symbols = pool["symbol"].head(top_n * 3).tolist()
+    except Exception:
+        symbols = ["BTC-USDT", "ETH-USDT", "SOL-USDT", "XRP-USDT", "BNB-USDT",
+                   "DOGE-USDT", "ADA-USDT", "AVAX-USDT", "LINK-USDT", "TRX-USDT"]
+
+    rows = []
+    for sym in symbols:
+        sym_use = normalize_symbol(sym, exchange)
+        try:
+            d = add_indicators(fetch_candles(exchange, sym_use, interval, limit=300))
+            if len(d) < 60:
+                continue
+            score_series, _ = confluence(d)
+            score = float(score_series.iloc[-1])
+            if abs(score) < min_abs_score:
+                continue
+            adx = float(d["adx"].iloc[-1]) if np.isfinite(d["adx"].iloc[-1]) else 0.0
+            plan = triple_tp_plan(d, score)
+            price = plan["entry"]
+            dec = 2 if price >= 1000 else 4 if price >= 1 else 6
+            rows.append({
+                "symbol": sym_use,
+                "dir": "لانگ 🟢" if score >= 0 else "شورت 🔴",
+                "score": int(round(score)),
+                "adx": round(adx, 1),
+                "price": price,
+                "stop": plan["stop"],
+                "tp1": plan["tps"][0], "tp2": plan["tps"][1], "tp3": plan["tps"][2],
+                "risk_pct": round(plan["risk_pct"], 2),
+                "dec": dec,
+                "rank": abs(score) * (1 + adx / 50),
+            })
+        except Exception:
+            continue
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+    return df.sort_values("rank", ascending=False).head(top_n).reset_index(drop=True)
+
+
 # ------------------------------------------------------------------ analysis image
 
 def render_analysis_png(
@@ -1983,8 +2052,8 @@ def main() -> None:
         unsafe_allow_html=True,
     )
 
-    SECTIONS = ["📊 تحلیل زنده", "🏆 برترین‌ها", "📰 اخبار", "🖼️ تصویر تحلیل",
-                "👥 تحلیل‌های کاربران", "📚 منابع داده"]
+    SECTIONS = ["📊 تحلیل زنده", "💎 فرصت‌های سودده", "🏆 برترین‌ها", "📰 اخبار",
+                "🖼️ تصویر تحلیل", "👥 تحلیل‌های کاربران", "📚 منابع داده"]
 
     with st.sidebar:
         st.header("⚙️ تنظیمات")
@@ -2014,7 +2083,11 @@ def main() -> None:
                                      value=160, step=20,
                                      help="کمتر = کندل‌ها بازتر و درشت‌تر · بیشتر = فشرده‌تر")
             live_on = st.checkbox("🔴 حالت زنده (قیمت هر ۵ ثانیه)", value=True)
-            auto = st.checkbox("بازخوانی کامل خودکار (۶۰ ثانیه)", value=False)
+            auto = st.checkbox("♻️ بازخوانی کامل خودکار", value=False,
+                               help="کل داده و تحلیل به‌صورت خودکار و بدون کلیک به‌روز می‌شود.")
+            auto_sec = st.select_slider("فاصله‌ی بازخوانی", options=[15, 30, 60, 120, 300],
+                                        value=60, format_func=lambda s: f"{s} ثانیه",
+                                        disabled=not auto)
 
         # --- appearance ------------------------------------------------------
         with st.expander("🎨 شخصی‌سازی ظاهر", expanded=False):
@@ -2057,6 +2130,28 @@ def main() -> None:
 
     # apply chosen theme (and optional background image) across the whole app
     st.markdown(theme_css(THEMES[theme_name], bg_image_url.strip()), unsafe_allow_html=True)
+
+    # non-blocking auto-refresh: rerun the whole app every `auto_sec` seconds.
+    if auto:
+        refreshed = False
+        try:
+            # Streamlit >= 1.30 has a native helper
+            st.autorefresh(interval=auto_sec * 1000, key="nq_autorefresh")  # type: ignore[attr-defined]
+            refreshed = True
+        except Exception:
+            try:
+                from streamlit_autorefresh import st_autorefresh  # optional pkg
+                st_autorefresh(interval=auto_sec * 1000, key="nq_autorefresh")
+                refreshed = True
+            except Exception:
+                refreshed = False
+        if not refreshed:
+            # Fallback: a tiny meta-refresh injected into the parent document.
+            components.html(
+                f"<script>setTimeout(()=>window.parent.location.reload(), {auto_sec * 1000});</script>",
+                height=0,
+            )
+        st.caption(f"♻️ بازخوانی خودکار هر {auto_sec} ثانیه فعال است.")
 
     symbol = normalize_symbol(symbol_in, exchange)
     st.markdown(LIVE_CSS, unsafe_allow_html=True)
@@ -2118,6 +2213,16 @@ def main() -> None:
                 live_strip_auto(symbol, exchange, interval, dec, lighter_extra)
             else:
                 live_strip_manual(symbol, exchange, interval, dec, lighter_extra)
+
+            # ===== NEURAL SHELL — placed ABOVE the chart =====================
+            st.subheader("◈ پوسته مدل‌ها (Neural Shell) — زنده")
+            components.html(
+                "<div style='background:#f6f8fb;margin:0;padding:2px;border-radius:12px'>"
+                + build_neural_shell_svg(comp_table, score)
+                + "</div>",
+                height=340,
+            )
+            st.divider()
 
             # ---- TradingView-style chart ---------------------------------
             # Slice to the chosen number of candles (horizontal compress/expand)
@@ -2231,15 +2336,8 @@ def main() -> None:
             for i, (t_price, t_rr) in enumerate(plan["targets"]):
                 tcols[i].metric(f"هدف {i + 1}", f"{t_price:,.{dec}f}", f"{t_rr}R")
 
-            # ===== NEURAL SHELL — full width =================================
+            # ===== CONFLUENCE COMPONENTS table ==============================
             st.divider()
-            st.subheader("◈ پوسته مدل‌ها (Neural Shell) — زنده")
-            components.html(
-                "<div style='background:#f6f8fb;margin:0;padding:2px;border-radius:12px'>"
-                + build_neural_shell_svg(comp_table, score)
-                + "</div>",
-                height=340,
-            )
             st.markdown("**اجزای همگرایی**")
             st.dataframe(comp_table, use_container_width=True, hide_index=True)
 
@@ -2285,6 +2383,74 @@ def main() -> None:
         except Exception as e:  # noqa: BLE001
             st.error(f"خطا در دریافت/تحلیل داده: {e}")
             st.info("نماد را مثل BTC-USDT بنویس؛ اگر صرافی انتخابی در منطقه‌ات مسدود است، KuCoin یا OKX یا Lighter را انتخاب کن.")
+
+    if section == "💎 فرصت‌های سودده":
+        st.subheader("💎 فرصت‌های سودده — اسکن زنده‌ی بازار")
+        st.caption("قوی‌ترین ستاپ‌های لانگ/شورت از میان پرمعامله‌ترین ارزها، با حد ضرر و سه تیک‌پرافیت. "
+                   f"صرافی: {exchange} · تایم‌فریم: {interval}")
+        oc1, oc2, oc3 = st.columns([1, 1, 1])
+        with oc1:
+            opp_n = st.slider("تعداد فرصت‌ها", 5, 20, 12, key="opp_n")
+        with oc2:
+            opp_minscore = st.slider("حداقل قدرت سیگنال", 20, 70, 35, step=5, key="opp_min")
+        with oc3:
+            st.write("")
+            do_scan = st.button("🔍 اسکن بازار", type="primary", use_container_width=True)
+
+        if do_scan or st.session_state.get("opp_done"):
+            st.session_state["opp_done"] = True
+            with st.spinner("در حال اسکن بازار… (ممکن است چند ثانیه طول بکشد)"):
+                opp = scan_opportunities(exchange, interval, top_n=opp_n, min_abs_score=opp_minscore)
+            if opp.empty:
+                st.info("فعلاً ستاپ قوی‌ای پیدا نشد. حداقل قدرت سیگنال را کم کن یا تایم‌فریم دیگری امتحان کن.")
+            else:
+                st.success(f"{len(opp)} فرصت پیدا شد — مرتب‌شده بر اساس قدرت سیگنال × روند (ADX).")
+                for _, r in opp.iterrows():
+                    dec = int(r["dec"])
+                    is_long = "لانگ" in r["dir"]
+                    tone = "#16a34a" if is_long else "#ef4444"
+                    sl_pct = (r["stop"] - r["price"]) / r["price"] * 100
+                    def _pct(v):
+                        return (v - r["price"]) / r["price"] * 100
+                    st.markdown(
+                        f"<div dir='rtl' style='border:1px solid rgba(148,163,184,.2);border-right:5px solid {tone};"
+                        f"border-radius:14px;padding:14px 16px;margin:10px 0;background:rgba(148,163,184,.05)'>"
+                        f"<div style='display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;align-items:center'>"
+                        f"<span style='font-size:18px;font-weight:800'>{r['symbol']}</span>"
+                        f"<span style='font-family:ui-monospace,monospace;font-size:14px;color:{tone};font-weight:800'>{r['dir']}</span>"
+                        f"<span style='font-family:ui-monospace,monospace;font-size:12px;color:#94a3b8'>قدرت {r['score']:+d} · ADX {r['adx']} · ریسک {r['risk_pct']}%</span>"
+                        f"</div>"
+                        f"<div style='display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:12px;text-align:center'>"
+                        f"<div style='background:rgba(148,163,184,.08);border-radius:10px;padding:8px'>"
+                        f"<div style='font-size:10px;color:#94a3b8'>ورود</div>"
+                        f"<div style='font-family:ui-monospace,monospace;font-weight:800;font-size:14px'>{r['price']:,.{dec}f}</div></div>"
+                        f"<div style='background:rgba(239,68,68,.12);border-radius:10px;padding:8px'>"
+                        f"<div style='font-size:10px;color:#fca5a5'>حد ضرر (SL)</div>"
+                        f"<div style='font-family:ui-monospace,monospace;font-weight:800;font-size:14px;color:#ef4444'>{r['stop']:,.{dec}f}</div>"
+                        f"<div style='font-size:9px;color:#94a3b8'>{sl_pct:+.2f}%</div></div>"
+                        f"<div style='background:rgba(34,197,94,.10);border-radius:10px;padding:8px'>"
+                        f"<div style='font-size:10px;color:#86efac'>TP1 · 1R</div>"
+                        f"<div style='font-family:ui-monospace,monospace;font-weight:800;font-size:14px;color:#16a34a'>{r['tp1']:,.{dec}f}</div>"
+                        f"<div style='font-size:9px;color:#94a3b8'>{_pct(r['tp1']):+.2f}%</div></div>"
+                        f"<div style='background:rgba(34,197,94,.14);border-radius:10px;padding:8px'>"
+                        f"<div style='font-size:10px;color:#86efac'>TP2 · 2R</div>"
+                        f"<div style='font-family:ui-monospace,monospace;font-weight:800;font-size:14px;color:#16a34a'>{r['tp2']:,.{dec}f}</div>"
+                        f"<div style='font-size:9px;color:#94a3b8'>{_pct(r['tp2']):+.2f}%</div></div>"
+                        f"<div style='background:rgba(34,197,94,.18);border-radius:10px;padding:8px'>"
+                        f"<div style='font-size:10px;color:#86efac'>TP3 · 3R</div>"
+                        f"<div style='font-family:ui-monospace,monospace;font-weight:800;font-size:14px;color:#16a34a'>{r['tp3']:,.{dec}f}</div>"
+                        f"<div style='font-size:9px;color:#94a3b8'>{_pct(r['tp3']):+.2f}%</div></div>"
+                        f"</div></div>",
+                        unsafe_allow_html=True,
+                    )
+                st.download_button(
+                    "💾 ذخیره فرصت‌ها (CSV)",
+                    data=opp.drop(columns=["dec", "rank"]).to_csv(index=False).encode("utf-8"),
+                    file_name=f"opportunities_{exchange}_{interval}.csv", mime="text/csv",
+                )
+                st.caption("این فهرست صرفاً تحلیلی است و توصیه‌ی سرمایه‌گذاری نیست. حتماً مدیریت ریسک را رعایت کن.")
+        else:
+            st.info("روی «🔍 اسکن بازار» بزن تا بهترین فرصت‌های لانگ/شورت پیدا شوند.")
 
     if section == "🏆 برترین‌ها":
         try:
@@ -2467,11 +2633,6 @@ def main() -> None:
 - اگر یک صرافی در منطقه‌ات مسدود باشد، کد به‌ترتیب بقیه‌ی صرافی‌ها fallback می‌کند.
 """
         )
-
-    if auto:
-        import time as _time
-        _time.sleep(60)
-        st.rerun()
 
 
 if __name__ == "__main__":

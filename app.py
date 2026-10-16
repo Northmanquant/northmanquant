@@ -43,6 +43,12 @@ LIGHTER_TF = {"15min": "15m", "1hour": "1h", "4hour": "4h", "1day": "1d", "1week
 
 EXCHANGES = ["KuCoin", "OKX", "Binance", "Bybit", "Lighter"]
 
+# Extra exchanges accessible through CCXT (100+ venues, public data, no keys).
+# Users can also type ANY ccxt exchange id (e.g. "kraken", "gate", "htx").
+CCXT_SUGGESTED = ["Kraken", "Coinbase", "Gate", "MEXC", "Bitget", "Kucoin", "Gemini",
+                  "Bitstamp", "Bitfinex", "Huobi/HTX", "Crypto.com", "Upbit"]
+CCXT_TF = {"15min": "15m", "1hour": "1h", "4hour": "4h", "1day": "1d", "1week": "1w"}
+
 EXCHANGE_DOCS = {
     "KuCoin": "https://www.kucoin.com/docs/rest/spot/market-data/get-klines",
     "OKX": "https://www.okx.com/docs-v5/en/#order-book-trading-market-data",
@@ -135,6 +141,39 @@ div[data-testid="stExpander"] details {{
 .stDataFrame {{ border-radius: 12px; overflow: hidden; }}
 a {{ color: {t['accent']} !important; }}
 </style>
+"""
+
+
+def share_bar(title: str, text: str, app_url: str = "") -> str:
+    """A compact share/save row: Telegram, WhatsApp, X/Twitter, and copy.
+
+    `text` is the message body (built from live data). Returns an HTML string to
+    render via components.html so the buttons work inside the iframe.
+    """
+    import urllib.parse as _u
+
+    full = f"{title}\n\n{text}"
+    if app_url:
+        full += f"\n\n{app_url}"
+    enc = _u.quote(full)
+    enc_url = _u.quote(app_url or "https://streamlit.io")
+    tg = f"https://t.me/share/url?url={enc_url}&text={enc}"
+    wa = f"https://wa.me/?text={enc}"
+    tw = f"https://twitter.com/intent/tweet?text={enc}"
+    btn = ("display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:9px;"
+           "font:600 12px ui-monospace,monospace;text-decoration:none;color:#fff;margin:2px")
+    js_text = full.replace("\\", "\\\\").replace("`", "\\`").replace("</", "<\\/")
+    return f"""
+<div dir="rtl" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;
+     background:rgba(148,163,184,0.06);border:1px solid rgba(148,163,184,0.15);
+     border-radius:12px;padding:8px 10px">
+  <span style="font:700 12px ui-monospace,monospace;color:#94a3b8;margin-left:4px">اشتراک‌گذاری:</span>
+  <a href="{tg}" target="_blank" style="{btn};background:#229ED9">تلگرام ✈</a>
+  <a href="{wa}" target="_blank" style="{btn};background:#25D366">واتساپ</a>
+  <a href="{tw}" target="_blank" style="{btn};background:#1d9bf0">توییتر/X</a>
+  <button onclick="navigator.clipboard.writeText(`{js_text}`).then(()=>{{this.innerText='کپی شد ✓'}})"
+     style="{btn};background:#475569;border:none;cursor:pointer">کپی متن 📋</button>
+</div>
 """
 
 
@@ -851,17 +890,65 @@ def lighter_market_id(symbol: str) -> int | None:
     return None
 
 
+def _ccxt_id(exchange: str) -> str:
+    """Map a display name to a ccxt exchange id (lowercase, no spaces)."""
+    special = {"huobi/htx": "htx", "htx": "htx", "crypto.com": "cryptocom",
+               "gate": "gateio", "gateio": "gateio"}
+    key = exchange.strip().lower().replace(" ", "")
+    return special.get(key, key)
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _fetch_candles_ccxt(exchange: str, symbol: str, interval: str, limit: int) -> pd.DataFrame:
+    """OHLCV via CCXT for any of its 100+ supported exchanges (public, no key)."""
+    import ccxt
+
+    ex_id = _ccxt_id(exchange)
+    if not hasattr(ccxt, ex_id):
+        raise ValueError(f"صرافی «{exchange}» در CCXT پشتیبانی نمی‌شود.")
+    client = getattr(ccxt, ex_id)({"enableRateLimit": True, "timeout": 20000})
+    # normalise symbol to BASE/QUOTE for ccxt
+    sym = symbol.upper().replace("-", "/").replace("_", "/")
+    if "/" not in sym:
+        for q in ("USDT", "USDC", "USD", "BTC", "ETH"):
+            if sym.endswith(q) and len(sym) > len(q):
+                sym = f"{sym[:-len(q)]}/{q}"
+                break
+    tf = CCXT_TF.get(interval, "1h")
+    ohlcv = client.fetch_ohlcv(sym, timeframe=tf, limit=min(1000, limit))
+    rows = [{"time": int(x[0]), "open": float(x[1]), "high": float(x[2]),
+             "low": float(x[3]), "close": float(x[4]), "volume": float(x[5] or 0)}
+            for x in ohlcv if x and x[4]]
+    df = pd.DataFrame(rows)
+    if df.empty or len(df) < 20:
+        raise ValueError("کندل کافی از این صرافی برنگشت.")
+    df = df.drop_duplicates(subset="time").sort_values("time").reset_index(drop=True)
+    df = df[df["close"] > 0].tail(limit).reset_index(drop=True)
+    df["dt"] = pd.to_datetime(df["time"], unit="ms", utc=True)
+    return df
+
+
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_candles(exchange: str, symbol: str, interval: str, limit: int = 500) -> pd.DataFrame:
-    """OHLCV from public exchange APIs. Falls back to another exchange when one is region-blocked."""
+    """OHLCV from public exchange APIs. Built-in exchanges use native clients;
+    anything else is fetched through CCXT. Falls back to other venues on error."""
+    builtin = exchange in EXCHANGES
     try:
-        return _fetch_candles(exchange, symbol, interval, limit)
+        if builtin:
+            return _fetch_candles(exchange, symbol, interval, limit)
+        return _fetch_candles_ccxt(exchange, symbol, interval, limit)
     except Exception:
+        # try CCXT for a built-in name too, then the other built-ins
+        attempts = []
+        if builtin:
+            attempts.append(lambda: _fetch_candles_ccxt(exchange, symbol, interval, limit))
         for alt in EXCHANGES:
             if alt == exchange:
                 continue
+            attempts.append(lambda alt=alt: _fetch_candles(alt, symbol, interval, limit))
+        for fn in attempts:
             try:
-                return _fetch_candles(alt, symbol, interval, limit)
+                return fn()
             except Exception:
                 continue
         raise
@@ -1774,8 +1861,24 @@ def main() -> None:
     with st.sidebar:
         st.header("⚙️ تنظیمات")
         symbol_in = st.text_input("نماد", value="BTC-USDT", help="مثل BTC-USDT یا gramusdt · برای Lighter فقط BTC")
-        exchange = st.selectbox("صرافی", EXCHANGES)
+        app_url = st.text_input("لینک اپ (برای اشتراک‌گذاری)", value="",
+                                placeholder="https://your-app.streamlit.app",
+                                help="لینک اپ منتشرشده‌ات را بگذار تا در پیام‌های اشتراک‌گذاری بیاید.")
+
+        exch_choice = st.selectbox("صرافی", EXCHANGES + ["➕ صرافی دیگر (CCXT)"])
+        if exch_choice.startswith("➕"):
+            custom_ex = st.text_input(
+                "نام یا شناسه‌ی صرافی", value="Kraken",
+                help="هر صرافیِ CCXT: kraken، coinbase، gate، mexc، bitget، htx، bitstamp، …",
+            )
+            st.caption("نمونه‌ها: " + " · ".join(CCXT_SUGGESTED))
+            exchange = custom_ex.strip() or "Kraken"
+        else:
+            exchange = exch_choice
+
         interval = st.selectbox("تایم‌فریم", list(INTERVAL_MINUTES.keys()), index=1)
+        candle_count = st.slider("تعداد کندل روی چارت (فشرده/باز)", min_value=40, max_value=500, value=160, step=20,
+                                 help="کمتر = کندل‌ها بازتر و درشت‌تر · بیشتر = فشرده‌تر و نمای کلی")
         live_on = st.checkbox("🔴 حالت زنده (قیمت هر ۵ ثانیه)", value=True)
         auto = st.checkbox("بازخوانی کامل خودکار (۶۰ ثانیه)", value=False)
 
@@ -1857,30 +1960,33 @@ def main() -> None:
                 live_strip_manual(symbol, exchange, interval, dec, lighter_extra)
 
             # ---- TradingView-style chart ---------------------------------
+            # Slice to the chosen number of candles (horizontal compress/expand)
+            dc = d.tail(candle_count).reset_index(drop=True)
+
             fig = make_subplots(
                 rows=2, cols=1, shared_xaxes=True, row_heights=[0.80, 0.20],
                 vertical_spacing=0.03,
             )
             # Bollinger band fill (subtle), drawn first so candles sit on top
-            fig.add_trace(go.Scatter(x=d["dt"], y=d["bb_up"], line=dict(color="rgba(148,163,184,0.35)", width=1),
+            fig.add_trace(go.Scatter(x=dc["dt"], y=dc["bb_up"], line=dict(color="rgba(148,163,184,0.35)", width=1),
                                      name="BB بالا", hoverinfo="skip"), row=1, col=1)
-            fig.add_trace(go.Scatter(x=d["dt"], y=d["bb_lo"], line=dict(color="rgba(148,163,184,0.35)", width=1),
+            fig.add_trace(go.Scatter(x=dc["dt"], y=dc["bb_lo"], line=dict(color="rgba(148,163,184,0.35)", width=1),
                                      name="BB پایین", fill="tonexty", fillcolor="rgba(148,163,184,0.06)",
                                      hoverinfo="skip"), row=1, col=1)
             fig.add_trace(go.Candlestick(
-                x=d["dt"], open=d["open"], high=d["high"], low=d["low"], close=d["close"],
+                x=dc["dt"], open=dc["open"], high=dc["high"], low=dc["low"], close=dc["close"],
                 increasing_line_color="#26a69a", increasing_fillcolor="#26a69a",
                 decreasing_line_color="#ef5350", decreasing_fillcolor="#ef5350",
                 line_width=1, name="قیمت", whiskerwidth=0.6,
             ), row=1, col=1)
-            fig.add_trace(go.Scatter(x=d["dt"], y=d["ema20"], line=dict(color="#2962ff", width=1.4),
+            fig.add_trace(go.Scatter(x=dc["dt"], y=dc["ema20"], line=dict(color="#2962ff", width=1.4),
                                      name="EMA20"), row=1, col=1)
-            fig.add_trace(go.Scatter(x=d["dt"], y=d["ema50"], line=dict(color="#ff9800", width=1.4),
+            fig.add_trace(go.Scatter(x=dc["dt"], y=dc["ema50"], line=dict(color="#ff9800", width=1.4),
                                      name="EMA50"), row=1, col=1)
 
             # Entry / Stop / Targets as clean horizontal lines, labels pinned to
             # the RIGHT price axis (no overlapping free-floating annotations).
-            x_last = d["dt"].iloc[-1]
+            x_last = dc["dt"].iloc[-1]
             level_rows = [("ورود", plan["entry"], "#f59e0b", "solid"),
                           ("حد ضرر", plan["stop"], "#ef5350", "dash")]
             for i, (t_price, t_rr) in enumerate(plan["targets"]):
@@ -1893,8 +1999,8 @@ def main() -> None:
                     bgcolor=col, borderpad=3, opacity=0.95, row=1, col=1,
                 )
 
-            vol_colors = ["#26a69a" if cl >= op else "#ef5350" for cl, op in zip(d["close"], d["open"])]
-            fig.add_trace(go.Bar(x=d["dt"], y=d["volume"], marker_color=vol_colors, marker_line_width=0,
+            vol_colors = ["#26a69a" if cl >= op else "#ef5350" for cl, op in zip(dc["close"], dc["open"])]
+            fig.add_trace(go.Bar(x=dc["dt"], y=dc["volume"], marker_color=vol_colors, marker_line_width=0,
                                  name="حجم", opacity=0.55), row=2, col=1)
 
             fig.update_layout(
@@ -1923,6 +2029,24 @@ def main() -> None:
                 "scrollZoom": True, "displaylogo": False,
                 "modeBarButtonsToRemove": ["lasso2d", "select2d"],
             })
+
+            # ---- share / save the whole analysis ----------------------------
+            _dir = "خرید 🟢" if score >= 0 else "فروش 🔴"
+            share_text = (
+                f"نماد: {symbol} · {exchange} ({interval})\n"
+                f"قیمت: {price:,.{dec}f}\n"
+                f"سیگنال همگرایی: {score:+.0f} ({label})\n"
+                f"جهت: {plan['direction']}\n"
+                f"ورود: {plan['entry']:,.{dec}f} · حد ضرر: {plan['stop']:,.{dec}f} · R:R 1:{plan['rr']}\n"
+                + "\n".join(f"هدف {i+1}: {tp:,.{dec}f} ({rr}R)" for i, (tp, rr) in enumerate(plan["targets"]))
+            )
+            sc1, sc2 = st.columns([3, 1])
+            with sc1:
+                components.html(share_bar(f"📈 تحلیل {symbol} — NorthmanQuant", share_text, app_url), height=60)
+            with sc2:
+                st.download_button("💾 ذخیره تحلیل", data=share_text.encode("utf-8"),
+                                   file_name=f"{symbol}_{interval}_analysis.txt", mime="text/plain",
+                                   use_container_width=True, key="dl_analysis")
 
             # ===== THE AGENTS — full-width strategy backtest row =============
             st.divider()
@@ -1971,6 +2095,17 @@ def main() -> None:
                 show = levels.copy()
                 show["سطح"] = show["سطح"].map(lambda v: f"{v:,.{dec}f}")
                 st.dataframe(show, use_container_width=True, hide_index=True)
+                sr_text = f"حمایت/مقاومت {symbol} ({interval}):\n" + "\n".join(
+                    f"{r['نوع']} {r['سطح']} · قدرت {r['قدرت%']}% · فاصله {r['فاصله%']}%"
+                    for _, r in show.head(8).iterrows()
+                )
+                src1, src2 = st.columns([3, 1])
+                with src1:
+                    components.html(share_bar(f"🧱 سطوح {symbol}", sr_text, app_url), height=60)
+                with src2:
+                    st.download_button("💾 ذخیره سطوح", data=show.to_csv(index=False).encode("utf-8"),
+                                       file_name=f"{symbol}_levels.csv", mime="text/csv",
+                                       use_container_width=True, key="dl_levels")
 
             # ===== SIGNAL EVENTS — full width ================================
             st.divider()

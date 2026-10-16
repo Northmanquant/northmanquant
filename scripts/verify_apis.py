@@ -50,6 +50,13 @@ for ex, sym in [("Lighter", "BTC"), ("OKX", "BTC-USDT"), ("KuCoin", "BTC-USDT"),
         return f"{len(df)} bars, last close {df['close'].iloc[-1]:,.2f}, {df['dt'].iloc[0]} → {df['dt'].iloc[-1]}"
     check(f"fetch_candles({ex}, {sym})", fetch)
 
+print("\n== custom exchanges via CCXT ==")
+for ex, sym in [("Kraken", "BTC-USDT"), ("gate", "ETH-USDT"), ("mexc", "BTC-USDT")]:
+    def fetch_ccxt(ex=ex, sym=sym):
+        df = nq.fetch_candles(ex, sym, "1hour")
+        return f"{len(df)} bars, last close {df['close'].iloc[-1]:,.2f}"
+    check(f"fetch_candles CCXT {ex}", fetch_ccxt)
+
 print("\n== ticks (live) ==")
 for ex, sym in [("Lighter", "BTC"), ("OKX", "BTC-USDT"), ("KuCoin", "BTC-USDT"), ("Binance", "BTC-USDT"), ("Bybit", "BTC-USDT")]:
     check(f"fetch_tick({ex})", lambda ex=ex, sym=sym: nq.fetch_tick(ex, sym))

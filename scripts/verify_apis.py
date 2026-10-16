@@ -85,17 +85,18 @@ def pipeline_okx():
     return f"bars={len(d)} score={score.iloc[-1]:+.0f} events={len(events)} rsi={d['rsi'].iloc[-1]:.1f} adx={d['adx'].iloc[-1]:.1f}"
 check("OKX pipeline", pipeline_okx)
 
-print("\n== news (live RSS) ==")
-def news_fa():
-    df = nq.fetch_news("fa")
-    srcs = " · ".join(sorted(df["source"].unique())) if not df.empty else ""
-    return f"{len(df)} items from {srcs}" if not df.empty else "EMPTY"
-check("fetch_news (fa)", news_fa)
-
-def news_en():
-    df = nq.fetch_news("en")
-    return f"{len(df)} items, first: {df.iloc[0]['source']} · {df.iloc[0]['sentiment']}" if not df.empty else "EMPTY"
-check("fetch_news (en)", news_en)
+print("\n== news (live RSS, by category, with full text) ==")
+def _news_cat(cat):
+    def fn():
+        df = nq.fetch_news(cat)
+        if df.empty:
+            return "EMPTY"
+        srcs = " · ".join(sorted(df["source"].unique()))
+        full = int((df["content"].str.len() > 200).sum())
+        return f"{len(df)} items from {srcs} · {full} with full text"
+    return fn
+for _cat in nq.NEWS_CATEGORIES:
+    check(f"fetch_news {_cat}", _news_cat(_cat))
 
 print("\n== analysis image (real data -> PNG) ==")
 def analysis_image():

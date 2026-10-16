@@ -395,12 +395,14 @@ def compute_agents(d: pd.DataFrame) -> list[dict]:
 
 
 def build_agents_svg(cards: list[dict], fee: float = 0.06) -> str:
-    """Live 'THE AGENTS' row — one card per strategy with a sparkline + stats."""
-    n = len(cards)
-    cw, ch = 300, 150
-    gap = 10
-    W = n * cw + (n - 1) * gap + 24
-    H = ch + 44
+    """Live 'THE AGENTS' grid — big, well-spaced cards (3 columns × N rows)."""
+    ncols = 3
+    nrows = (len(cards) + ncols - 1) // ncols
+    cw, ch = 356, 190          # bigger cards
+    gx, gy = 22, 22            # real gaps between cards
+    mx, my_top = 20, 52        # outer margins (top leaves room for header)
+    W = mx * 2 + ncols * cw + (ncols - 1) * gx
+    H = my_top + nrows * ch + (nrows - 1) * gy + 18
 
     def spark_path(vals, x0, y0, w, h):
         vals = np.asarray(vals, dtype=float)
@@ -415,45 +417,58 @@ def build_agents_svg(cards: list[dict], fee: float = 0.06) -> str:
 
     cards_svg = []
     for i, c in enumerate(cards):
-        x = 12 + i * (cw + gap)
+        col = i % ncols
+        row = i // ncols
+        x = mx + col * (cw + gx)
+        y = my_top + row * (ch + gy)
         up = c["total"] >= 0
         line_col = "#16a34a" if up else "#ef4444"
         sign = "+" if up else "−"
-        sp = spark_path(c["spark"], x + 14, 70, cw - 90, 44)
+        sp = spark_path(c["spark"], x + 22, y + 74, cw - 44, 54)
+        area = sp + f' L{x + cw - 22:.1f},{y + 128:.1f} L{x + 22:.1f},{y + 128:.1f} Z'
         state_col = {"LONG": "#16a34a", "SHORT": "#ef4444", "FLAT": "#94a3b8"}[c["state"]]
+        grad_id = f"ag{i}"
         cards_svg.append(
             f'<g>'
-            f'<rect x="{x}" y="34" width="{cw}" height="{ch}" rx="10" fill="#fff" stroke="#e5e9f0"/>'
-            # header: name (RTL right) + badge
-            f'<text x="{x + cw - 44}" y="56" text-anchor="end" font-size="12.5" font-weight="800" fill="#334155">{c["name"]}</text>'
-            f'<text x="{x + cw - 44}" y="68" text-anchor="end" font-size="7.5" fill="#94a3b8" font-family="ui-monospace,monospace">{c["en"]}</text>'
-            f'<circle cx="{x + cw - 24}" cy="56" r="13" fill="{c["color"]}"/>'
-            f'<text x="{x + cw - 24}" y="60" text-anchor="middle" font-size="9" font-weight="800" fill="#fff" font-family="ui-monospace,monospace">{c["tag"]}</text>'
-            # return %
-            f'<text x="{x + cw - 14}" y="104" text-anchor="end" font-size="26" font-weight="800" '
+            f'<defs><linearGradient id="{grad_id}" x1="0" y1="0" x2="0" y2="1">'
+            f'<stop offset="0%" stop-color="{line_col}" stop-opacity="0.18"/>'
+            f'<stop offset="100%" stop-color="{line_col}" stop-opacity="0"/></linearGradient></defs>'
+            f'<rect x="{x}" y="{y}" width="{cw}" height="{ch}" rx="14" fill="#fff" stroke="#e5e9f0" stroke-width="1.5"/>'
+            # header: badge (left) · name + EN (right, RTL)
+            f'<circle cx="{x + 28}" cy="{y + 30}" r="16" fill="{c["color"]}"/>'
+            f'<text x="{x + 28}" y="{y + 35}" text-anchor="middle" font-size="11" font-weight="800" fill="#fff" font-family="ui-monospace,monospace">{c["tag"]}</text>'
+            f'<text x="{x + cw - 18}" y="{y + 28}" text-anchor="end" font-size="16" font-weight="800" fill="#334155">{c["name"]}</text>'
+            f'<text x="{x + cw - 18}" y="{y + 42}" text-anchor="end" font-size="9" fill="#94a3b8" font-family="ui-monospace,monospace">{c["en"]}</text>'
+            # big return %
+            f'<text x="{x + cw - 18}" y="{y + 74}" text-anchor="end" font-size="34" font-weight="800" '
             f'fill="{line_col}" font-family="ui-monospace,monospace">{sign}{abs(c["total"]):.2f}%</text>'
-            # sparkline
-            f'<path d="{sp}" fill="none" stroke="{line_col}" stroke-width="1.6" opacity="0.9"/>'
-            f'<circle r="2.6" fill="{line_col}"><animateMotion dur="3s" repeatCount="indefinite" '
-            f'path="{sp.replace("M", "").replace(" L", " ")}" keyPoints="0;1" keyTimes="0;1" calcMode="linear"/></circle>'
+            # sparkline (area + line + moving dot)
+            f'<path d="{area}" fill="url(#{grad_id})" stroke="none"/>'
+            f'<path d="{sp}" fill="none" stroke="{line_col}" stroke-width="2" opacity="0.95"/>'
+            f'<circle r="3.2" fill="{line_col}"><animateMotion dur="3.2s" repeatCount="indefinite" '
+            f'path="{sp.replace("M", "").replace(" L", " ")}" keyPoints="0;1" keyTimes="0;1" calcMode="linear"/>'
+            f'<animate attributeName="opacity" values="0;1;1;0" dur="3.2s" repeatCount="indefinite"/></circle>'
+            # divider
+            f'<line x1="{x + 18}" y1="{y + 140}" x2="{x + cw - 18}" y2="{y + 140}" stroke="#eef2f7" stroke-width="1"/>'
             # stats row
-            f'<text x="{x + 14}" y="138" font-size="8.5" fill="#64748b" font-family="ui-monospace,monospace">PF {c["pf"]}</text>'
-            f'<text x="{x + cw * 0.42:.0f}" y="138" font-size="8.5" fill="#64748b" font-family="ui-monospace,monospace">TRD {c["trades"]}</text>'
-            f'<text x="{x + cw - 14}" y="138" text-anchor="end" font-size="8.5" fill="#64748b" font-family="ui-monospace,monospace">WIN {c["win"]}%</text>'
+            f'<text x="{x + 22}" y="{y + 160}" font-size="11" fill="#64748b" font-family="ui-monospace,monospace">PF {c["pf"]}</text>'
+            f'<text x="{x + cw * 0.46:.0f}" y="{y + 160}" font-size="11" fill="#64748b" font-family="ui-monospace,monospace">TRD {c["trades"]}</text>'
+            f'<text x="{x + cw - 22}" y="{y + 160}" text-anchor="end" font-size="11" fill="#64748b" font-family="ui-monospace,monospace">WIN {c["win"]}%</text>'
             # footer: state chip + DD
-            f'<rect x="{x + 12}" y="150" width="46" height="15" rx="4" fill="{state_col}" opacity="0.14"/>'
-            f'<text x="{x + 35}" y="161" text-anchor="middle" font-size="8" font-weight="800" fill="{state_col}" font-family="ui-monospace,monospace">{c["state"]}</text>'
-            f'<text x="{x + cw - 14}" y="161" text-anchor="end" font-size="8" fill="#94a3b8" font-family="ui-monospace,monospace">DD {c["dd"]}%</text>'
+            f'<rect x="{x + 20}" y="{y + 168}" width="60" height="18" rx="5" fill="{state_col}" opacity="0.14"/>'
+            f'<text x="{x + 50}" y="{y + 181}" text-anchor="middle" font-size="10" font-weight="800" fill="{state_col}" font-family="ui-monospace,monospace">{c["state"]}</text>'
+            f'<text x="{x + cw - 22}" y="{y + 181}" text-anchor="end" font-size="10" fill="#94a3b8" font-family="ui-monospace,monospace">DD {c["dd"]}%</text>'
             f'</g>'
         )
 
     return (
         '<div style="display:flex;justify-content:center">'
         f'<svg viewBox="0 0 {W} {H}" width="100%" style="max-width:{W}px" role="img" aria-label="the agents">'
-        f'<rect x="0" y="0" width="{W}" height="{H}" rx="12" fill="#f6f8fb"/>'
-        f'<text x="14" y="20" font-size="11.5" font-family="ui-monospace,monospace" font-weight="800" '
+        f'<rect x="0" y="0" width="{W}" height="{H}" rx="14" fill="#f6f8fb"/>'
+        f'<text x="20" y="30" font-size="14" font-family="ui-monospace,monospace" font-weight="800" '
         f'fill="#475569" letter-spacing="0.5">◈ THE AGENTS // دفتر ایجنت‌ها — بک‌تست زنده روی داده‌ی فعلی</text>'
-        f'<text x="{W - 14}" y="20" text-anchor="end" font-size="10" font-family="ui-monospace,monospace" '
+        f'<circle cx="{W - 180}" cy="26" r="4" fill="#16a34a"><animate attributeName="opacity" values="0.3;1;0.3" dur="1.3s" repeatCount="indefinite"/></circle>'
+        f'<text x="{W - 20}" y="30" text-anchor="end" font-size="12" font-family="ui-monospace,monospace" '
         f'fill="#94a3b8">کارمزد {fee:.2f}٪ لحاظ شده</text>'
         + "".join(cards_svg) +
         '</svg></div>'
@@ -1697,10 +1712,10 @@ def main() -> None:
             try:
                 agent_cards = compute_agents(d)
                 components.html(
-                    "<div style='background:#f6f8fb;margin:0;padding:2px;border-radius:12px'>"
+                    "<div style='background:#f6f8fb;margin:0;padding:2px;border-radius:14px'>"
                     + build_agents_svg(agent_cards)
                     + "</div>",
-                    height=210,
+                    height=520,
                 )
             except Exception:  # noqa: BLE001
                 pass

@@ -92,6 +92,16 @@ def pipeline_okx():
     return f"bars={len(d)} score={score.iloc[-1]:+.0f} events={len(events)} rsi={d['rsi'].iloc[-1]:.1f} adx={d['adx'].iloc[-1]:.1f}"
 check("OKX pipeline", pipeline_okx)
 
+print("\n== opportunity scanner (SL + triple TP) ==")
+def scanner():
+    opp = nq.scan_opportunities("OKX", "1hour", top_n=6, min_abs_score=25)
+    if opp.empty:
+        return "no setups right now (ok)"
+    r = opp.iloc[0]
+    assert all(c in opp.columns for c in ("stop", "tp1", "tp2", "tp3"))
+    return f"{len(opp)} setups · top {r['symbol']} {r['dir']} score {r['score']:+d}"
+check("scan_opportunities", scanner)
+
 print("\n== news (live RSS, by category, with full text) ==")
 def _news_cat(cat):
     def fn():

@@ -136,146 +136,184 @@ def _annular_sector(cx: float, cy: float, r1: float, r2: float, a1: float, a2: f
 
 def build_neural_shell_svg(comp_table: pd.DataFrame, score: float) -> str:
     """
-    NEURAL SHELL — live animated feature-extraction flow (pure SVG + SMIL, no JS).
+    NEURAL SHELL — live animated feature-extraction dashboard (pure SVG + SMIL).
 
-    Left: the 9 confluence features as nodes (colour = direction, bar = strength).
-    Middle: curved synapses carrying animated particles toward the core.
-    Right: a rotating neural "shell" of orbiting nodes whose glow reflects the
-    overall confluence score. Everything animates in the browser via SMIL.
+    Three panels, light theme:
+      • LEFT   — orbiting particle cloud around a dark core showing EDGE PROBABILITY.
+      • MIDDLE — feature dots → dashed flows → CONFLUENCE node → EDGE node.
+      • RIGHT  — the 9 features with p(up) %, value, and an animated strength bar.
+    Rendered inside components.html (iframe) so the animations are not stripped.
     """
     import math as _m
 
-    W, H = 680, 360
     rows = []
     if comp_table is not None and not comp_table.empty and "امتیاز" in comp_table.columns:
-        rows = list(zip(comp_table["اندیکاتور"].tolist(), [float(v) for v in comp_table["امتیاز"].tolist()]))
+        for _, rr in comp_table.iterrows():
+            rows.append((str(rr["اندیکاتور"]), str(rr.get("مقدار", "")), float(rr["امتیاز"])))
     if not rows:
-        rows = [("—", 0.0)] * 9
+        rows = [("—", "", 0.0)] * 9
     n = len(rows)
 
-    core_x, core_y, core_r = 505.0, 180.0, 96.0
-    node_x = 150.0
-    top, bottom = 48.0, 320.0
-    gap = (bottom - top) / max(1, n - 1)
+    W, H = 1130, 360
+    GREEN, RED, GREY = "#16a34a", "#ef4444", "#94a3b8"
 
-    def col_of(v: float) -> str:
-        return "#10b981" if v > 0.12 else "#f43f5e" if v < -0.12 else "#64748b"
+    def tone(v: float) -> str:
+        return GREEN if v > 0.12 else RED if v < -0.12 else GREY
 
-    synapses, particles, nodes = [], [], []
-    for i, (label, v) in enumerate(rows):
-        y = top + i * gap
-        color = col_of(v)
-        strength = min(1.0, abs(v))
-        # bezier from node to core
-        c1x, c1y = node_x + 110, y
-        c2x, c2y = core_x - 150, core_y + (y - core_y) * 0.25
-        path = f"M {node_x + 8:.1f} {y:.1f} C {c1x:.1f} {c1y:.1f} {c2x:.1f} {c2y:.1f} {core_x - core_r * 0.7:.1f} {core_y:.1f}"
-        pid = f"nsyn{i}"
-        synapses.append(
-            f'<path id="{pid}" d="{path}" fill="none" stroke="{color}" '
-            f'stroke-opacity="{0.10 + strength * 0.45:.2f}" stroke-width="{0.6 + strength * 1.8:.2f}"/>'
+    def p_up(v: float) -> int:
+        return int(round((v + 1) / 2 * 100))
+
+    # -------------------------------------------------- LEFT: orbital cloud
+    lcx, lcy = 150.0, 190.0
+    rings = "".join(
+        f'<ellipse cx="{lcx}" cy="{lcy}" rx="{r}" ry="{r * 0.92:.0f}" fill="none" '
+        f'stroke="#e2e8f0" stroke-width="1"/>'
+        for r in (40, 70, 100, 128)
+    )
+    edge_prob = max(1, min(99, (score + 100) / 2))
+    greens = sum(1 for _, _, v in rows if v > 0.12)
+    green_ratio = greens / max(1, n)
+    cloud = []
+    for i in range(130):
+        h1 = (np.sin(i * 127.1) * 43758.5453) % 1
+        h2 = (np.sin(i * 311.7) * 12543.123) % 1
+        h3 = (np.sin(i * 74.7) * 998.5) % 1
+        ang = h1 * 2 * _m.pi
+        ring = 20 + h2 * 118
+        x = lcx + ring * _m.cos(ang)
+        y = lcy + ring * _m.sin(ang) * 0.92
+        is_green = h3 < (0.35 + green_ratio * 0.5)
+        c = GREEN if is_green else "#cbd5e1"
+        rad = 1.0 + h2 * 2.0
+        dur = 2.0 + (i % 9) * 0.5
+        cloud.append(
+            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{rad:.1f}" fill="{c}" opacity="0.8">'
+            f'<animate attributeName="opacity" values="0.15;0.85;0.15" dur="{dur:.1f}s" '
+            f'begin="{(i % 10) * 0.2:.1f}s" repeatCount="indefinite"/></circle>'
         )
-        # a couple of travelling particles per synapse
-        dur = 2.2 + (i % 5) * 0.6
-        for k in range(2):
-            begin = (k * dur / 2) + i * 0.17
-            particles.append(
-                f'<circle r="{1.6 + strength * 1.8:.1f}" fill="{color}">'
-                f'<animateMotion dur="{dur:.1f}s" begin="{begin:.2f}s" repeatCount="indefinite">'
-                f'<mpath href="#{pid}"/></animateMotion>'
-                f'<animate attributeName="opacity" values="0;1;1;0" dur="{dur:.1f}s" begin="{begin:.2f}s" repeatCount="indefinite"/>'
-                f'</circle>'
-            )
-        # node: pulsing dot + strength bar + label
-        bar_w = 26 + strength * 42
-        short = str(label)
-        if len(short) > 13:
-            short = short[:12] + "…"
-        nodes.append(
+    left = (
+        f'<g>'
+        f'{rings}'
+        f'<g><animateTransform attributeName="transform" type="rotate" '
+        f'from="0 {lcx} {lcy}" to="360 {lcx} {lcy}" dur="80s" repeatCount="indefinite"/>{"".join(cloud)}</g>'
+        f'<g><animateTransform attributeName="transform" type="rotate" '
+        f'from="360 {lcx} {lcy}" to="0 {lcx} {lcy}" dur="120s" repeatCount="indefinite"/>'
+        + "".join(
+            f'<circle cx="{lcx + (55 + (j % 3) * 22) * _m.cos(j):.1f}" '
+            f'cy="{lcy + (55 + (j % 3) * 22) * _m.sin(j) * 0.9:.1f}" r="2.2" fill="{GREEN}" opacity="0.6"/>'
+            for j in range(10)
+        )
+        + f'</g>'
+        f'<circle cx="{lcx}" cy="{lcy}" r="46" fill="#0b1220"/>'
+        f'<text x="{lcx}" y="{lcy - 2}" text-anchor="middle" font-family="ui-monospace,monospace" '
+        f'font-weight="800" font-size="24" fill="{GREEN}">{edge_prob:.1f}%</text>'
+        f'<text x="{lcx}" y="{lcy + 14}" text-anchor="middle" font-size="8" '
+        f'fill="#94a3b8" font-family="ui-monospace,monospace">EDGE PROBABILITY</text>'
+        f'</g>'
+    )
+
+    # -------------------------------------------------- MIDDLE: feature flow
+    fx = 330.0          # feature dots column
+    conf_x, conf_y = 595.0, 190.0
+    edge_x = 705.0
+    top, bot = 50.0, 330.0
+    gap = (bot - top) / max(1, n - 1)
+    flows, fdots, fparts = [], [], []
+    for i, (label, _val, v) in enumerate(rows):
+        y = top + i * gap
+        color = tone(v)
+        strength = min(1.0, abs(v))
+        c1x, c1y = fx + 120, y
+        c2x, c2y = conf_x - 90, conf_y + (y - conf_y) * 0.2
+        path = f"M {fx:.1f} {y:.1f} C {c1x:.1f} {c1y:.1f} {c2x:.1f} {c2y:.1f} {conf_x - 8:.1f} {conf_y:.1f}"
+        pid = f"nsflow{i}"
+        dash = "6 5" if v >= 0 else "3 4"
+        flows.append(
+            f'<path id="{pid}" d="{path}" fill="none" stroke="{color}" '
+            f'stroke-width="{0.8 + strength * 2.0:.2f}" stroke-opacity="{0.25 + strength * 0.5:.2f}" '
+            f'stroke-dasharray="{dash}"/>'
+        )
+        dur = 2.4 + (i % 5) * 0.5
+        fparts.append(
+            f'<circle r="{2.0 + strength * 1.6:.1f}" fill="{color}">'
+            f'<animateMotion dur="{dur:.1f}s" begin="{i * 0.2:.2f}s" repeatCount="indefinite">'
+            f'<mpath href="#{pid}"/></animateMotion></circle>'
+        )
+        fdots.append(
+            f'<circle cx="{fx:.1f}" cy="{y:.1f}" r="4.5" fill="{color}">'
+            f'<animate attributeName="r" values="3.5;5.5;3.5" dur="{1.8 + (i % 4) * 0.4:.1f}s" '
+            f'repeatCount="indefinite"/></circle>'
+        )
+    # confluence node -> edge node
+    conf_to_edge = (
+        f'<path id="nsEdge" d="M {conf_x + 10:.1f} {conf_y:.1f} L {edge_x - 10:.1f} {conf_y:.1f}" '
+        f'fill="none" stroke="{GREEN}" stroke-width="2" stroke-dasharray="6 5" stroke-opacity="0.7"/>'
+        f'<circle r="3" fill="{GREEN}"><animateMotion dur="1.8s" repeatCount="indefinite">'
+        f'<mpath href="#nsEdge"/></animateMotion></circle>'
+    )
+    conf_col = GREEN if score >= 0 else RED
+    middle = (
+        f'<g>{"".join(flows)}</g>'
+        f'<g>{"".join(fparts)}</g>'
+        f'<g>{"".join(fdots)}</g>'
+        f'{conf_to_edge}'
+        f'<circle cx="{conf_x}" cy="{conf_y}" r="11" fill="#0b1220" stroke="{conf_col}" stroke-width="2">'
+        f'<animate attributeName="stroke-opacity" values="0.4;1;0.4" dur="1.6s" repeatCount="indefinite"/></circle>'
+        f'<text x="{conf_x}" y="{conf_y + 26}" text-anchor="middle" font-size="8" '
+        f'fill="#64748b" font-family="ui-monospace,monospace">CONFLUENCE</text>'
+        f'<circle cx="{edge_x}" cy="{conf_y}" r="8" fill="{conf_col}"/>'
+        f'<text x="{edge_x}" y="{conf_y + 24}" text-anchor="middle" font-size="8" '
+        f'fill="#64748b" font-family="ui-monospace,monospace">EDGE</text>'
+    )
+
+    # -------------------------------------------------- RIGHT: feature list
+    rx0, rx1 = 745.0, 1118.0
+    rtop = 42.0
+    rgap = (H - 70 - rtop) / max(1, n - 1)
+    right_rows = []
+    for i, (label, val, v) in enumerate(rows):
+        y = rtop + i * rgap
+        color = tone(v)
+        pct = p_up(v)
+        bar_w = (rx1 - rx0) * (pct / 100.0)
+        # RTL: Persian label on the right, p(up)/value on the left
+        meta = f"p(up) {pct}%" + (f" · {val}" if val else "")
+        right_rows.append(
             f'<g>'
-            f'<rect x="20" y="{y - 9:.1f}" width="124" height="18" rx="4" fill="rgba(148,163,184,0.06)" stroke="rgba(148,163,184,0.12)"/>'
-            f'<rect x="22" y="{y + 4:.1f}" width="{bar_w:.0f}" height="2.4" rx="1.2" fill="{color}"/>'
-            f'<text x="28" y="{y + 0.5:.1f}" font-size="8.5" fill="#cbd5e1" font-family="ui-monospace,monospace">{short}</text>'
-            f'<circle cx="{node_x + 4:.1f}" cy="{y:.1f}" r="3.2" fill="{color}">'
-            f'<animate attributeName="r" values="2.4;4.2;2.4" dur="{1.8 + (i % 4) * 0.4:.1f}s" repeatCount="indefinite"/></circle>'
+            f'<text x="{rx1}" y="{y}" text-anchor="end" font-size="10.5" fill="#334155" '
+            f'font-weight="600">{label}</text>'
+            f'<text x="{rx0}" y="{y}" text-anchor="start" font-size="9" fill="#64748b" '
+            f'font-family="ui-monospace,monospace">{meta}</text>'
+            f'<rect x="{rx0}" y="{y + 6:.1f}" width="{rx1 - rx0:.0f}" height="4" rx="2" fill="#e2e8f0"/>'
+            f'<rect x="{rx0}" y="{y + 6:.1f}" width="0" height="4" rx="2" fill="{color}">'
+            f'<animate attributeName="width" values="0;{bar_w:.0f}" dur="1.1s" '
+            f'begin="{i * 0.08:.2f}s" fill="freeze"/></rect>'
             f'</g>'
         )
 
-    # rotating shell: orbiting nodes on 3 rings
-    shell = []
-    for i in range(70):
-        h1 = (np.sin(i * 127.1) * 43758.5453) % 1
-        h2 = (np.sin(i * 311.7) * 12543.123) % 1
-        ang = h1 * 2 * _m.pi
-        ring = 40 + h2 * (core_r - 46)
-        x = core_x + ring * _m.cos(ang)
-        y = core_y + ring * _m.sin(ang) * 0.92
-        warm = i % 3 == 0
-        c = "#f59e0b" if warm else "#7dd3fc"
-        dur = 1.6 + (i % 7) * 0.45
-        shell.append(
-            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{1.0 + h2 * 1.9:.1f}" fill="{c}">'
-            f'<animate attributeName="opacity" values="0.15;0.95;0.15" dur="{dur:.1f}s" repeatCount="indefinite"/></circle>'
-        )
+    return (
+        '<div style="display:flex;justify-content:center">'
+        f'<svg viewBox="0 0 {W} {H}" width="100%" style="max-width:1130px" '
+        f'role="img" aria-label="neural shell feature extraction">'
+        f'<rect x="0" y="0" width="{W}" height="{H}" rx="12" fill="#f6f8fb"/>'
+        # header
+        f'<text x="18" y="22" font-size="12" font-family="ui-monospace,monospace" '
+        f'font-weight="800" fill="#475569" letter-spacing="1">FEATURE EXTRACTION · LIVE</text>'
+        f'<circle cx="212" cy="18" r="3.3" fill="{GREEN}">'
+        f'<animate attributeName="opacity" values="0.3;1;0.3" dur="1.3s" repeatCount="indefinite"/></circle>'
+        f'<text x="{W - 18}" y="22" text-anchor="end" font-size="12" '
+        f'font-family="ui-monospace,monospace" font-weight="800" fill="#334155">'
+        f'◈ NEURAL SHELL // پوسته مدل‌ها — جریان ویژگی به لبه</text>'
+        # vertical dividers between panels
+        f'<line x1="292" y1="40" x2="292" y2="{H - 16}" stroke="#e5e9f0" stroke-width="1"/>'
+        f'<line x1="730" y1="40" x2="730" y2="{H - 16}" stroke="#e5e9f0" stroke-width="1"/>'
+        f'{left}{middle}{"".join(right_rows)}'
+        '</svg></div>'
+    )
 
-    score_color = "#34d399" if score > 25 else "#fb7185" if score < -25 else "#fbbf24"
-    bar_pct = max(2, min(100, int((score + 100) / 2)))
 
-    return f"""
-<div style="display:flex;justify-content:center">
-<svg viewBox="0 0 {W} {H}" width="100%" style="max-width:680px" role="img" aria-label="neural shell feature extraction">
-  <defs>
-    <radialGradient id="nsCore" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="rgba(245,158,11,0.30)"/>
-      <stop offset="55%" stop-color="rgba(56,189,248,0.10)"/>
-      <stop offset="100%" stop-color="rgba(2,6,17,0)"/>
-    </radialGradient>
-    <linearGradient id="nsHead" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#34d399"/>
-      <stop offset="100%" stop-color="#38bdf8"/>
-    </linearGradient>
-  </defs>
-
-  <rect x="0.5" y="0.5" width="{W - 1}" height="{H - 1}" rx="14" fill="rgba(2,6,17,0.55)" stroke="rgba(56,189,248,0.18)"/>
-
-  <!-- header -->
-  <text x="20" y="24" font-size="11.5" font-family="ui-monospace,monospace" font-weight="800" fill="url(#nsHead)">◈ NEURAL SHELL // پوسته مدل‌ها — جریان ویژگی به لبه</text>
-  <circle cx="{W - 120}" cy="20" r="3.5" fill="#34d399"><animate attributeName="opacity" values="0.3;1;0.3" dur="1.4s" repeatCount="indefinite"/></circle>
-  <text x="{W - 112}" y="24" font-size="9.5" font-family="ui-monospace,monospace" fill="#94a3b8">FEATURE EXTRACTION · LIVE</text>
-
-  <!-- column labels -->
-  <text x="20" y="40" font-size="8" font-family="ui-monospace,monospace" fill="#475569">MODEL INPUT</text>
-  <text x="{core_x - 30:.0f}" y="40" font-size="8" font-family="ui-monospace,monospace" fill="#475569">CORE · SHELL</text>
-
-  <!-- core glow + shell -->
-  <circle cx="{core_x}" cy="{core_y}" r="{core_r + 24}" fill="url(#nsCore)"/>
-  <g>
-    <animateTransform attributeName="transform" type="rotate" from="0 {core_x} {core_y}" to="360 {core_x} {core_y}" dur="60s" repeatCount="indefinite"/>
-    {''.join(shell)}
-  </g>
-  <circle cx="{core_x}" cy="{core_y}" r="{core_r}" fill="none" stroke="rgba(148,163,184,0.18)"/>
-  <circle cx="{core_x}" cy="{core_y}" r="{core_r * 0.55:.0f}" fill="rgba(2,6,17,0.55)" stroke="rgba(245,158,11,0.35)"/>
-
-  <!-- synapses + particles -->
-  <g>{''.join(synapses)}</g>
-  <g>{''.join(particles)}</g>
-
-  <!-- feature nodes -->
-  <g>{''.join(nodes)}</g>
-
-  <!-- core readout -->
-  <text x="{core_x}" y="{core_y - 4:.0f}" text-anchor="middle" font-family="ui-monospace,monospace" font-weight="800" font-size="30" fill="{score_color}">{score:+.0f}</text>
-  <text x="{core_x}" y="{core_y + 15:.0f}" text-anchor="middle" font-size="9" fill="#cbd5e1">همگرایی زنده</text>
-
-  <!-- bottom confidence bar -->
-  <rect x="20" y="{H - 24}" width="{W - 40}" height="6" rx="3" fill="rgba(148,163,184,0.15)"/>
-  <rect x="20" y="{H - 24}" width="{int((W - 40) * bar_pct / 100)}" height="6" rx="3" fill="url(#nsHead)">
-    <animate attributeName="opacity" values="0.7;1;0.7" dur="2.2s" repeatCount="indefinite"/>
-  </rect>
-  <text x="20" y="{H - 28}" font-size="8" font-family="ui-monospace,monospace" fill="#64748b">SIGNED FLOW</text>
-</svg>
-</div>
-"""
+# Backward-compatible alias (older call sites used build_galaxy_svg).
+build_galaxy_svg = build_neural_shell_svg
 
 
 # Backward-compatible alias (older call sites used build_galaxy_svg).
@@ -1347,10 +1385,10 @@ def main() -> None:
                 # Rendered via components.html (iframe) because st.markdown strips
                 # SVG/SMIL animations; the iframe keeps the live motion intact.
                 components.html(
-                    "<div style='background:#070d18;margin:0;padding:4px'>"
+                    "<div style='background:#f6f8fb;margin:0;padding:2px;border-radius:12px'>"
                     + build_neural_shell_svg(comp_table, score)
                     + "</div>",
-                    height=380,
+                    height=330,
                 )
                 st.dataframe(comp_table, use_container_width=True, hide_index=True)
             with right:

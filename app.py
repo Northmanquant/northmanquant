@@ -1,38 +1,49 @@
 """
 NorthmanQuant — Free Lite Edition (Streamlit)
+
 نسخه‌ی سبک و رایگان نورث‌من‌کوانت برای دیپلوی رایگان روی Streamlit Community Cloud
 یا Hugging Face Spaces. بدون دیتابیس و بدون هیچ کلید API — همه‌چیز از APIهای عمومی
 صرافی‌ها خوانده می‌شود.
+
 صرافی‌های پشتیبانی‌شده (همه با مستندات رسمی):
     KuCoin   · https://www.kucoin.com/docs
     OKX      · https://www.okx.com/docs-v5/en/
     Binance  · https://developers.binance.com/docs/binance-spot-api-docs
     Bybit    · https://bybit-exchange.github.io/docs/v5/market/kline
     Lighter  · https://apidocs.lighter.xyz  (perp DEX — /api/v1/candles)
+
 اجرا محلی:  streamlit run app.py
 """
+
 from __future__ import annotations
+
 import re
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
+
 import numpy as np
 import pandas as pd
 import requests
 import streamlit as st
 from PIL import Image
+
 KUCOIN = "https://api.kucoin.com"
 BINANCE = "https://api.binance.com"
 BYBIT = "https://api.bybit.com"
 OKX = "https://www.okx.com"
 LIGHTER = "https://mainnet.zklighter.elliot.ai"
+
 INTERVAL_MINUTES = {"15min": 15, "1hour": 60, "4hour": 240, "1day": 1440, "1week": 10080}
+
 KUCOIN_TF = {"15min": "15min", "1hour": "1hour", "4hour": "4hour", "1day": "1day", "1week": "1week"}
 BINANCE_TF = {"15min": "15m", "1hour": "1h", "4hour": "4h", "1day": "1d", "1week": "1w"}
 BYBIT_TF = {"15min": "15", "1hour": "60", "4hour": "240", "1day": "D", "1week": "W"}
 OKX_TF = {"15min": "15m", "1hour": "1H", "4hour": "4H", "1day": "1D", "1week": "1W"}
 # Lighter candlestick resolutions (see apidocs.lighter.xyz/reference/candles)
 LIGHTER_TF = {"15min": "15m", "1hour": "1h", "4hour": "4h", "1day": "1d", "1week": "1w"}
+
 EXCHANGES = ["KuCoin", "OKX", "Binance", "Bybit", "Lighter"]
+
 EXCHANGE_DOCS = {
     "KuCoin": "https://www.kucoin.com/docs/rest/spot/market-data/get-klines",
     "OKX": "https://www.okx.com/docs-v5/en/#order-book-trading-market-data",
@@ -40,9 +51,13 @@ EXCHANGE_DOCS = {
     "Bybit": "https://bybit-exchange.github.io/docs/v5/market/kline",
     "Lighter": "https://apidocs.lighter.xyz/reference/candles",
 }
+
 ENTER = 40
 EXIT = -10
+
+
 # ------------------------------------------------------------------ live layer
+
 LIVE_CSS = """
 <style>
 @keyframes nq-pulse-dot { 0%{box-shadow:0 0 0 0 rgba(52,211,153,.55)} 70%{box-shadow:0 0 0 9px rgba(52,211,153,0)} 100%{box-shadow:0 0 0 0 rgba(52,211,153,0)} }
@@ -56,7 +71,10 @@ LIVE_CSS = """
 .nq-glow{animation:nq-glow 3.2s ease-in-out infinite}
 </style>
 """
+
 HEADERS = {"User-Agent": "northmanquant-lite/1.0", "accept": "application/json"}
+
+
 def fetch_tick(exchange: str, symbol: str) -> dict | None:
     """Latest price (+bid/ask) from the selected exchange. No caching — this is the live layer."""
     try:
@@ -98,10 +116,14 @@ def fetch_tick(exchange: str, symbol: str) -> dict | None:
         return {"price": float(data["price"]), "bid": float(data.get("bestBid") or 0), "ask": float(data.get("bestAsk") or 0)}
     except Exception:
         return None
+
+
 def _annular_sector(cx: float, cy: float, r1: float, r2: float, a1: float, a2: float) -> str:
     import math as _m
+
     def pt(r: float, a: float) -> tuple[float, float]:
         return (cx + r * _m.cos(a), cy + r * _m.sin(a))
+
     x1, y1 = pt(r2, a1)
     x2, y2 = pt(r2, a2)
     x3, y3 = pt(r1, a2)
@@ -111,9 +133,12 @@ def _annular_sector(cx: float, cy: float, r1: float, r2: float, a1: float, a2: f
         f"M {x1:.1f} {y1:.1f} A {r2} {r2} 0 {large} 1 {x2:.1f} {y2:.1f} "
         f"L {x3:.1f} {y3:.1f} A {r1} {r1} 0 {large} 0 {x4:.1f} {y4:.1f} Z"
     )
+
+
 def build_galaxy_svg(comp_table: pd.DataFrame, score: float) -> str:
     """Animated rotating confluence galaxy (pure SVG + SMIL — no JS needed)."""
     import math as _m
+
     size, cx = 340, 170
     values: list[float] = []
     if comp_table is not None and not comp_table.empty and "امتیاز" in comp_table.columns:
@@ -134,6 +159,7 @@ def build_galaxy_svg(comp_table: pd.DataFrame, score: float) -> str:
         mid = (a1 + a2) / 2
         nx, ny = cx + 119 * _m.cos(mid), cx + 119 * _m.sin(mid)
         wedges.append(f'<circle cx="{nx:.1f}" cy="{ny:.1f}" r="3" fill="{color}"/>')
+
     dots = []
     for i in range(80):
         h1 = (np.sin(i * 127.1) * 43758.5453) % 1
@@ -147,6 +173,7 @@ def build_galaxy_svg(comp_table: pd.DataFrame, score: float) -> str:
             f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{0.8 + h2 * 1.3:.1f}" fill="#7dd3fc">'
             f'<animate attributeName="opacity" values="0.12;0.95;0.12" dur="{dur:.1f}s" repeatCount="indefinite"/></circle>'
         )
+
     score_color = "#34d399" if score > 25 else "#fb7185" if score < -25 else "#fbbf24"
     return f"""
 <div style="display:flex;justify-content:center">
@@ -174,6 +201,8 @@ def build_galaxy_svg(comp_table: pd.DataFrame, score: float) -> str:
 </svg>
 </div>
 """
+
+
 def _live_strip_impl(symbol: str, exchange: str, interval: str, dec: int, extra: dict | None = None) -> None:
     """
     Live ticker strip — built with Streamlit native widgets so it re-renders
@@ -181,11 +210,13 @@ def _live_strip_impl(symbol: str, exchange: str, interval: str, dec: int, extra:
     is what made <b>+25</b> show up as plain text).
     """
     import time as _t
+
     tick = fetch_tick(exchange, symbol)
     state = st.session_state.get("nq_state") or {}
     score = st.session_state.get("nq_score")
     prev = st.session_state.get("nq_last_price")
     price = tick["price"] if tick else None
+
     if price is not None and prev:
         if price > prev:
             st.session_state["nq_arrow"] = "up"
@@ -193,26 +224,32 @@ def _live_strip_impl(symbol: str, exchange: str, interval: str, dec: int, extra:
             st.session_state["nq_arrow"] = "down"
     if price is not None:
         st.session_state["nq_last_price"] = price
+
     minutes = INTERVAL_MINUTES.get(interval, 60)
     left = minutes * 60 - (int(_t.time()) % (minutes * 60))
     progress = max(0, min(100, int((1 - left / (minutes * 60)) * 100)))
     countdown = f"{left // 60:02d}:{left % 60:02d}"
+
     pnl = None
     if state.get("status") in ("long", "short") and state.get("entry") and price:
         entry = float(state["entry"])
         pnl = (price - entry) / entry * 100 * (1 if state["status"] == "long" else -1)
+
     cols = st.columns([1.4, 1.3, 1.6, 1.0, 1.0, 0.9], gap="small")
+
     with cols[0]:
         st.markdown(
             f"<span style='color:#a5f3fc;font-size:11px;font-weight:700'>"
             f"<span class='nq-live-dot'></span> LIVE · زنده</span>",
             unsafe_allow_html=True,
         )
+        price_txt = f"{price:,.{dec}f}" if price is not None else "—"
         st.markdown(
             f"<span class='nq-glow' style='font-family:ui-monospace,monospace;font-size:26px;"
-            f"font-weight:800;color:#f8fafc'>{price:,.{dec}f if price is not None else 0}f</span>",
+            f"font-weight:800;color:#f8fafc'>{price_txt}</span>",
             unsafe_allow_html=True,
         )
+
     with cols[1]:
         if tick and tick.get("bid"):
             b, a = tick["bid"], tick["ask"]
@@ -225,6 +262,7 @@ def _live_strip_impl(symbol: str, exchange: str, interval: str, dec: int, extra:
             )
         elif price is not None:
             st.caption("bid/ask در دسترس نیست")
+
     with cols[2]:
         if score is not None:
             tone = "#34d399" if score >= 0 else "#fb7185"
@@ -237,6 +275,7 @@ def _live_strip_impl(symbol: str, exchange: str, interval: str, dec: int, extra:
             )
         else:
             st.caption("امتیاز: —")
+
     with cols[3]:
         if pnl is not None and state.get("status"):
             label = "🟢 لانگ" if state["status"] == "long" else "🔴 شورت"
@@ -255,6 +294,7 @@ def _live_strip_impl(symbol: str, exchange: str, interval: str, dec: int, extra:
                 "font-family:ui-monospace,monospace'>—</div>",
                 unsafe_allow_html=True,
             )
+
     with cols[4]:
         if extra:
             parts = []
@@ -276,6 +316,7 @@ def _live_strip_impl(symbol: str, exchange: str, interval: str, dec: int, extra:
                 st.caption("—")
         else:
             st.caption("—")
+
     with cols[5]:
         st.markdown(
             f"<div style='text-align:center;font-family:ui-monospace,monospace'>"
@@ -284,13 +325,18 @@ def _live_strip_impl(symbol: str, exchange: str, interval: str, dec: int, extra:
         )
         st.progress(progress, text=None)
         st.caption("<span style='font-size:9px;color:#64748b'>تا بستن کندل</span>", unsafe_allow_html=True)
+
+
 try:
     live_strip_auto = st.fragment(run_every=5)(_live_strip_impl)
     live_strip_manual = st.fragment(_live_strip_impl)
 except Exception:  # older Streamlit without fragment auto-rerun
     live_strip_auto = _live_strip_impl  # type: ignore
     live_strip_manual = _live_strip_impl  # type: ignore
+
+
 # ------------------------------------------------------------------ symbols
+
 def normalize_symbol(raw: str, exchange: str = "KuCoin") -> str:
     s = (raw or "BTC-USDT").strip().upper().replace("/", "-").replace("_", "-").replace(" ", "")
     if not s:
@@ -306,7 +352,10 @@ def normalize_symbol(raw: str, exchange: str = "KuCoin") -> str:
         if s.endswith(q) and len(s) > len(q):
             return f"{s[: -len(q)]}-{q}"
     return f"{s}-USDT"
+
+
 # ------------------------------------------------------------------ data
+
 @st.cache_data(ttl=300, show_spinner=False)
 def lighter_markets() -> list[dict]:
     """All Lighter markets (public, no key). Docs: apidocs.lighter.xyz/reference/orderBookDetails"""
@@ -330,6 +379,8 @@ def lighter_markets() -> list[dict]:
             }
         )
     return rows
+
+
 @st.cache_data(ttl=60, show_spinner=False)
 def lighter_market_id(symbol: str) -> int | None:
     """Resolve a Lighter symbol (e.g. BTC) to its market_id. Never hard-code ids."""
@@ -337,6 +388,8 @@ def lighter_market_id(symbol: str) -> int | None:
         if row["symbol"].upper() == symbol.upper():
             return row["market_id"]
     return None
+
+
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_candles(exchange: str, symbol: str, interval: str, limit: int = 500) -> pd.DataFrame:
     """OHLCV from public exchange APIs. Falls back to another exchange when one is region-blocked."""
@@ -351,8 +404,11 @@ def fetch_candles(exchange: str, symbol: str, interval: str, limit: int = 500) -
             except Exception:
                 continue
         raise
+
+
 def _fetch_candles(exchange: str, symbol: str, interval: str, limit: int) -> pd.DataFrame:
     rows: list[dict] = []
+
     if exchange == "KuCoin":
         minutes = INTERVAL_MINUTES[interval]
         end = int(datetime.now(timezone.utc).timestamp())
@@ -435,6 +491,7 @@ def _fetch_candles(exchange: str, symbol: str, interval: str, limit: int) -> pd.
              "low": float(x[3]), "close": float(x[4]), "volume": float(x[5])}
             for x in (r.json().get("data") or [])
         ]
+
     df = pd.DataFrame(rows)
     if df.empty or len(df) < 40:
         raise ValueError("کندل کافی برای این نماد/صرافی برنگشت.")
@@ -442,6 +499,8 @@ def _fetch_candles(exchange: str, symbol: str, interval: str, limit: int) -> pd.
     df = df[df["close"] > 0].tail(limit).reset_index(drop=True)
     df["dt"] = pd.to_datetime(df["time"], unit="ms", utc=True)
     return df
+
+
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_top_coins(exchange: str = "KuCoin", min_turnover: float = 1_000_000, limit: int = 15) -> dict:
     """Top movers for the selected exchange (spot for CEXes, perps for Lighter)."""
@@ -537,6 +596,7 @@ def fetch_top_coins(exchange: str = "KuCoin", min_turnover: float = 1_000_000, l
                 "low": float(t.get("low") or 0),
                 "turnoverM$": turnover / 1e6,
             })
+
     df = pd.DataFrame(rows)
     if df.empty:
         raise ValueError("فهرست بازار خالی بود")
@@ -545,6 +605,8 @@ def fetch_top_coins(exchange: str = "KuCoin", min_turnover: float = 1_000_000, l
         "losers": df.sort_values("change%").head(limit).reset_index(drop=True),
         "volume": df.sort_values("turnoverM$", ascending=False).head(limit).reset_index(drop=True),
     }
+
+
 BULLISH = ["surge", "rally", "soar", "bullish", "record", "adoption", "gain", "jump", "inflow", "approved",
            "buy", "breakout", "launch", "rise", "climbs", "boost", "recover", "rebound", "spike", "milestone"]
 BEARISH = ["crash", "plunge", "dump", "bearish", "loss", "hack", "lawsuit", "ban", "sell-off", "outflow",
@@ -554,6 +616,8 @@ FEEDS = [
     ("CoinDesk", "https://www.coindesk.com/arc/outboundfeeds/rss/"),
     ("Decrypt", "https://decrypt.co/feed"),
 ]
+
+
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_news(limit: int = 30) -> pd.DataFrame:
     items = []
@@ -579,9 +643,14 @@ def fetch_news(limit: int = 30) -> pd.DataFrame:
             continue
     df = pd.DataFrame(items)
     return df.head(limit) if not df.empty else df
+
+
 # ------------------------------------------------------------------ indicators
+
 def _ema(s: pd.Series, n: int) -> pd.Series:
     return s.ewm(span=n, adjust=False).mean()
+
+
 def _rsi(close: pd.Series, n: int = 14) -> pd.Series:
     delta = close.diff()
     gain = delta.clip(lower=0)
@@ -590,45 +659,58 @@ def _rsi(close: pd.Series, n: int = 14) -> pd.Series:
     avg_loss = loss.ewm(alpha=1 / n, adjust=False).mean()
     rs = avg_gain / avg_loss.replace(0, np.nan)
     return (100 - 100 / (1 + rs)).fillna(50)
+
+
 def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     d = df.copy()
     c, h, l, v = d["close"], d["high"], d["low"], d["volume"]
+
     d["ema20"] = _ema(c, 20)
     d["ema50"] = _ema(c, 50)
     d["ema200"] = _ema(c, 200)
     d["rsi"] = _rsi(c, 14)
+
     ema12, ema26 = _ema(c, 12), _ema(c, 26)
     d["macd"] = ema12 - ema26
     d["macd_signal"] = _ema(d["macd"], 9)
     d["macd_hist"] = d["macd"] - d["macd_signal"]
+
     ll = l.rolling(14).min()
     hh = h.rolling(14).max()
     k = (c - ll) / (hh - ll).replace(0, np.nan) * 100
     d["stoch_k"] = k.rolling(3).mean().fillna(50)
     d["stoch_d"] = d["stoch_k"].rolling(3).mean()
+
     prev_close = c.shift(1)
     tr = pd.concat([h - l, (h - prev_close).abs(), (l - prev_close).abs()], axis=1).max(axis=1)
     d["atr"] = tr.ewm(alpha=1 / 14, adjust=False).mean()
+
     mid = c.rolling(20).mean()
     std = c.rolling(20).std()
     d["bb_mid"], d["bb_up"], d["bb_lo"] = mid, mid + 2 * std, mid - 2 * std
+
     tp = (h + l + c) / 3
     d["vwap"] = (tp * v).rolling(60).sum() / v.rolling(60).sum().replace(0, np.nan)
+
     sma_tp = tp.rolling(20).mean()
     mad = tp.rolling(20).apply(lambda x: np.mean(np.abs(x - x.mean())), raw=True)
     d["cci"] = (tp - sma_tp) / (0.015 * mad.replace(0, np.nan))
+
     rmf = tp * v
     pos = rmf.where(tp > tp.shift(1), 0.0)
     neg = rmf.where(tp <= tp.shift(1), 0.0)
     ratio = pos.rolling(14).sum() / neg.rolling(14).sum().replace(0, np.nan)
     d["mfi"] = (100 - 100 / (1 + ratio)).fillna(50)
+
     mfm = ((c - l) - (h - c)) / (h - l).replace(0, np.nan)
     d["cmf"] = (mfm * v).rolling(20).sum() / v.rolling(20).sum().replace(0, np.nan)
+
     vm_plus = (h - l.shift(1)).abs()
     vm_minus = (l - h.shift(1)).abs()
     tr_sum = tr.rolling(14).sum()
     d["vortex_plus"] = vm_plus.rolling(14).sum() / tr_sum.replace(0, np.nan)
     d["vortex_minus"] = vm_minus.rolling(14).sum() / tr_sum.replace(0, np.nan)
+
     # supertrend (10, 3)
     atr10 = tr.ewm(alpha=1 / 10, adjust=False).mean()
     hl2 = (h + l) / 2
@@ -657,6 +739,7 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
         st_dir[i] = 1 if up else -1
     d["supertrend"] = st_line
     d["supertrend_dir"] = st_dir
+
     # ADX (Wilder, simplified)
     up_move = h.diff()
     down_move = -l.diff()
@@ -669,8 +752,12 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     d["adx"] = dx.ewm(alpha=1 / 14, adjust=False).mean()
     d["plus_di"], d["minus_di"] = plus_di, minus_di
     return d
+
+
 def _clamp(x: float) -> float:
     return float(max(-1.0, min(1.0, x))) if np.isfinite(x) else 0.0
+
+
 def confluence(d: pd.DataFrame) -> tuple[pd.Series, pd.DataFrame]:
     """Per-bar confluence score (-100..100) + last-bar component table."""
     price = d["close"]
@@ -707,6 +794,8 @@ def confluence(d: pd.DataFrame) -> tuple[pd.Series, pd.DataFrame]:
         for k in comps
     ])
     return score.round().astype(float), table
+
+
 def signal_events(d: pd.DataFrame, score: pd.Series) -> tuple[pd.DataFrame, dict]:
     """Entry/exit state machine on the confluence score (same thresholds as the main app)."""
     closes = d["close"].to_numpy()
@@ -743,6 +832,8 @@ def signal_events(d: pd.DataFrame, score: pd.Series) -> tuple[pd.DataFrame, dict
         live_pnl = (closes[-1] - entry_price) / entry_price * 100 * (1 if status == "long" else -1)
     state = {"status": status, "entry": entry_price, "live_pnl": None if live_pnl is None else round(float(live_pnl), 2)}
     return pd.DataFrame(events), state
+
+
 def swing_levels(d: pd.DataFrame, k: int = 3) -> pd.DataFrame:
     """Clustered swing support/resistance levels."""
     highs, lows = d["high"].to_numpy(), d["low"].to_numpy()
@@ -776,6 +867,8 @@ def swing_levels(d: pd.DataFrame, k: int = 3) -> pd.DataFrame:
     if out.empty:
         return out
     return out.sort_values("قدرت%", ascending=False).head(10).sort_values("سطح", ascending=False).reset_index(drop=True)
+
+
 def make_plan(d: pd.DataFrame, score: float, levels: pd.DataFrame) -> dict:
     price = float(d["close"].iloc[-1])
     atr = float(d["atr"].iloc[-1]) if np.isfinite(d["atr"].iloc[-1]) else price * 0.01
@@ -809,7 +902,10 @@ def make_plan(d: pd.DataFrame, score: float, levels: pd.DataFrame) -> dict:
         "confidence": int(min(92, 35 + abs(score) * 0.4 + (10 if rr > 1.5 else 0))),
         "atr": atr,
     }
+
+
 # ------------------------------------------------------------------ image extraction (lite)
+
 def extract_candles_from_image(img: Image.Image, max_dim: int = 1400) -> pd.DataFrame:
     """Extract normalized candles (0..100) from a chart screenshot by candle colors."""
     im = img.convert("RGB")
@@ -827,6 +923,7 @@ def extract_candles_from_image(img: Image.Image, max_dim: int = 1400) -> pd.Data
     blue = (b > 75) & (b - r > 28) & (b - g > 14)
     mask = ((green | blue) | red) & (sat >= 15) & (mn <= 238)
     bull_mask = green | blue
+
     # A candle makes a long vertical run of colour in its column; a moving
     # average or grid line only leaves 1-2 pixels per column. Requiring a
     # minimum run keeps EMAs from merging every candle into one cluster.
@@ -839,6 +936,7 @@ def extract_candles_from_image(img: Image.Image, max_dim: int = 1400) -> pd.Data
             if run >= MIN_RUN:
                 col_on[x] = True
                 break
+
     clusters: list[tuple[int, int]] = []
     x = 0
     while x < w:
@@ -853,6 +951,7 @@ def extract_candles_from_image(img: Image.Image, max_dim: int = 1400) -> pd.Data
     clusters = [c for c in clusters if 1 <= c[1] - c[0] + 1 <= max_width]
     if len(clusters) < 8:
         return pd.DataFrame()
+
     tops, bots = [], []
     raw = []
     for (x0, x1) in clusters:
@@ -875,8 +974,10 @@ def extract_candles_from_image(img: Image.Image, max_dim: int = 1400) -> pd.Data
         return pd.DataFrame()
     span_top, span_bot = min(tops), max(bots)
     span = max(1, span_bot - span_top)
+
     def to_price(y: float) -> float:
         return (span_bot - y) / span * 100
+
     rows = []
     for c in raw:
         y_open = c["b_bot"] if c["bull"] else c["b_top"]
@@ -887,10 +988,14 @@ def extract_candles_from_image(img: Image.Image, max_dim: int = 1400) -> pd.Data
             "volume": 0.0, "dt": pd.NaT, "x": c["x"],
         })
     return pd.DataFrame(rows)
+
+
 # ------------------------------------------------------------------ UI
+
 def main() -> None:
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
+
     st.set_page_config(page_title="NorthmanQuant — نسخه رایگان", page_icon="📈", layout="wide")
     st.markdown(
         "<div dir='rtl'><h1 style='margin-bottom:0'>📈 NorthmanQuant — نسخه‌ی رایگان (Lite)</h1>"
@@ -898,6 +1003,7 @@ def main() -> None:
         "نسخه‌ی کامل (حساب، معامله، پنل مدیریت) روی سایت اصلی است.</p></div>",
         unsafe_allow_html=True,
     )
+
     with st.sidebar:
         st.header("⚙️ تنظیمات")
         symbol_in = st.text_input("نماد", value="BTC-USDT", help="مثل BTC-USDT یا gramusdt · برای Lighter فقط BTC")
@@ -905,8 +1011,10 @@ def main() -> None:
         interval = st.selectbox("تایم‌فریم", list(INTERVAL_MINUTES.keys()), index=1)
         live_on = st.checkbox("🔴 حالت زنده (قیمت هر ۵ ثانیه)", value=True)
         auto = st.checkbox("بازخوانی کامل خودکار (۶۰ ثانیه)", value=False)
+
     symbol = normalize_symbol(symbol_in, exchange)
     st.markdown(LIVE_CSS, unsafe_allow_html=True)
+
     # market ticker (spot for CEXes, perps for Lighter)
     try:
         _tops = fetch_top_coins(exchange, 500_000, 14)
@@ -923,9 +1031,11 @@ def main() -> None:
             )
     except Exception:
         pass
+
     tab_live, tab_top, tab_news, tab_img, tab_docs = st.tabs(
         ["📊 تحلیل زنده", "🏆 برترین‌ها", "📰 اخبار", "📷 تحلیل عکس", "📚 منابع داده"]
     )
+
     with tab_live:
         try:
             df = fetch_candles(exchange, symbol, interval)
@@ -937,6 +1047,7 @@ def main() -> None:
             events, state = signal_events(d, score_series)
             price = float(d["close"].iloc[-1])
             dec = 2 if price >= 1000 else 4 if price >= 1 else 6
+
             c1, c2, c3, c4 = st.columns(4)
             c1.metric(f"{symbol} · {exchange}", f"{price:,.{dec}f}")
             label = "خرید قوی" if score > 40 else "خرید" if score > 12 else "خنثی" if score > -12 else "فروش" if score > -40 else "فروش قوی"
@@ -944,6 +1055,7 @@ def main() -> None:
             c3.metric("ATR", f"{plan['atr']:,.{dec}f}")
             state_txt = "خارج از بازار" if state["status"] == "flat" else f"{'لانگ 🟢' if state['status'] == 'long' else 'شورت 🔴'} از {state['entry']:,.{dec}f} · PnL {state['live_pnl']}%"
             c4.metric("سیگنال همگرایی", state_txt)
+
             # Lighter-only extras (real fields from orderBookDetails)
             lighter_extra = None
             if exchange == "Lighter":
@@ -957,12 +1069,14 @@ def main() -> None:
                         )
                 except Exception:
                     pass
+
             st.session_state["nq_state"] = state
             st.session_state["nq_score"] = score
             if live_on:
                 live_strip_auto(symbol, exchange, interval, dec, lighter_extra)
             else:
                 live_strip_manual(symbol, exchange, interval, dec, lighter_extra)
+
             fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.78, 0.22],
                                 vertical_spacing=0.04, subplot_titles=(f"{symbol} · {interval}", "حجم"))
             fig.add_trace(go.Candlestick(x=d["dt"], open=d["open"], high=d["high"], low=d["low"], close=d["close"],
@@ -981,6 +1095,7 @@ def main() -> None:
             fig.update_layout(height=560, xaxis_rangeslider_visible=False, template="plotly_dark",
                               legend=dict(orientation="h", y=1.02), margin=dict(l=10, r=10, t=40, b=10))
             st.plotly_chart(fig, use_container_width=True)
+
             left, right = st.columns(2)
             with left:
                 st.subheader("🎯 طرح معامله")
@@ -1012,6 +1127,7 @@ def main() -> None:
         except Exception as e:  # noqa: BLE001
             st.error(f"خطا در دریافت/تحلیل داده: {e}")
             st.info("نماد را مثل BTC-USDT بنویس؛ اگر صرافی انتخابی در منطقه‌ات مسدود است، KuCoin یا OKX یا Lighter را انتخاب کن.")
+
     with tab_top:
         try:
             tops = fetch_top_coins(exchange)
@@ -1028,6 +1144,7 @@ def main() -> None:
             st.caption(f"منبع: {exchange} — {EXCHANGE_DOCS[exchange]}")
         except Exception as e:  # noqa: BLE001
             st.error(f"دریافت فهرست بازار ممکن نشد: {e}")
+
     with tab_news:
         try:
             news = fetch_news()
@@ -1038,6 +1155,7 @@ def main() -> None:
                     st.markdown(f"**[{row['title']}]({row['link']})**  \n{row['source']} · {row['sentiment']} · {row['date']}")
         except Exception as e:  # noqa: BLE001
             st.error(f"دریافت اخبار ممکن نشد: {e}")
+
     with tab_img:
         st.write("اسکرین‌شات چارت (روشن یا تیره) را آپلود کن؛ کندل‌ها از روی رنگ‌ها استخراج و سطوح روی مقیاس نسبی ۰ تا ۱۰۰ محاسبه می‌شوند.")
         up = st.file_uploader("آپلود عکس چارت", type=["png", "jpg", "jpeg", "webp"])
@@ -1058,6 +1176,7 @@ def main() -> None:
                     st.caption("برای قیمت واقعی، سقف و کف قیمتِ دیده‌شده در عکس را در نسخه‌ی کامل سایت وارد کن (کالیبراسیون قیمت).")
             except Exception as e:  # noqa: BLE001
                 st.error(f"پردازش عکس ممکن نشد: {e}")
+
     with tab_docs:
         st.subheader("📚 منابع داده (مستندات رسمی)")
         st.write("همه‌ی اندپوینت‌های این نسخه از مستندات عمومی رسمی صرافی‌ها خوانده می‌شوند و هیچ کلید API لازم نیست.")
@@ -1078,15 +1197,18 @@ def main() -> None:
             """
 **نکته‌های واقعیِ داده‌ها**
 - KuCoin ردیف کندل را به ترتیب `[time, open, close, high, low, volume, turnover]` برمی‌گرداند (ترتیب باز/بسته با بقیه متفاوت است).
-- Bybit و OKX لیست کندل را از جدید به قدیم می‌دهند؛ کد قبل از استفاده сорт می‌کند.
+- Bybit و OKX لیست کندل را از جدید به قدیم می‌دهند؛ کد قبل از استفاده сорت می‌کند.
 - Lighter حداکثر ۵۰۰ کندل در هر درخواست می‌دهد و مقادیر صفر را از پاسخ حذف می‌کند (در کد با مقدار پیش‌فرض هندل شده).
 - Lighter مارکت‌ها «perp» هستند (مثل BTC بدون پسوند USDT) و `market_id` از اندپوینت `orderBookDetails` resolve می‌شود — هیچ شناسه‌ای هاردکد نیست.
 - اگر یک صرافی در منطقه‌ات مسدود باشد، کد به‌ترتیب بقیه‌ی صرافی‌ها fallback می‌کند.
 """
         )
+
     if auto:
         import time as _time
         _time.sleep(60)
         st.rerun()
+
+
 if __name__ == "__main__":
     main()

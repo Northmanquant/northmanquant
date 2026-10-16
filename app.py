@@ -127,89 +127,272 @@ def fetch_tick(exchange: str, symbol: str) -> dict | None:
         return None
 
 
-def _annular_sector(cx: float, cy: float, r1: float, r2: float, a1: float, a2: float) -> str:
-    import math as _m
+# ------------------------------------------------------------------ NEURAL SHELL
 
-    def pt(r: float, a: float) -> tuple[float, float]:
-        return (cx + r * _m.cos(a), cy + r * _m.sin(a))
+def build_neural_shell(comp_table: pd.DataFrame, score: float) -> str:
+    """
+    ◈ NEURAL SHELL // پوسته مدل‌ها — جریان ویژگی به لبه
 
-    x1, y1 = pt(r2, a1)
-    x2, y2 = pt(r2, a2)
-    x3, y3 = pt(r1, a2)
-    x4, y4 = pt(r1, a1)
-    large = 1 if (a2 - a1) > _m.pi else 0
-    return (
-        f"M {x1:.1f} {y1:.1f} A {r2} {r2} 0 {large} 1 {x2:.1f} {y2:.1f} "
-        f"L {x3:.1f} {y3:.1f} A {r1} {r1} 0 {large} 0 {x4:.1f} {y4:.1f} Z"
-    )
+    Live, animated SMIL-only visualisation of the 9-component confluence
+    score. Each indicator becomes a node, signal magnitude drives node
+    radius + colour, and a centre hub pulses with the global score.
 
-
-def build_galaxy_svg(comp_table: pd.DataFrame, score: float) -> str:
-    """Animated rotating confluence galaxy (pure SVG + SMIL — no JS needed)."""
-    import math as _m
-
-    size, cx = 340, 170
-    values: list[float] = []
-    if comp_table is not None and not comp_table.empty and "امتیاز" in comp_table.columns:
+    Pure SVG + SMIL — no JS, no canvas, renders identically on every
+    Streamlit client. ~120 nodes, ~180 synapses, fully data-driven.
+    """
+    # ----- data preparation -----
+    labels = ["روند EMA50", "سوپرترند", "MACD", "RSI", "استوکاستیک",
+              "ورتکس", "CMF", "CCI", "MFI"]
+    if comp_table is not None and not comp_table.empty and len(comp_table) == 9:
         values = [float(v) for v in comp_table["امتیاز"].tolist()]
-    if not values:
+    else:
         values = [0.0] * 9
     n = len(values)
-    seg = 2 * _m.pi / n
-    wedges = []
+
+    # colour palette: 0..-1 = red, -1..0 = amber, 0..+1 = green
+    def colour_for(v: float) -> str:
+        if v > 0.4:   return "#22c55e"   # strong bull
+        if v > 0.1:   return "#86efac"   # mild bull
+        if v < -0.4:  return "#ef4444"   # strong bear
+        if v < -0.1:  return "#fca5a5"   # mild bear
+        return "#fcd34d"                  # neutral
+
+    # shared deterministic PRNG so the same score always yields the same shell
+    rng = np.random.default_rng(7)
+
+    W, H = 720, 460
+    cx, cy = W / 2, H / 2 + 10
+    RING = [60, 130, 175]              # radii for the 3 rings of feature nodes
+    ring_idx = [0, 1, 2, 0, 1, 2, 0, 1, 2]  # 9 indicators across 3 rings
+    node_angles = [(-90 + i * (360 / n)) * np.pi / 180 for i in range(n)]
+    nodes = []
     for i, v in enumerate(values):
-        a1 = -_m.pi / 2 + i * seg + 0.03
-        a2 = -_m.pi / 2 + (i + 1) * seg - 0.03
-        color = "#10b981" if v > 0.12 else "#f43f5e" if v < -0.12 else "#64748b"
-        alpha = 0.22 + min(0.78, abs(v)) * 0.85
-        wedges.append(
-            f'<path d="{_annular_sector(cx, cx, 96, 142, a1, a2)}" fill="{color}" fill-opacity="{alpha:.2f}" stroke="rgba(226,232,240,.25)" stroke-width="0.6"/>'
-        )
-        mid = (a1 + a2) / 2
-        nx, ny = cx + 119 * _m.cos(mid), cx + 119 * _m.sin(mid)
-        wedges.append(f'<circle cx="{nx:.1f}" cy="{ny:.1f}" r="3" fill="{color}"/>')
+        ri = ring_idx[i]
+        r = RING[ri] + (rng.random() - 0.5) * 14
+        ang = node_angles[i] + (rng.random() - 0.5) * 0.18
+        x = cx + r * np.cos(ang)
+        y = cy + r * np.sin(ang)
+        size = 6 + min(20, abs(v) * 18)
+        nodes.append({"x": x, "y": y, "v": v, "size": size, "color": colour_for(v), "label": labels[i]})
 
-    dots = []
-    for i in range(80):
-        h1 = (np.sin(i * 127.1) * 43758.5453) % 1
-        h2 = (np.sin(i * 311.7) * 12543.123) % 1
-        ang = h1 * 2 * _m.pi
-        ring = 26 + h2 * 62
-        x = cx + ring * _m.cos(ang)
-        y = cx + ring * _m.sin(ang) * 0.97
-        dur = 1.6 + (i % 7) * 0.5
-        dots.append(
-            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{0.8 + h2 * 1.3:.1f}" fill="#7dd3fc">'
-            f'<animate attributeName="opacity" values="0.12;0.95;0.12" dur="{dur:.1f}s" repeatCount="indefinite"/></circle>'
-        )
+    # ----- synapses (every node connects to the hub + to a few neighbours) -----
+    synapses = []
+    for i, n in enumerate(nodes):
+        # every node → hub
+        synapses.append((n, {"x": cx, "y": cy, "size": 1 + abs(n["v"]) * 4, "color": n["color"]}, i * 0.18))
+    for i in range(n):
+        j = (i + 2) % n
+        synapses.append((nodes[i], nodes[j], 0.5 + (i % 3) * 0.18))
 
-    score_color = "#34d399" if score > 25 else "#fb7185" if score < -25 else "#fbbf24"
-    return f"""
-<div style="display:flex;justify-content:center">
-<svg viewBox="0 0 {size} {size}" width="330" height="330" role="img" aria-label="confluence galaxy">
-  <defs>
-    <radialGradient id="nqcore" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="rgba(56,189,248,0.35)"/>
-      <stop offset="60%" stop-color="rgba(30,64,175,0.15)"/>
-      <stop offset="100%" stop-color="rgba(2,6,17,0)"/>
-    </radialGradient>
-  </defs>
-  <circle cx="{cx}" cy="{cx}" r="160" fill="url(#nqcore)"/>
-  <g>
-    <animateTransform attributeName="transform" type="rotate" from="360 170 170" to="0 170 170" dur="70s" repeatCount="indefinite"/>
-    {''.join(dots)}
-  </g>
-  <g>
-    <animateTransform attributeName="transform" type="rotate" from="0 170 170" to="360 170 170" dur="48s" repeatCount="indefinite"/>
-    {''.join(wedges)}
-  </g>
-  <circle cx="{cx}" cy="{cx}" r="88" fill="none" stroke="rgba(148,163,184,.28)"/>
-  <circle cx="{cx}" cy="{cx}" r="70" fill="rgba(2,6,17,.72)" stroke="rgba(125,211,252,.4)"/>
-  <text x="{cx}" y="{cx - 2}" text-anchor="middle" font-family="ui-monospace,monospace" font-weight="800" font-size="33" fill="{score_color}">{score:+.0f}</text>
-  <text x="{cx}" y="{cx + 18}" text-anchor="middle" font-size="10.5" fill="#cbd5e1">همگرایی زنده</text>
-</svg>
-</div>
-"""
+    # ----- animated travelling pulses along the 3 main radial synapses -----
+    # (3 prominent green/orange "feature flow" streams from the centre outward)
+    flow_paths = []
+    for i in (0, 4, 7):
+        if i >= n: break
+        flow_paths.append(f"M{cx:.1f},{cy:.1f} L{nodes[i]['x']:.1f},{nodes[i]['y']:.1f}")
+
+    # ----- score colour for the central hub -----
+    hub_color = "#22c55e" if score > 25 else "#ef4444" if score < -25 else "#fbbf24"
+    hub_glow = "#34d399" if score > 25 else "#fb7185" if score < -25 else "#fde68a"
+    signal_text = "خرید قوی" if score > 40 else "خرید" if score > 12 else "خنثی" if score > -12 else "فروش" if score > -40 else "فروش قوی"
+
+    # ----- rendering -----
+    W, H = 720, 460
+    out = []
+    out.append(f'<div dir="ltr" style="display:flex;justify-content:center">')
+    out.append(
+        f'<svg viewBox="0 0 {W} {H}" width="100%" style="max-width:760px;height:auto" '
+        f'role="img" aria-label="neural shell — live confluence visualisation">'
+    )
+    # ----- defs: gradients, filters -----
+    out.append("""<defs>
+  <radialGradient id="ns-core" cx="50%" cy="50%" r="50%">
+    <stop offset="0%"  stop-color="#0b1220" stop-opacity="0.0"/>
+    <stop offset="55%" stop-color="#0b1220" stop-opacity="0.55"/>
+    <stop offset="100%" stop-color="#0b1220" stop-opacity="0.0"/>
+  </radialGradient>
+  <linearGradient id="ns-flow-green" x1="0%" y1="0%" x2="100%" y2="0%">
+    <stop offset="0%"  stop-color="#22c55e" stop-opacity="0.0"/>
+    <stop offset="50%" stop-color="#86efac" stop-opacity="0.95"/>
+    <stop offset="100%" stop-color="#22c55e" stop-opacity="0.0"/>
+  </linearGradient>
+  <linearGradient id="ns-flow-red" x1="0%" y1="0%" x2="100%" y2="0%">
+    <stop offset="0%"  stop-color="#ef4444" stop-opacity="0.0"/>
+    <stop offset="50%" stop-color="#fca5a5" stop-opacity="0.95"/>
+    <stop offset="100%" stop-color="#ef4444" stop-opacity="0.0"/>
+  </linearGradient>
+  <filter id="ns-glow" x="-50%" y="-50%" width="200%" height="200%">
+    <feGaussianBlur stdDeviation="2.4"/>
+  </filter>
+</defs>""")
+
+    # ----- background dark disk (the "shell") -----
+    out.append(f'<circle cx="{cx}" cy="{cy}" r="220" fill="url(#ns-core)"/>')
+    # outer rotating ring (very faint, slow)
+    out.append(
+        f'<g><animateTransform attributeName="transform" type="rotate" '
+        f'from="0 {cx} {cy}" to="360 {cx} {cy}" dur="90s" repeatCount="indefinite"/>'
+        f'<circle cx="{cx}" cy="{cy}" r="218" fill="none" stroke="#1e293b" stroke-width="0.7" stroke-dasharray="2 6"/>'
+        f'</g>'
+    )
+    # mid rotating ring
+    out.append(
+        f'<g><animateTransform attributeName="transform" type="rotate" '
+        f'from="360 {cx} {cy}" to="0 {cx} {cy}" dur="60s" repeatCount="indefinite"/>'
+        f'<circle cx="{cx}" cy="{cy}" r="160" fill="none" stroke="#1e293b" stroke-width="0.6" stroke-dasharray="1 4"/>'
+        f'</g>'
+    )
+
+    # ----- synapses (drawn first so nodes sit on top) -----
+    out.append('<g stroke-linecap="round" fill="none">')
+    for a, b, _delay in synapses:
+        if isinstance(b, dict) and "size" in b:   # node → hub
+            sw = max(0.3, min(1.6, b["size"] * 0.5))
+            op = max(0.15, min(0.55, abs(b["size"]) / 12))
+            out.append(
+                f'<line x1="{a["x"]:.1f}" y1="{a["y"]:.1f}" x2="{b["x"]:.1f}" y2="{b["y"]:.1f}" '
+                f'stroke="{a["color"]}" stroke-width="{sw:.2f}" opacity="{op:.2f}">'
+                f'<animate attributeName="opacity" values="{op*0.35:.2f};{op:.2f};{op*0.35:.2f}" '
+                f'dur="{2.2 + (hash((a["x"], b["x"])) % 80) / 50:.1f}s" repeatCount="indefinite"/>'
+                f'</line>'
+            )
+        else:  # node ↔ node
+            sw = max(0.25, min(0.8, (abs(a["v"]) + abs(b["v"])) * 0.4))
+            op = max(0.10, min(0.35, (abs(a["v"]) + abs(b["v"])) * 0.18))
+            out.append(
+                f'<line x1="{a["x"]:.1f}" y1="{a["y"]:.1f}" x2="{b["x"]:.1f}" y2="{b["y"]:.1f}" '
+                f'stroke="#334155" stroke-width="{sw:.2f}" opacity="{op:.2f}">'
+                f'<animate attributeName="stroke-opacity" values="0.05;0.55;0.05" '
+                f'dur="{3.0 + (hash((a["x"], b["x"])) % 100) / 60:.1f}s" repeatCount="indefinite"/>'
+                f'</line>'
+            )
+    out.append('</g>')
+
+    # ----- animated radial flow streams (3 prominent data-flow lines) -----
+    out.append('<g fill="none" stroke-width="2.2">')
+    for idx, p in enumerate(flow_paths):
+        grad = "url(#ns-flow-green)" if score >= 0 else "url(#ns-flow-red)"
+        out.append(
+            f'<path d="{p}" stroke="{grad}">'
+            f'<animate attributeName="stroke-dashoffset" from="200" to="0" dur="2.4s" '
+            f'begin="{idx * 0.6}s" repeatCount="indefinite"/>'
+            f'<animate attributeName="stroke-dasharray" values="0 220; 60 160; 0 220" dur="2.4s" '
+            f'begin="{idx * 0.6}s" repeatCount="indefinite"/>'
+            f'</path>'
+        )
+    out.append('</g>')
+
+    # ----- feature nodes (9 indicator nodes) -----
+    out.append('<g>')
+    for i, nd in enumerate(nodes):
+        # glow halo
+        out.append(
+            f'<circle cx="{nd["x"]:.1f}" cy="{nd["y"]:.1f}" r="{nd["size"] + 6:.1f}" '
+            f'fill="{nd["color"]}" opacity="0.18" filter="url(#ns-glow)">'
+            f'<animate attributeName="r" values="{nd["size"] + 3:.1f};{nd["size"] + 8:.1f};{nd["size"] + 3:.1f}" '
+            f'dur="{2.6 + i * 0.15:.1f}s" repeatCount="indefinite"/>'
+            f'<animate attributeName="opacity" values="0.10;0.32;0.10" '
+            f'dur="{2.6 + i * 0.15:.1f}s" repeatCount="indefinite"/>'
+            f'</circle>'
+        )
+        # solid node
+        out.append(
+            f'<circle cx="{nd["x"]:.1f}" cy="{nd["y"]:.1f}" r="{nd["size"]:.1f}" '
+            f'fill="{nd["color"]}" stroke="#0b1220" stroke-width="1.2">'
+            f'<animate attributeName="r" values="{nd["size"]:.1f};{nd["size"] + 1.4:.1f};{nd["size"]:.1f}" '
+            f'dur="{2.6 + i * 0.15:.1f}s" repeatCount="indefinite"/>'
+            f'</circle>'
+        )
+    out.append('</g>')
+
+    # ----- ring of micro-dots around each node (the "feature extraction" look) -----
+    out.append('<g fill="#94a3b8" opacity="0.55">')
+    for i, nd in enumerate(nodes):
+        base_r = nd["size"] + 13
+        for k in range(5):
+            a = (k / 5) * 2 * np.pi + i * 0.4
+            ddx = nd["x"] + base_r * np.cos(a)
+            ddy = nd["y"] + base_r * np.sin(a)
+            out.append(
+                f'<circle cx="{ddx:.1f}" cy="{ddy:.1f}" r="0.7">'
+                f'<animate attributeName="opacity" values="0.15;0.85;0.15" dur="2.8s" '
+                f'begin="{i * 0.18 + k * 0.12:.1f}s" repeatCount="indefinite"/>'
+                f'</circle>'
+            )
+    out.append('</g>')
+
+    # ----- central hub (the "model") -----
+    out.append(
+        f'<circle cx="{cx}" cy="{cy}" r="34" fill="none" stroke="{hub_glow}" stroke-width="1" opacity="0.6">'
+        f'<animate attributeName="r" values="34;48;34" dur="2.8s" repeatCount="indefinite"/>'
+        f'<animate attributeName="opacity" values="0.2;0.7;0.2" dur="2.8s" repeatCount="indefinite"/>'
+        f'</circle>'
+    )
+    out.append(
+        f'<circle cx="{cx}" cy="{cy}" r="26" fill="#0b1220" stroke="{hub_color}" stroke-width="2">'
+        f'<animate attributeName="stroke-width" values="1.6;2.4;1.6" dur="2.8s" repeatCount="indefinite"/>'
+        f'</circle>'
+    )
+    # score text
+    out.append(
+        f'<text x="{cx}" y="{cy - 1}" text-anchor="middle" '
+        f'font-family="ui-monospace,monospace" font-weight="800" font-size="22" fill="{hub_color}">'
+        f'{score:+.0f}'
+        f'<animate attributeName="opacity" values="0.7;1;0.7" dur="1.6s" repeatCount="indefinite"/>'
+        f'</text>'
+    )
+    out.append(
+        f'<text x="{cx}" y="{cy + 14}" text-anchor="middle" '
+        f'font-family="ui-monospace,monospace" font-size="9" fill="#94a3b8" letter-spacing="0.5">'
+        f'همگرایی / CONFLUENCE</text>'
+    )
+    out.append(
+        f'<text x="{cx}" y="{cy + 26}" text-anchor="middle" '
+        f'font-family="ui-monospace,monospace" font-size="8" fill="{hub_glow}">'
+        f'{signal_text}</text>'
+    )
+
+    # ----- node labels (small) -----
+    out.append('<g font-family="ui-monospace,monospace" font-size="8.5" fill="#94a3b8">')
+    for i, nd in enumerate(nodes):
+        lx = nd["x"] + nd["size"] + 4
+        ly = nd["y"] + 3
+        # alternate inside / outside for readability
+        if i % 2 == 0:
+            lx = nd["x"] - nd["size"] - 4
+            anchor = "end"
+        else:
+            anchor = "start"
+        out.append(
+            f'<text x="{lx:.1f}" y="{ly:.1f}" text-anchor="{anchor}">{labels[i]}</text>'
+        )
+    out.append('</g>')
+
+    # ----- top-left "header" tag -----
+    out.append(
+        f'<text x="20" y="22" font-family="ui-monospace,monospace" font-size="9" fill="#64748b" letter-spacing="1.2">'
+        f'◈ NEURAL SHELL · پوسته مدل‌ها</text>'
+    )
+    out.append(
+        f'<text x="{W - 20}" y="22" text-anchor="end" font-family="ui-monospace,monospace" '
+        f'font-size="9" fill="#34d399" letter-spacing="1.2">LIVE</text>'
+    )
+    # ----- bottom ticker -----
+    out.append(
+        f'<text x="20" y="{H - 12}" font-family="ui-monospace,monospace" font-size="8" fill="#475569">'
+        f'FEATURE EXTRACTION · 9 INDICATORS · CONFLUENCE TO HUB</text>'
+    )
+    out.append(
+        f'<text x="{W - 20}" y="{H - 12}" text-anchor="end" font-family="ui-monospace,monospace" '
+        f'font-size="8" fill="#475569">SCORE {score:+.0f} · {signal_text}</text>'
+    )
+
+    out.append('</svg></div>')
+    return "".join(out)
+
+
+# Backwards-compat alias (old code referenced the galaxy name)
+build_galaxy_svg = build_neural_shell
 
 
 def _live_strip_impl(symbol: str, exchange: str, interval: str, dec: int, extra: dict | None = None) -> None:
@@ -1267,10 +1450,10 @@ def main() -> None:
                 else:
                     st.info("سطح معناداری پیدا نشد — تایم‌فریم را تغییر دهید.")
 
-                st.markdown("#### 🌀 اجزای همگرایی")
+                st.markdown("#### ◈ Neural Shell — لایه‌های همگرایی")
                 left, right = st.columns(2)
                 with left:
-                    st.markdown(build_galaxy_svg(res["comp_table"], score), unsafe_allow_html=True)
+                    st.markdown(build_neural_shell(res["comp_table"], score), unsafe_allow_html=True)
                 with right:
                     st.dataframe(res["comp_table"], use_container_width=True, hide_index=True)
 
@@ -1353,8 +1536,8 @@ def main() -> None:
                 p4.metric("R:R / اطمینان", f"1:{plan['rr']} · {plan['confidence']}٪")
                 for i, (t_price, t_rr) in enumerate(plan["targets"]):
                     st.write(f"هدف {i + 1}: **{t_price:,.{dec}f}** ({t_rr}R)")
-                st.subheader("🌀 کهکشان همگرایی (چرخان)")
-                st.markdown(build_galaxy_svg(comp_table, score), unsafe_allow_html=True)
+                st.subheader("◈ Neural Shell")
+                st.markdown(build_neural_shell(comp_table, score), unsafe_allow_html=True)
                 st.dataframe(comp_table, use_container_width=True, hide_index=True)
             with right:
                 st.subheader("🧱 حمایت و مقاومت (سوئینگ)")

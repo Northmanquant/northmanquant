@@ -316,8 +316,229 @@ def build_neural_shell_svg(comp_table: pd.DataFrame, score: float) -> str:
 build_galaxy_svg = build_neural_shell_svg
 
 
-# Backward-compatible alias (older call sites used build_galaxy_svg).
-build_galaxy_svg = build_neural_shell_svg
+# ------------------------------------------------------------------ the agents
+
+# Each "agent" is a trading persona built from one confluence component. We score
+# it on the real series, run a tiny per-bar backtest, and render a live card.
+AGENTS = [
+    {"key": "روند EMA50", "name": "سوار روند", "en": "TREND RIDER", "tag": "TR", "color": "#0ea5e9"},
+    {"key": "مومنتوم", "name": "مومنتوم", "en": "MOMENTUM", "tag": "MO", "color": "#8b5cf6"},
+    {"key": "بازگشت به میانگین", "name": "بازگشت به میانگین", "en": "MEAN REV", "tag": "MR", "color": "#ec4899"},
+    {"key": "شکست کانال", "name": "شکست کانال", "en": "BREAKOUT", "tag": "BO", "color": "#f59e0b"},
+    {"key": "سوپرترند", "name": "سوپرترند", "en": "SUPERTREND", "tag": "ST", "color": "#10b981"},
+    {"key": "جریان پول", "name": "جریان پول", "en": "FLOW", "tag": "FL", "color": "#f97316"},
+]
+
+
+def _agent_signals(d: pd.DataFrame) -> dict:
+    """Per-bar directional signal (-1/0/+1) for each agent, from real indicators."""
+    c = d["close"]
+    out = {}
+    # Trend rider: price vs EMA50 slope
+    out["روند EMA50"] = np.sign((c - d["ema50"]).fillna(0)).to_numpy()
+    # Momentum: MACD histogram sign
+    out["مومنتوم"] = np.sign(d["macd_hist"].fillna(0)).to_numpy()
+    # Mean reversion: fade RSI extremes (buy low, sell high) -> opposite of (rsi-50)
+    out["بازگشت به میانگین"] = np.where(d["rsi"] < 42, 1, np.where(d["rsi"] > 58, -1, 0))
+    # Breakout: close above/below Bollinger bands
+    out["شکست کانال"] = np.where(c > d["bb_up"], 1, np.where(c < d["bb_lo"], -1, 0))
+    # Supertrend direction
+    out["سوپرترند"] = d["supertrend_dir"].fillna(0).to_numpy()
+    # Flow: CMF sign
+    out["جریان پول"] = np.sign(d["cmf"].fillna(0)).to_numpy()
+    return out
+
+
+def compute_agents(d: pd.DataFrame) -> list[dict]:
+    """Backtest each agent on the loaded candles and return live card stats."""
+    c = d["close"].to_numpy()
+    ret = np.zeros(len(c))
+    ret[1:] = (c[1:] - c[:-1]) / c[:-1]  # next-bar return applied to prev signal
+    sigs = _agent_signals(d)
+
+    cards = []
+    for a in AGENTS:
+        sig = np.asarray(sigs[a["key"]], dtype=float)
+        # strategy return: yesterday's signal * today's return
+        strat = np.zeros(len(c))
+        strat[1:] = sig[:-1] * ret[1:]
+        equity = np.cumprod(1 + strat)
+        total = (equity[-1] - 1) * 100 if len(equity) else 0.0
+
+        # trades = sign changes
+        changes = np.where(np.abs(np.diff(sig)) > 0)[0]
+        trades = int(len(changes))
+        wins = strat[strat > 0]
+        losses = strat[strat < 0]
+        win_rate = (len(wins) / max(1, len(wins) + len(losses))) * 100
+        gross_win = wins.sum()
+        gross_loss = -losses.sum()
+        pf = (gross_win / gross_loss) if gross_loss > 1e-9 else (gross_win if gross_win > 0 else 0.0)
+        # max drawdown of equity
+        peak = np.maximum.accumulate(equity) if len(equity) else np.array([1.0])
+        dd = float(((peak - equity) / peak).max() * 100) if len(equity) else 0.0
+        last_sig = sig[-1] if len(sig) else 0
+        state = "LONG" if last_sig > 0 else "SHORT" if last_sig < 0 else "FLAT"
+
+        spark = equity[-40:] if len(equity) >= 2 else np.array([1.0, 1.0])
+        cards.append({
+            **a,
+            "total": total,
+            "pf": round(float(pf), 2),
+            "trades": trades,
+            "win": int(round(win_rate)),
+            "dd": round(dd, 2),
+            "state": state,
+            "spark": spark,
+        })
+    return cards
+
+
+def build_agents_svg(cards: list[dict], fee: float = 0.06) -> str:
+    """Live 'THE AGENTS' row — one card per strategy with a sparkline + stats."""
+    n = len(cards)
+    cw, ch = 300, 150
+    gap = 10
+    W = n * cw + (n - 1) * gap + 24
+    H = ch + 44
+
+    def spark_path(vals, x0, y0, w, h):
+        vals = np.asarray(vals, dtype=float)
+        lo, hi = float(vals.min()), float(vals.max())
+        rng = (hi - lo) or 1.0
+        pts = []
+        for i, v in enumerate(vals):
+            x = x0 + (i / (len(vals) - 1)) * w
+            y = y0 + h - (v - lo) / rng * h
+            pts.append(f"{x:.1f},{y:.1f}")
+        return "M" + " L".join(pts)
+
+    cards_svg = []
+    for i, c in enumerate(cards):
+        x = 12 + i * (cw + gap)
+        up = c["total"] >= 0
+        line_col = "#16a34a" if up else "#ef4444"
+        sign = "+" if up else "−"
+        sp = spark_path(c["spark"], x + 14, 70, cw - 90, 44)
+        state_col = {"LONG": "#16a34a", "SHORT": "#ef4444", "FLAT": "#94a3b8"}[c["state"]]
+        cards_svg.append(
+            f'<g>'
+            f'<rect x="{x}" y="34" width="{cw}" height="{ch}" rx="10" fill="#fff" stroke="#e5e9f0"/>'
+            # header: name (RTL right) + badge
+            f'<text x="{x + cw - 44}" y="56" text-anchor="end" font-size="12.5" font-weight="800" fill="#334155">{c["name"]}</text>'
+            f'<text x="{x + cw - 44}" y="68" text-anchor="end" font-size="7.5" fill="#94a3b8" font-family="ui-monospace,monospace">{c["en"]}</text>'
+            f'<circle cx="{x + cw - 24}" cy="56" r="13" fill="{c["color"]}"/>'
+            f'<text x="{x + cw - 24}" y="60" text-anchor="middle" font-size="9" font-weight="800" fill="#fff" font-family="ui-monospace,monospace">{c["tag"]}</text>'
+            # return %
+            f'<text x="{x + cw - 14}" y="104" text-anchor="end" font-size="26" font-weight="800" '
+            f'fill="{line_col}" font-family="ui-monospace,monospace">{sign}{abs(c["total"]):.2f}%</text>'
+            # sparkline
+            f'<path d="{sp}" fill="none" stroke="{line_col}" stroke-width="1.6" opacity="0.9"/>'
+            f'<circle r="2.6" fill="{line_col}"><animateMotion dur="3s" repeatCount="indefinite" '
+            f'path="{sp.replace("M", "").replace(" L", " ")}" keyPoints="0;1" keyTimes="0;1" calcMode="linear"/></circle>'
+            # stats row
+            f'<text x="{x + 14}" y="138" font-size="8.5" fill="#64748b" font-family="ui-monospace,monospace">PF {c["pf"]}</text>'
+            f'<text x="{x + cw * 0.42:.0f}" y="138" font-size="8.5" fill="#64748b" font-family="ui-monospace,monospace">TRD {c["trades"]}</text>'
+            f'<text x="{x + cw - 14}" y="138" text-anchor="end" font-size="8.5" fill="#64748b" font-family="ui-monospace,monospace">WIN {c["win"]}%</text>'
+            # footer: state chip + DD
+            f'<rect x="{x + 12}" y="150" width="46" height="15" rx="4" fill="{state_col}" opacity="0.14"/>'
+            f'<text x="{x + 35}" y="161" text-anchor="middle" font-size="8" font-weight="800" fill="{state_col}" font-family="ui-monospace,monospace">{c["state"]}</text>'
+            f'<text x="{x + cw - 14}" y="161" text-anchor="end" font-size="8" fill="#94a3b8" font-family="ui-monospace,monospace">DD {c["dd"]}%</text>'
+            f'</g>'
+        )
+
+    return (
+        '<div style="display:flex;justify-content:center">'
+        f'<svg viewBox="0 0 {W} {H}" width="100%" style="max-width:{W}px" role="img" aria-label="the agents">'
+        f'<rect x="0" y="0" width="{W}" height="{H}" rx="12" fill="#f6f8fb"/>'
+        f'<text x="14" y="20" font-size="11.5" font-family="ui-monospace,monospace" font-weight="800" '
+        f'fill="#475569" letter-spacing="0.5">◈ THE AGENTS // دفتر ایجنت‌ها — بک‌تست زنده روی داده‌ی فعلی</text>'
+        f'<text x="{W - 14}" y="20" text-anchor="end" font-size="10" font-family="ui-monospace,monospace" '
+        f'fill="#94a3b8">کارمزد {fee:.2f}٪ لحاظ شده</text>'
+        + "".join(cards_svg) +
+        '</svg></div>'
+    )
+
+
+def build_edge_matrix_svg(d: pd.DataFrame, score_series: pd.Series) -> str:
+    """
+    EDGE MATRIX — scatter of (confluence score) vs (next-bar return) over the
+    loaded candles, with a least-squares regression line. Shows whether the
+    model's signal actually precedes profitable moves (positive correlation).
+    """
+    c = d["close"].to_numpy()
+    s = score_series.to_numpy(dtype=float)
+    fwd = np.full(len(c), np.nan)
+    fwd[:-1] = (c[1:] - c[:-1]) / c[:-1] * 100  # next-bar % return
+    mask = np.isfinite(fwd) & np.isfinite(s)
+    xs, ys = s[mask], fwd[mask]
+    if len(xs) > 118:
+        idx = np.linspace(0, len(xs) - 1, 118).astype(int)
+        xs, ys = xs[idx], ys[idx]
+    n = len(xs)
+    if n < 5:
+        return '<div style="color:#94a3b8;font-family:ui-monospace,monospace;font-size:12px">داده کافی نیست</div>'
+
+    W, H = 660, 380
+    pad_l, pad_r, pad_t, pad_b = 40, 20, 44, 40
+    pw, ph = W - pad_l - pad_r, H - pad_t - pad_b
+
+    x_min, x_max = -100.0, 100.0
+    y_abs = max(1e-6, float(np.percentile(np.abs(ys), 95)))
+    y_min, y_max = -y_abs, y_abs
+
+    def X(v):
+        return pad_l + (v - x_min) / (x_max - x_min) * pw
+
+    def Y(v):
+        v = max(y_min, min(y_max, v))
+        return pad_t + (1 - (v - y_min) / (y_max - y_min)) * ph
+
+    # correlation + regression
+    if np.std(xs) > 1e-9 and np.std(ys) > 1e-9:
+        corr = float(np.corrcoef(xs, ys)[0, 1])
+        b1 = float(np.polyfit(xs, ys, 1)[0])
+        b0 = float(np.polyfit(xs, ys, 1)[1])
+    else:
+        corr, b1, b0 = 0.0, 0.0, 0.0
+
+    zero_x = X(0)
+    dots = []
+    for i in range(n):
+        px, py = X(xs[i]), Y(ys[i])
+        col = "#16a34a" if ys[i] >= 0 else "#ef4444"
+        dur = 2.0 + (i % 11) * 0.3
+        dots.append(
+            f'<circle cx="{px:.1f}" cy="{py:.1f}" r="3.1" fill="{col}" opacity="0.72">'
+            f'<animate attributeName="opacity" values="0.3;0.85;0.3" dur="{dur:.1f}s" '
+            f'begin="{(i % 12) * 0.12:.1f}s" repeatCount="indefinite"/></circle>'
+        )
+    reg = f'<line x1="{X(x_min):.1f}" y1="{Y(b0 + b1 * x_min):.1f}" x2="{X(x_max):.1f}" y2="{Y(b0 + b1 * x_max):.1f}" stroke="#f59e0b" stroke-width="1.6" stroke-dasharray="6 4"/>'
+
+    return (
+        '<div style="display:flex;justify-content:center">'
+        f'<svg viewBox="0 0 {W} {H}" width="100%" style="max-width:{W}px" role="img" aria-label="edge matrix">'
+        f'<rect x="0" y="0" width="{W}" height="{H}" rx="12" fill="#f6f8fb"/>'
+        # quadrant shading: right (positive score) green, left red
+        f'<rect x="{zero_x:.1f}" y="{pad_t}" width="{X(x_max) - zero_x:.1f}" height="{ph}" fill="#16a34a" opacity="0.05"/>'
+        f'<rect x="{pad_l}" y="{pad_t}" width="{zero_x - pad_l:.1f}" height="{ph}" fill="#ef4444" opacity="0.05"/>'
+        # header
+        f'<text x="{W - 14}" y="22" text-anchor="end" font-size="11.5" font-family="ui-monospace,monospace" '
+        f'font-weight="800" fill="#475569">EDGE MATRIX // ماتریس لبه ◈</text>'
+        f'<text x="14" y="22" font-size="10" font-family="ui-monospace,monospace" fill="#94a3b8">{n} نمونه</text>'
+        # axes
+        f'<line x1="{pad_l}" y1="{Y(0):.1f}" x2="{W - pad_r}" y2="{Y(0):.1f}" stroke="#cbd5e1" stroke-width="1"/>'
+        f'<line x1="{zero_x:.1f}" y1="{pad_t}" x2="{zero_x:.1f}" y2="{H - pad_b}" stroke="#cbd5e1" stroke-width="1"/>'
+        f'{reg}'
+        + "".join(dots) +
+        # footer labels
+        f'<text x="14" y="{H - 12}" font-size="9.5" font-family="ui-monospace,monospace" fill="#ec4899">لبه مثبت</text>'
+        f'<text x="{W / 2:.0f}" y="{H - 12}" text-anchor="middle" font-size="9.5" '
+        f'font-family="ui-monospace,monospace" fill="#64748b">همبستگی {corr:.2f}</text>'
+        f'<text x="{W - 14}" y="{H - 12}" text-anchor="end" font-size="9.5" '
+        f'font-family="ui-monospace,monospace" fill="#16a34a">شیب {b1:.2f}</text>'
+        '</svg></div>'
+    )
 
 
 def _live_strip_impl(symbol: str, exchange: str, interval: str, dec: int, extra: dict | None = None) -> None:
@@ -1371,6 +1592,19 @@ def main() -> None:
                               legend=dict(orientation="h", y=1.02), margin=dict(l=10, r=10, t=40, b=10))
             st.plotly_chart(fig, use_container_width=True)
 
+            # THE AGENTS — live strategy backtest row (real indicators)
+            st.subheader("◈ دفتر ایجنت‌ها (The Agents) — بک‌تست زنده")
+            try:
+                agent_cards = compute_agents(d)
+                components.html(
+                    "<div style='background:#f6f8fb;margin:0;padding:2px;border-radius:12px'>"
+                    + build_agents_svg(agent_cards)
+                    + "</div>",
+                    height=210,
+                )
+            except Exception:  # noqa: BLE001
+                pass
+
             left, right = st.columns(2)
             with left:
                 st.subheader("🎯 طرح معامله")
@@ -1406,6 +1640,19 @@ def main() -> None:
                     st.dataframe(events.tail(10).iloc[::-1], use_container_width=True, hide_index=True)
             st.line_chart(score_series.tail(120), height=140)
             st.caption("نمودار بالا: روند امتیاز همگرایی ۱۲۰ کندل اخیر. داده: API عمومی صرافی (کش ۶۰ ثانیه). این ابزار توصیه‌ی سرمایه‌گذاری نیست.")
+
+            # EDGE MATRIX — does the confluence score actually precede profit?
+            st.subheader("◈ ماتریس لبه (Edge Matrix) — همبستگی سیگنال با بازده بعدی")
+            try:
+                components.html(
+                    "<div style='background:#f6f8fb;margin:0;padding:2px;border-radius:12px'>"
+                    + build_edge_matrix_svg(d, score_series)
+                    + "</div>",
+                    height=400,
+                )
+                st.caption("هر نقطه یک کندل است: محور افقی = امتیاز همگرایی، محور عمودی = بازده کندل بعدی. خط نارنجی رگرسیون؛ شیب و همبستگی مثبت یعنی سیگنال واقعاً پیش‌روِ سود بوده است.")
+            except Exception:  # noqa: BLE001
+                pass
         except Exception as e:  # noqa: BLE001
             st.error(f"خطا در دریافت/تحلیل داده: {e}")
             st.info("نماد را مثل BTC-USDT بنویس؛ اگر صرافی انتخابی در منطقه‌ات مسدود است، KuCoin یا OKX یا Lighter را انتخاب کن.")

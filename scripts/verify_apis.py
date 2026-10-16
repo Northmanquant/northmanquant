@@ -86,10 +86,16 @@ def pipeline_okx():
 check("OKX pipeline", pipeline_okx)
 
 print("\n== news (live RSS) ==")
-def news():
-    df = nq.fetch_news()
+def news_fa():
+    df = nq.fetch_news("fa")
+    srcs = " · ".join(sorted(df["source"].unique())) if not df.empty else ""
+    return f"{len(df)} items from {srcs}" if not df.empty else "EMPTY"
+check("fetch_news (fa)", news_fa)
+
+def news_en():
+    df = nq.fetch_news("en")
     return f"{len(df)} items, first: {df.iloc[0]['source']} · {df.iloc[0]['sentiment']}" if not df.empty else "EMPTY"
-check("fetch_news", news)
+check("fetch_news (en)", news_en)
 
 print("\n== analysis image (real data -> PNG) ==")
 def analysis_image():

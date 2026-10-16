@@ -171,10 +171,137 @@ def share_bar(title: str, text: str, app_url: str = "") -> str:
   <a href="{tg}" target="_blank" style="{btn};background:#229ED9">تلگرام ✈</a>
   <a href="{wa}" target="_blank" style="{btn};background:#25D366">واتساپ</a>
   <a href="{tw}" target="_blank" style="{btn};background:#1d9bf0">توییتر/X</a>
-  <button onclick="navigator.clipboard.writeText(`{js_text}`).then(()=>{{this.innerText='کپی شد ✓'}})"
+   <button onclick="navigator.clipboard.writeText(`{js_text}`).then(()=>{{this.innerText='کپی شد ✓'}})"
      style="{btn};background:#475569;border:none;cursor:pointer">کپی متن 📋</button>
-</div>
+ </div>
+ """
+
+
+def floating_share(title: str, text: str, app_url: str = "") -> str:
+    """A DRAGGABLE floating action button injected into the parent page.
+
+    Clicking it opens a compact panel with Telegram/WhatsApp/X/copy/save. The
+    button position is remembered via localStorage. Rendered via components.html
+    whose script writes into window.parent.document (same-origin) so the FAB
+    floats over the whole Streamlit app, not inside the little iframe.
+    """
+    import json as _j
+
+    full = f"{title}\n\n{text}" + (f"\n\n{app_url}" if app_url else "")
+    payload = _j.dumps({
+        "title": title,
+        "msg": full,
+        "url": app_url or "https://streamlit.io",
+    })
+    return f"""
+<script>
+(function() {{
+  const D = {payload};
+  const doc = window.parent.document;
+  const enc = encodeURIComponent;
+  const old = doc.getElementById("nq-fab-root");
+  if (old) old.remove();
+
+  const root = doc.createElement("div");
+  root.id = "nq-fab-root";
+  root.style.cssText = "position:fixed;z-index:999999;bottom:90px;left:24px;font-family:ui-monospace,monospace";
+  const saved = localStorage.getItem("nqFabPos");
+  if (saved) {{ try {{ const p = JSON.parse(saved); root.style.left=p.x+"px"; root.style.top=p.y+"px"; root.style.bottom="auto"; }} catch(e){{}} }}
+
+  // panel
+  const panel = doc.createElement("div");
+  panel.style.cssText = "display:none;margin-bottom:10px;background:#0f172a;border:1px solid #334155;border-radius:14px;padding:12px;width:230px;box-shadow:0 12px 40px rgba(0,0,0,.5)";
+  const mk = (bg,label,href) => `<a href="${{href}}" target="_blank" style="display:block;background:${{bg}};color:#fff;text-decoration:none;border-radius:9px;padding:9px 12px;margin:5px 0;font-size:13px;font-weight:700;text-align:center">${{label}}</a>`;
+  panel.innerHTML =
+    '<div style="color:#94a3b8;font-size:12px;font-weight:700;margin-bottom:6px;text-align:right">اشتراک‌گذاری تحلیل</div>'
+    + mk("#229ED9","تلگرام ✈","https://t.me/share/url?url="+enc(D.url)+"&text="+enc(D.msg))
+    + mk("#25D366","واتساپ","https://wa.me/?text="+enc(D.msg))
+    + mk("#1d9bf0","توییتر / X","https://twitter.com/intent/tweet?text="+enc(D.msg))
+    + '<button id="nq-copy" style="width:100%;background:#475569;color:#fff;border:none;border-radius:9px;padding:9px;margin:5px 0;font-size:13px;font-weight:700;cursor:pointer">کپی متن 📋</button>'
+    + '<button id="nq-save" style="width:100%;background:#0ea5e9;color:#fff;border:none;border-radius:9px;padding:9px;margin:5px 0;font-size:13px;font-weight:700;cursor:pointer">ذخیره فایل 💾</button>';
+
+  // button
+  const fab = doc.createElement("div");
+  fab.textContent = "🔗";
+  fab.style.cssText = "width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#38bdf8,#22c55e);display:flex;align-items:center;justify-content:center;font-size:24px;cursor:grab;box-shadow:0 8px 24px rgba(0,0,0,.5);user-select:none";
+
+  root.appendChild(panel);
+  root.appendChild(fab);
+  doc.body.appendChild(root);
+
+  // toggle panel (only when it's a click, not a drag)
+  let moved = false;
+  fab.addEventListener("click", () => {{
+    if (moved) {{ moved = false; return; }}
+    panel.style.display = panel.style.display === "none" ? "block" : "none";
+  }});
+
+  // copy + save
+  panel.querySelector("#nq-copy").onclick = function() {{
+    navigator.clipboard.writeText(D.msg).then(()=>{{ this.textContent = "کپی شد ✓"; }});
+  }};
+  panel.querySelector("#nq-save").onclick = function() {{
+    const blob = new Blob([D.msg], {{type:"text/plain;charset=utf-8"}});
+    const a = doc.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "northmanquant_analysis.txt";
+    a.click();
+  }};
+
+  // drag
+  let dragging = false, sx=0, sy=0, ox=0, oy=0;
+  fab.addEventListener("mousedown", (e) => {{
+    dragging = true; moved = false; fab.style.cursor = "grabbing";
+    const r = root.getBoundingClientRect(); ox = r.left; oy = r.top; sx = e.clientX; sy = e.clientY;
+    e.preventDefault();
+  }});
+  doc.addEventListener("mousemove", (e) => {{
+    if (!dragging) return;
+    const nx = ox + (e.clientX - sx), ny = oy + (e.clientY - sy);
+    if (Math.abs(e.clientX-sx) + Math.abs(e.clientY-sy) > 4) moved = true;
+    root.style.left = nx + "px"; root.style.top = ny + "px"; root.style.bottom = "auto";
+  }});
+  doc.addEventListener("mouseup", () => {{
+    if (!dragging) return;
+    dragging = false; fab.style.cursor = "grab";
+    const r = root.getBoundingClientRect();
+    localStorage.setItem("nqFabPos", JSON.stringify({{x:r.left, y:r.top}}));
+  }});
+}})();
+</script>
 """
+
+
+# ------------------------------------------------------------------ community board
+
+COMMUNITY_FILE = "community_analyses.json"
+
+
+def load_community() -> list[dict]:
+    """Read the shared analysis board (JSON file on the running instance)."""
+    import json
+    import os
+    if not os.path.exists(COMMUNITY_FILE):
+        return []
+    try:
+        with open(COMMUNITY_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def save_community(entry: dict) -> None:
+    """Append one analysis to the shared board (newest first, cap 200)."""
+    import json
+    rows = load_community()
+    rows.insert(0, entry)
+    rows = rows[:200]
+    try:
+        with open(COMMUNITY_FILE, "w", encoding="utf-8") as f:
+            json.dump(rows, f, ensure_ascii=False)
+    except Exception:
+        pass
 
 
 def fetch_tick(exchange: str, symbol: str) -> dict | None:
@@ -1850,46 +1977,83 @@ def main() -> None:
     import streamlit.components.v1 as components
     from plotly.subplots import make_subplots
 
-    st.set_page_config(page_title="NorthmanQuant — نسخه رایگان", page_icon="📈", layout="wide")
+    st.set_page_config(page_title="NorthmanQuant", page_icon="📈", layout="wide")
     st.markdown(
-        "<div dir='rtl'><h1 style='margin-bottom:0'>📈 NorthmanQuant — نسخه‌ی رایگان (Lite)</h1>"
-        "<p style='color:#888;margin-top:4px'>تحلیل زنده با داده‌ی عمومی صرافی‌ها — بدون ثبت‌نام و بدون کلید API. "
-        "نسخه‌ی کامل (حساب، معامله، پنل مدیریت) روی سایت اصلی است.</p></div>",
+        "<div dir='rtl'><h1 style='margin:0'>📈 NorthmanQuant</h1></div>",
         unsafe_allow_html=True,
     )
 
+    SECTIONS = ["📊 تحلیل زنده", "🏆 برترین‌ها", "📰 اخبار", "🖼️ تصویر تحلیل",
+                "👥 تحلیل‌های کاربران", "📚 منابع داده"]
+
     with st.sidebar:
         st.header("⚙️ تنظیمات")
-        symbol_in = st.text_input("نماد", value="BTC-USDT", help="مثل BTC-USDT یا gramusdt · برای Lighter فقط BTC")
-        app_url = st.text_input("لینک اپ (برای اشتراک‌گذاری)", value="",
-                                placeholder="https://your-app.streamlit.app",
-                                help="لینک اپ منتشرشده‌ات را بگذار تا در پیام‌های اشتراک‌گذاری بیاید.")
 
-        exch_choice = st.selectbox("صرافی", EXCHANGES + ["➕ صرافی دیگر (CCXT)"])
-        if exch_choice.startswith("➕"):
-            custom_ex = st.text_input(
-                "نام یا شناسه‌ی صرافی", value="Kraken",
-                help="هر صرافیِ CCXT: kraken، coinbase، gate، mexc، bitget، htx، bitstamp، …",
+        # --- section navigation (moved here from the main page) --------------
+        section = st.radio("بخش‌ها", SECTIONS, index=0, key="nav_section")
+
+        # --- bazaar / market settings ---------------------------------------
+        with st.expander("🏦 بازار و نماد", expanded=True):
+            symbol_in = st.text_input("نماد", value="BTC-USDT",
+                                      help="مثل BTC-USDT یا gramusdt · برای Lighter فقط BTC")
+            exch_choice = st.selectbox("صرافی", EXCHANGES + ["➕ صرافی دیگر (CCXT)"])
+            if exch_choice.startswith("➕"):
+                custom_ex = st.text_input(
+                    "نام یا شناسه‌ی صرافی", value="Kraken",
+                    help="هر صرافیِ CCXT: kraken، coinbase، gate، mexc، bitget، htx، bitstamp، …",
+                )
+                st.caption("نمونه‌ها: " + " · ".join(CCXT_SUGGESTED))
+                exchange = custom_ex.strip() or "Kraken"
+            else:
+                exchange = exch_choice
+            interval = st.selectbox("تایم‌فریم", list(INTERVAL_MINUTES.keys()), index=1)
+
+        # --- chart settings --------------------------------------------------
+        with st.expander("📈 تنظیمات چارت", expanded=False):
+            candle_count = st.slider("تعداد کندل روی چارت (فشرده/باز)", min_value=40, max_value=500,
+                                     value=160, step=20,
+                                     help="کمتر = کندل‌ها بازتر و درشت‌تر · بیشتر = فشرده‌تر")
+            live_on = st.checkbox("🔴 حالت زنده (قیمت هر ۵ ثانیه)", value=True)
+            auto = st.checkbox("بازخوانی کامل خودکار (۶۰ ثانیه)", value=False)
+
+        # --- appearance ------------------------------------------------------
+        with st.expander("🎨 شخصی‌سازی ظاهر", expanded=False):
+            theme_name = st.selectbox("تم رنگی", list(THEMES.keys()), index=0)
+            bg_image_url = st.text_input(
+                "لینک تصویر پس‌زمینه (اختیاری)", value="",
+                placeholder="https://…/image.jpg",
+                help="آدرس یک عکس بگذار تا پس‌زمینه‌ی دلخواهت شود.",
             )
-            st.caption("نمونه‌ها: " + " · ".join(CCXT_SUGGESTED))
-            exchange = custom_ex.strip() or "Kraken"
-        else:
-            exchange = exch_choice
 
-        interval = st.selectbox("تایم‌فریم", list(INTERVAL_MINUTES.keys()), index=1)
-        candle_count = st.slider("تعداد کندل روی چارت (فشرده/باز)", min_value=40, max_value=500, value=160, step=20,
-                                 help="کمتر = کندل‌ها بازتر و درشت‌تر · بیشتر = فشرده‌تر و نمای کلی")
-        live_on = st.checkbox("🔴 حالت زنده (قیمت هر ۵ ثانیه)", value=True)
-        auto = st.checkbox("بازخوانی کامل خودکار (۶۰ ثانیه)", value=False)
+        # --- sharing ---------------------------------------------------------
+        with st.expander("🔗 اشتراک‌گذاری", expanded=False):
+            app_url = st.text_input("لینک اپ", value="",
+                                    placeholder="https://your-app.streamlit.app",
+                                    help="لینک اپ منتشرشده‌ات را بگذار تا در اشتراک‌گذاری‌ها بیاید.")
+            st.caption("دکمه‌ی شناور 🔗 گوشه‌ی صفحه را بکش و جابه‌جا کن؛ با زدن روی آن گزینه‌های اشتراک باز می‌شود.")
 
-        st.divider()
-        st.subheader("🎨 شخصی‌سازی ظاهر")
-        theme_name = st.selectbox("تم رنگی", list(THEMES.keys()), index=0)
-        bg_image_url = st.text_input(
-            "لینک تصویر پس‌زمینه (اختیاری)", value="",
-            placeholder="https://…/image.jpg",
-            help="آدرس یک عکس بگذار تا پس‌زمینه‌ی دلخواهت شود.",
-        )
+        # --- community: post your own analysis ------------------------------
+        with st.expander("✍️ ثبت تحلیل شخصی", expanded=False):
+            st.caption("تحلیلت را اینجا ثبت کن تا در بخش «👥 تحلیل‌های کاربران» برای همه دیده شود.")
+            with st.form("community_form", clear_on_submit=True):
+                ca_name = st.text_input("نام یا نام مستعار", value="", max_chars=30)
+                ca_symbol = st.text_input("نماد", value="BTC-USDT", max_chars=20)
+                ca_bias = st.selectbox("جهت", ["لانگ 🟢", "شورت 🔴", "خنثی ⚪"])
+                ca_text = st.text_area("متن تحلیل", value="", height=120, max_chars=1500)
+                ca_submit = st.form_submit_button("📨 ثبت و اشتراک‌گذاری", use_container_width=True)
+            if ca_submit:
+                if ca_text.strip():
+                    from datetime import datetime as _dt
+                    save_community({
+                        "name": (ca_name.strip() or "ناشناس"),
+                        "symbol": ca_symbol.strip().upper() or "—",
+                        "bias": ca_bias,
+                        "text": ca_text.strip(),
+                        "ts": _dt.now().strftime("%Y-%m-%d %H:%M"),
+                    })
+                    st.success("تحلیلت ثبت شد ✓ — در بخش «تحلیل‌های کاربران» ببین.")
+                else:
+                    st.warning("متن تحلیل را بنویس.")
 
     # apply chosen theme (and optional background image) across the whole app
     st.markdown(theme_css(THEMES[theme_name], bg_image_url.strip()), unsafe_allow_html=True)
@@ -1914,11 +2078,7 @@ def main() -> None:
     except Exception:
         pass
 
-    tab_live, tab_top, tab_news, tab_img, tab_docs = st.tabs(
-        ["📊 تحلیل زنده", "🏆 برترین‌ها", "📰 اخبار", "🖼️ تصویر تحلیل", "📚 منابع داده"]
-    )
-
-    with tab_live:
+    if section == "📊 تحلیل زنده":
         try:
             df = fetch_candles(exchange, symbol, interval)
             d = add_indicators(df)
@@ -2030,8 +2190,7 @@ def main() -> None:
                 "modeBarButtonsToRemove": ["lasso2d", "select2d"],
             })
 
-            # ---- share / save the whole analysis ----------------------------
-            _dir = "خرید 🟢" if score >= 0 else "فروش 🔴"
+            # ---- build the share text (used by the floating share button) ---
             share_text = (
                 f"نماد: {symbol} · {exchange} ({interval})\n"
                 f"قیمت: {price:,.{dec}f}\n"
@@ -2040,13 +2199,11 @@ def main() -> None:
                 f"ورود: {plan['entry']:,.{dec}f} · حد ضرر: {plan['stop']:,.{dec}f} · R:R 1:{plan['rr']}\n"
                 + "\n".join(f"هدف {i+1}: {tp:,.{dec}f} ({rr}R)" for i, (tp, rr) in enumerate(plan["targets"]))
             )
-            sc1, sc2 = st.columns([3, 1])
-            with sc1:
-                components.html(share_bar(f"📈 تحلیل {symbol} — NorthmanQuant", share_text, app_url), height=60)
-            with sc2:
-                st.download_button("💾 ذخیره تحلیل", data=share_text.encode("utf-8"),
-                                   file_name=f"{symbol}_{interval}_analysis.txt", mime="text/plain",
-                                   use_container_width=True, key="dl_analysis")
+            # floating draggable share button (bottom-left, movable)
+            components.html(
+                floating_share(f"📈 تحلیل {symbol} — NorthmanQuant", share_text, app_url),
+                height=0,
+            )
 
             # ===== THE AGENTS — full-width strategy backtest row =============
             st.divider()
@@ -2095,17 +2252,8 @@ def main() -> None:
                 show = levels.copy()
                 show["سطح"] = show["سطح"].map(lambda v: f"{v:,.{dec}f}")
                 st.dataframe(show, use_container_width=True, hide_index=True)
-                sr_text = f"حمایت/مقاومت {symbol} ({interval}):\n" + "\n".join(
-                    f"{r['نوع']} {r['سطح']} · قدرت {r['قدرت%']}% · فاصله {r['فاصله%']}%"
-                    for _, r in show.head(8).iterrows()
-                )
-                src1, src2 = st.columns([3, 1])
-                with src1:
-                    components.html(share_bar(f"🧱 سطوح {symbol}", sr_text, app_url), height=60)
-                with src2:
-                    st.download_button("💾 ذخیره سطوح", data=show.to_csv(index=False).encode("utf-8"),
-                                       file_name=f"{symbol}_levels.csv", mime="text/csv",
-                                       use_container_width=True, key="dl_levels")
+                st.download_button("💾 ذخیره سطوح (CSV)", data=show.to_csv(index=False).encode("utf-8"),
+                                   file_name=f"{symbol}_levels.csv", mime="text/csv", key="dl_levels")
 
             # ===== SIGNAL EVENTS — full width ================================
             st.divider()
@@ -2138,7 +2286,7 @@ def main() -> None:
             st.error(f"خطا در دریافت/تحلیل داده: {e}")
             st.info("نماد را مثل BTC-USDT بنویس؛ اگر صرافی انتخابی در منطقه‌ات مسدود است، KuCoin یا OKX یا Lighter را انتخاب کن.")
 
-    with tab_top:
+    if section == "🏆 برترین‌ها":
         try:
             tops = fetch_top_coins(exchange)
             g, l, v = st.columns(3)
@@ -2155,7 +2303,7 @@ def main() -> None:
         except Exception as e:  # noqa: BLE001
             st.error(f"دریافت فهرست بازار ممکن نشد: {e}")
 
-    with tab_news:
+    if section == "📰 اخبار":
         st.caption("پوشش خبری زنده — کریپتو، فارکس، بازار آمریکا، اقتصاد جهان و جنگ/ژئوپلیتیک. "
                    "روی هر خبر بزن تا **متن کامل همین‌جا** باز شود.")
         news_cat = st.radio(
@@ -2200,7 +2348,7 @@ def main() -> None:
         except Exception as e:  # noqa: BLE001
             st.error(f"دریافت اخبار ممکن نشد: {e}")
 
-    with tab_img:
+    if section == "🖼️ تصویر تحلیل":
         st.write(
             "نماد را وارد کن تا خودش از داده‌ی **واقعی** صرافی تحلیل کند و یک **تصویر چارت آماده** "
             "با نقاط ورود/حد ضرر/اهداف و سطوح حمایت و مقاومت بسازد — قابل دانلود و اشتراک‌گذاری."
@@ -2264,7 +2412,36 @@ def main() -> None:
         else:
             st.info("یک نماد وارد کن و دکمه‌ی «ساخت تصویر تحلیل» را بزن.")
 
-    with tab_docs:
+    if section == "👥 تحلیل‌های کاربران":
+        st.subheader("👥 تحلیل‌های کاربران")
+        st.caption("تحلیل‌هایی که کاربران ثبت کرده‌اند. برای ثبت تحلیل خودت، از سایدبار → «✍️ ثبت تحلیل شخصی».")
+        colf1, colf2 = st.columns([3, 1])
+        with colf2:
+            if st.button("🔄 بازخوانی", use_container_width=True):
+                st.rerun()
+        posts = load_community()
+        if not posts:
+            st.info("هنوز تحلیلی ثبت نشده. اولین نفر باش! (سایدبار → ✍️ ثبت تحلیل شخصی)")
+        else:
+            st.caption(f"{len(posts)} تحلیل ثبت‌شده")
+            bias_tone = {"لانگ 🟢": "#16a34a", "شورت 🔴": "#ef4444", "خنثی ⚪": "#94a3b8"}
+            for p in posts:
+                tone = bias_tone.get(p.get("bias", ""), "#94a3b8")
+                st.markdown(
+                    f"<div dir='rtl' style='border:1px solid rgba(148,163,184,0.2);border-right:4px solid {tone};"
+                    f"border-radius:12px;padding:12px 14px;margin:8px 0;background:rgba(148,163,184,0.05)'>"
+                    f"<div style='display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px'>"
+                    f"<b style='font-size:14px'>{p.get('name','ناشناس')}</b>"
+                    f"<span style='font-family:ui-monospace,monospace;font-size:12px;color:{tone}'>"
+                    f"{p.get('symbol','—')} · {p.get('bias','')}</span></div>"
+                    f"<div style='margin-top:8px;line-height:2;font-size:14px;white-space:pre-wrap'>{p.get('text','')}</div>"
+                    f"<div style='margin-top:6px;font-size:11px;color:#94a3b8'>{p.get('ts','')}</div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+        st.caption("⚠️ این تخته‌ی اشتراکی سبک است؛ با ری‌استارت/دیپلویِ مجدد اپ پاک می‌شود و جای دیتابیس را نمی‌گیرد.")
+
+    if section == "📚 منابع داده":
         st.subheader("📚 منابع داده (مستندات رسمی)")
         st.write("همه‌ی اندپوینت‌های این نسخه از مستندات عمومی رسمی صرافی‌ها خوانده می‌شوند و هیچ کلید API لازم نیست.")
         rows = [

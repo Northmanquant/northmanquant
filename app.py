@@ -73,6 +73,70 @@ LIVE_CSS = """
 
 HEADERS = {"User-Agent": "northmanquant-lite/1.0", "accept": "application/json"}
 
+# ------------------------------------------------------------------ themes
+
+# Each theme sets the page background, surface, text and accent colours. Users
+# pick one from the sidebar; a custom theme lets them choose any colours.
+THEMES = {
+    "🌌 شب کهکشانی": {"bg": "#050a14", "bg2": "#0e1424", "surface": "#111c2e",
+                       "text": "#e2e8f0", "accent": "#38bdf8", "grad": "linear-gradient(135deg,#0b1220,#131d33)"},
+    "🌊 اقیانوس عمیق": {"bg": "#071a24", "bg2": "#0a2634", "surface": "#0e3042",
+                        "text": "#d7f0f7", "accent": "#22d3ee", "grad": "linear-gradient(135deg,#071a24,#0d3344)"},
+    "🌿 جنگل تاریک": {"bg": "#0a140d", "bg2": "#0f2015", "surface": "#13291b",
+                      "text": "#dcefe0", "accent": "#34d399", "grad": "linear-gradient(135deg,#0a140d,#102a19)"},
+    "🔥 غروب آتشین": {"bg": "#1a0d0a", "bg2": "#2a1410", "surface": "#331a14",
+                      "text": "#ffe4d6", "accent": "#fb923c", "grad": "linear-gradient(135deg,#1a0d0a,#3a1c12)"},
+    "👑 سلطنتی بنفش": {"bg": "#120a1f", "bg2": "#1c1030", "surface": "#241640",
+                       "text": "#ebe0ff", "accent": "#a855f7", "grad": "linear-gradient(135deg,#120a1f,#241640)"},
+    "☀️ روشن مینیمال": {"bg": "#f3f5f9", "bg2": "#ffffff", "surface": "#ffffff",
+                        "text": "#0f172a", "accent": "#2563eb", "grad": "linear-gradient(135deg,#eef2f8,#ffffff)"},
+    "🖤 تک‌رنگ تیره": {"bg": "#0a0a0a", "bg2": "#141414", "surface": "#1a1a1a",
+                       "text": "#e5e5e5", "accent": "#9ca3af", "grad": "linear-gradient(135deg,#0a0a0a,#1a1a1a)"},
+}
+
+
+def theme_css(t: dict, bg_image: str = "") -> str:
+    """Build a <style> block that re-skins the whole Streamlit app for a theme."""
+    bg_layer = (
+        f"linear-gradient(rgba(0,0,0,0.55),rgba(0,0,0,0.70)), url('{bg_image}')"
+        if bg_image else t["grad"]
+    )
+    light = t["text"].lower() in ("#0f172a", "#111827", "#1e293b")
+    sidebar_bg = t["bg2"]
+    return f"""
+<style>
+.stApp {{
+    background: {bg_layer};
+    background-size: cover;
+    background-attachment: fixed;
+    color: {t['text']};
+}}
+section[data-testid="stSidebar"] > div {{ background: {sidebar_bg}; }}
+section[data-testid="stSidebar"] * {{ color: {t['text']} !important; }}
+.stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp p, .stApp label,
+.stApp span, .stApp div[data-testid="stMarkdownContainer"] {{ color: {t['text']}; }}
+[data-testid="stMetric"] {{
+    background: {t['surface']}; border: 1px solid rgba(148,163,184,0.18);
+    border-radius: 14px; padding: 12px 14px;
+}}
+[data-testid="stMetricValue"] {{ color: {t['accent']} !important; }}
+div[data-testid="stExpander"] details {{
+    background: {t['surface']}; border: 1px solid rgba(148,163,184,0.18);
+    border-radius: 12px;
+}}
+.stTabs [data-baseweb="tab-list"] {{ gap: 6px; }}
+.stTabs [data-baseweb="tab"] {{
+    background: {t['surface']}; border-radius: 10px 10px 0 0; padding: 6px 14px;
+}}
+.stTabs [aria-selected="true"] {{ border-bottom: 2px solid {t['accent']}; }}
+.stButton > button, .stDownloadButton > button {{
+    border: 1px solid {t['accent']}55; border-radius: 10px;
+}}
+.stDataFrame {{ border-radius: 12px; overflow: hidden; }}
+a {{ color: {t['accent']} !important; }}
+</style>
+"""
+
 
 def fetch_tick(exchange: str, symbol: str) -> dict | None:
     """Latest price (+bid/ask) from the selected exchange. No caching — this is the live layer."""
@@ -1107,10 +1171,54 @@ def _fetch_feed_relay(url: str) -> list[dict]:
     return out
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def translate_to_fa(text: str) -> str:
+    """Translate EN text to Persian via Google's free endpoint (no key).
+
+    Returns the original text on any failure so the UI never breaks.
+    """
+    text = (text or "").strip()
+    if not text:
+        return ""
+    # already Persian? skip (cheap heuristic: has Persian letters)
+    if any("\u0600" <= ch <= "\u06ff" for ch in text):
+        return text
+    snippet = text[:4800]
+    # 1) Google's free gtx endpoint (best quality)
+    try:
+        r = requests.get(
+            "https://translate.googleapis.com/translate_a/single",
+            params={"client": "gtx", "sl": "en", "tl": "fa", "dt": "t", "q": snippet},
+            headers={"User-Agent": "Mozilla/5.0"}, timeout=10,
+        )
+        if r.status_code == 200:
+            data = r.json()
+            out = "".join(seg[0] for seg in data[0] if seg and seg[0])
+            if out:
+                return out
+    except Exception:
+        pass
+    # 2) MyMemory fallback (works when gtx is rate-limited)
+    try:
+        r = requests.get(
+            "https://api.mymemory.translated.net/get",
+            params={"q": snippet[:500], "langpair": "en|fa"},
+            headers={"User-Agent": "Mozilla/5.0"}, timeout=10,
+        )
+        if r.status_code == 200:
+            out = (r.json().get("responseData") or {}).get("translatedText") or ""
+            if out and "MYMEMORY WARNING" not in out.upper():
+                return out
+    except Exception:
+        pass
+    return text
+
+
 @st.cache_data(ttl=300, show_spinner=False)
-def fetch_news(category: str = "₿ کریپتو", limit: int = 24) -> pd.DataFrame:
+def fetch_news(category: str = "₿ کریپتو", limit: int = 24, translate: bool = True) -> pd.DataFrame:
     """News for a given category. Persian feeds go through the JSON relay first;
-    English feeds are tried directly, then relay. Each row carries full text."""
+    English feeds are tried directly, then relay. Non-Persian titles/text are
+    translated to Persian so the whole feed reads in Persian."""
     feeds = NEWS_CATEGORIES.get(category, NEWS_CATEGORIES["₿ کریپتو"])
     items = []
     for source, url, is_fa in feeds:
@@ -1123,11 +1231,25 @@ def fetch_news(category: str = "₿ کریپتو", limit: int = 24) -> pd.DataFr
                 rows = []
             if rows:
                 break
+        if translate and not is_fa and rows:
+            # Batch all titles into ONE translation call (separator survives MT)
+            sep = "\n•••\n"
+            joined = sep.join(r["title"] for r in rows)
+            tr = translate_to_fa(joined)
+            parts = [p.strip() for p in tr.split("•••")]
+            if len(parts) == len(rows):
+                for r, p in zip(rows, parts):
+                    r["title_fa"] = p or r["title"]
+            else:
+                for r in rows:
+                    r["title_fa"] = r["title"]
         for row in rows:
+            title = row.get("title_fa", row["title"]) if (translate and not is_fa) else row["title"]
             items.append({
-                "title": row["title"], "link": row["link"], "source": source,
+                "title": title, "link": row["link"], "source": source,
                 "date": row["date"], "content": row.get("content", ""),
-                "sentiment": _score_title(row["title"]),
+                "en_title": row["title"], "is_fa": is_fa,
+                "sentiment": _score_title(row["title"]),  # score original title
             })
     df = pd.DataFrame(items)
     return df.head(limit) if not df.empty else df
@@ -1657,6 +1779,18 @@ def main() -> None:
         live_on = st.checkbox("🔴 حالت زنده (قیمت هر ۵ ثانیه)", value=True)
         auto = st.checkbox("بازخوانی کامل خودکار (۶۰ ثانیه)", value=False)
 
+        st.divider()
+        st.subheader("🎨 شخصی‌سازی ظاهر")
+        theme_name = st.selectbox("تم رنگی", list(THEMES.keys()), index=0)
+        bg_image_url = st.text_input(
+            "لینک تصویر پس‌زمینه (اختیاری)", value="",
+            placeholder="https://…/image.jpg",
+            help="آدرس یک عکس بگذار تا پس‌زمینه‌ی دلخواهت شود.",
+        )
+
+    # apply chosen theme (and optional background image) across the whole app
+    st.markdown(theme_css(THEMES[theme_name], bg_image_url.strip()), unsafe_allow_html=True)
+
     symbol = normalize_symbol(symbol_in, exchange)
     st.markdown(LIVE_CSS, unsafe_allow_html=True)
 
@@ -1790,7 +1924,8 @@ def main() -> None:
                 "modeBarButtonsToRemove": ["lasso2d", "select2d"],
             })
 
-            # THE AGENTS — live strategy backtest row (real indicators)
+            # ===== THE AGENTS — full-width strategy backtest row =============
+            st.divider()
             st.subheader("◈ دفتر ایجنت‌ها (The Agents) — بک‌تست زنده")
             try:
                 agent_cards = compute_agents(d)
@@ -1803,50 +1938,63 @@ def main() -> None:
             except Exception:  # noqa: BLE001
                 pass
 
-            left, right = st.columns(2)
-            with left:
-                st.subheader("🎯 طرح معامله")
-                p1, p2, p3, p4 = st.columns(4)
-                p1.metric("جهت", plan["direction"])
-                p2.metric("ورود", f"{plan['entry']:,.{dec}f}")
-                p3.metric("حد ضرر", f"{plan['stop']:,.{dec}f}")
-                p4.metric("R:R / اطمینان", f"1:{plan['rr']} · {plan['confidence']}٪")
-                for i, (t_price, t_rr) in enumerate(plan["targets"]):
-                    st.write(f"هدف {i + 1}: **{t_price:,.{dec}f}** ({t_rr}R)")
-                st.subheader("◈ پوسته مدل‌ها (Neural Shell) — زنده")
-                # Rendered via components.html (iframe) because st.markdown strips
-                # SVG/SMIL animations; the iframe keeps the live motion intact.
-                components.html(
-                    "<div style='background:#f6f8fb;margin:0;padding:2px;border-radius:12px'>"
-                    + build_neural_shell_svg(comp_table, score)
-                    + "</div>",
-                    height=330,
-                )
-                st.dataframe(comp_table, use_container_width=True, hide_index=True)
-            with right:
-                st.subheader("🧱 حمایت و مقاومت (سوئینگ)")
-                if levels.empty:
-                    st.info("سطح معناداری پیدا نشد.")
-                else:
-                    show = levels.copy()
-                    show["سطح"] = show["سطح"].map(lambda v: f"{v:,.{dec}f}")
-                    st.dataframe(show, use_container_width=True, hide_index=True)
-                st.subheader("📜 رویدادهای ورود/خروج همگرایی")
-                if events.empty:
-                    st.info("در این بازه رویدادی ثبت نشده است.")
-                else:
-                    st.dataframe(events.tail(10).iloc[::-1], use_container_width=True, hide_index=True)
-            st.line_chart(score_series.tail(120), height=140)
-            st.caption("نمودار بالا: روند امتیاز همگرایی ۱۲۰ کندل اخیر. داده: API عمومی صرافی (کش ۶۰ ثانیه). این ابزار توصیه‌ی سرمایه‌گذاری نیست.")
+            # ===== TRADE PLAN — full width, own section ======================
+            st.divider()
+            st.subheader("🎯 طرح معامله")
+            p1, p2, p3, p4 = st.columns(4)
+            p1.metric("جهت", plan["direction"])
+            p2.metric("ورود", f"{plan['entry']:,.{dec}f}")
+            p3.metric("حد ضرر", f"{plan['stop']:,.{dec}f}")
+            p4.metric("R:R / اطمینان", f"1:{plan['rr']} · {plan['confidence']}٪")
+            tcols = st.columns(max(1, len(plan["targets"])))
+            for i, (t_price, t_rr) in enumerate(plan["targets"]):
+                tcols[i].metric(f"هدف {i + 1}", f"{t_price:,.{dec}f}", f"{t_rr}R")
 
-            # EDGE MATRIX — does the confluence score actually precede profit?
+            # ===== NEURAL SHELL — full width =================================
+            st.divider()
+            st.subheader("◈ پوسته مدل‌ها (Neural Shell) — زنده")
+            components.html(
+                "<div style='background:#f6f8fb;margin:0;padding:2px;border-radius:12px'>"
+                + build_neural_shell_svg(comp_table, score)
+                + "</div>",
+                height=340,
+            )
+            st.markdown("**اجزای همگرایی**")
+            st.dataframe(comp_table, use_container_width=True, hide_index=True)
+
+            # ===== SUPPORT / RESISTANCE — full width =========================
+            st.divider()
+            st.subheader("🧱 حمایت و مقاومت (سوئینگ)")
+            if levels.empty:
+                st.info("سطح معناداری پیدا نشد.")
+            else:
+                show = levels.copy()
+                show["سطح"] = show["سطح"].map(lambda v: f"{v:,.{dec}f}")
+                st.dataframe(show, use_container_width=True, hide_index=True)
+
+            # ===== SIGNAL EVENTS — full width ================================
+            st.divider()
+            st.subheader("📜 رویدادهای ورود/خروج همگرایی")
+            if events.empty:
+                st.info("در این بازه رویدادی ثبت نشده است.")
+            else:
+                st.dataframe(events.tail(12).iloc[::-1], use_container_width=True, hide_index=True)
+
+            # ===== CONFLUENCE TREND =========================================
+            st.divider()
+            st.subheader("📈 روند امتیاز همگرایی (۱۲۰ کندل اخیر)")
+            st.line_chart(score_series.tail(120), height=160)
+            st.caption("داده: API عمومی صرافی (کش ۶۰ ثانیه). این ابزار توصیه‌ی سرمایه‌گذاری نیست.")
+
+            # ===== EDGE MATRIX — full width ==================================
+            st.divider()
             st.subheader("◈ ماتریس لبه (Edge Matrix) — همبستگی سیگنال با بازده بعدی")
             try:
                 components.html(
                     "<div style='background:#f6f8fb;margin:0;padding:2px;border-radius:12px'>"
                     + build_edge_matrix_svg(d, score_series)
                     + "</div>",
-                    height=580,
+                    height=600,
                 )
                 st.caption("هر نقطه یک کندل است: محور افقی = امتیاز همگرایی، محور عمودی = بازده کندل بعدی. خط نارنجی رگرسیون؛ شیب و همبستگی مثبت یعنی سیگنال واقعاً پیش‌روِ سود بوده است.")
             except Exception:  # noqa: BLE001
@@ -1895,17 +2043,20 @@ def main() -> None:
                             unsafe_allow_html=True,
                         )
                         body = (row.get("content") or "").strip()
+                        # translate the body to Persian on demand (only the opened one)
+                        if body and not row.get("is_fa", False):
+                            body = translate_to_fa(body)
                         if body:
                             # full article text, RTL-aware, scrollable, readable
                             st.markdown(
-                                "<div dir='auto' style='line-height:2;font-size:15px;"
-                                "max-height:460px;overflow:auto;text-align:justify'>"
+                                "<div dir='rtl' style='line-height:2.1;font-size:15px;"
+                                "max-height:480px;overflow:auto;text-align:justify;padding:4px 2px'>"
                                 + body.replace("\n", "<br>")
                                 + "</div>",
                                 unsafe_allow_html=True,
                             )
                         else:
-                            st.info("متن کامل این خبر در فید موجود نیست.")
+                            st.info("متن کامل این خبر در فید موجود نیست — از «منبع اصلی» بخوان.")
                         st.markdown(
                             f"<a href='{row['link']}' target='_blank' "
                             f"style='font-size:12px;color:#38bdf8'>منبع اصلی ↗</a>",

@@ -88,7 +88,7 @@ check("OKX pipeline", pipeline_okx)
 print("\n== news (live RSS, by category, with full text) ==")
 def _news_cat(cat):
     def fn():
-        df = nq.fetch_news(cat)
+        df = nq.fetch_news(cat, translate=False)
         if df.empty:
             return "EMPTY"
         srcs = " · ".join(sorted(df["source"].unique()))

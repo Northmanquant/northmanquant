@@ -3,7 +3,7 @@
   "appName": "NorthmanQuant",
   "webDir": "www",
   "server": {
-    "url": "https://REPLACE-WITH-YOUR-APP.streamlit.app",
+    "url": "https://https://arena.ai/c/01a13fa6-276c-74dd-930b-f038c8e96c5b.app",
     "cleartext": false,
     "allowNavigation": [
       "*.streamlit.app",

@@ -1,0 +1,16 @@
+{
+  "appId": "app.northmanquant.lite",
+  "appName": "NorthmanQuant",
+  "webDir": "www",
+  "server": {
+    "url": "https://REPLACE-WITH-YOUR-APP.streamlit.app",
+    "cleartext": false,
+    "allowNavigation": [
+      "*.streamlit.app",
+      "*.streamlitapp.com"
+    ]
+  },
+  "android": {
+    "backgroundColor": "#050a14"
+  }
+}

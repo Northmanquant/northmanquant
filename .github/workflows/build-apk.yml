@@ -56,6 +56,9 @@ jobs:
           npx cap add android || echo "android platform already present"
           npx cap sync android
 
+      - name: Generate app icon & splash screen
+        run: npx capacitor-assets generate --android || echo "assets step skipped"
+
       - name: Build debug APK
         working-directory: mobile-app/android
         run: |

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#050a14" />
+    <title>NorthmanQuant</title>
+    <style>
+      html, body {
+        margin: 0; height: 100%;
+        background: #050a14; color: #e2e8f0;
+        font-family: Vazirmatn, Tahoma, system-ui, sans-serif;
+        display: flex; align-items: center; justify-content: center;
+        text-align: center;
+      }
+      .wrap { padding: 24px; max-width: 420px; }
+      .logo {
+        width: 76px; height: 76px; margin: 0 auto 18px;
+        border-radius: 20px;
+        background: linear-gradient(135deg, #38bdf8, #22c55e);
+        display: flex; align-items: center; justify-content: center;
+        font-size: 38px;
+      }
+      h1 { font-size: 22px; margin: 0 0 6px; }
+      p { color: #94a3b8; font-size: 14px; line-height: 1.9; }
+      .spin {
+        margin: 22px auto 0; width: 34px; height: 34px;
+        border: 3px solid rgba(148,163,184,.25); border-top-color: #38bdf8;
+        border-radius: 50%; animation: s 0.9s linear infinite;
+      }
+      @keyframes s { to { transform: rotate(360deg); } }
+      a { color: #38bdf8; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="logo">📈</div>
+      <h1>NorthmanQuant</h1>
+      <p>در حال اتصال به سرویس تحلیل زنده…</p>
+      <div class="spin"></div>
+      <p style="margin-top:22px;font-size:12px">
+        اگر صفحه بالا نیامد، اتصال اینترنت را بررسی کن.
+      </p>
+    </div>
+  </body>
+</html>

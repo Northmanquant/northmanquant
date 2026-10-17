@@ -2052,8 +2052,8 @@ def main() -> None:
         unsafe_allow_html=True,
     )
 
-    SECTIONS = ["📊 تحلیل زنده", "💎 فرصت‌های سودده", "🏆 برترین‌ها", "📰 اخبار",
-                "🖼️ تصویر تحلیل", "👥 تحلیل‌های کاربران", "📚 منابع داده"]
+    SECTIONS = ["📊 تحلیل زنده", "💎 فرصت‌های سودده", "✍️ ثبت تحلیل شخصی", "👥 تحلیل‌های کاربران",
+                "🏆 برترین‌ها", "📰 اخبار", "🖼️ تصویر تحلیل", "📚 منابع داده"]
 
     with st.sidebar:
         st.header("⚙️ تنظیمات")
@@ -2083,11 +2083,6 @@ def main() -> None:
                                      value=160, step=20,
                                      help="کمتر = کندل‌ها بازتر و درشت‌تر · بیشتر = فشرده‌تر")
             live_on = st.checkbox("🔴 حالت زنده (قیمت هر ۵ ثانیه)", value=True)
-            auto = st.checkbox("♻️ بازخوانی کامل خودکار", value=False,
-                               help="کل داده و تحلیل به‌صورت خودکار و بدون کلیک به‌روز می‌شود.")
-            auto_sec = st.select_slider("فاصله‌ی بازخوانی", options=[15, 30, 60, 120, 300],
-                                        value=60, format_func=lambda s: f"{s} ثانیه",
-                                        disabled=not auto)
 
         # --- appearance ------------------------------------------------------
         with st.expander("🎨 شخصی‌سازی ظاهر", expanded=False):
@@ -2105,53 +2100,8 @@ def main() -> None:
                                     help="لینک اپ منتشرشده‌ات را بگذار تا در اشتراک‌گذاری‌ها بیاید.")
             st.caption("دکمه‌ی شناور 🔗 گوشه‌ی صفحه را بکش و جابه‌جا کن؛ با زدن روی آن گزینه‌های اشتراک باز می‌شود.")
 
-        # --- community: post your own analysis ------------------------------
-        with st.expander("✍️ ثبت تحلیل شخصی", expanded=False):
-            st.caption("تحلیلت را اینجا ثبت کن تا در بخش «👥 تحلیل‌های کاربران» برای همه دیده شود.")
-            with st.form("community_form", clear_on_submit=True):
-                ca_name = st.text_input("نام یا نام مستعار", value="", max_chars=30)
-                ca_symbol = st.text_input("نماد", value="BTC-USDT", max_chars=20)
-                ca_bias = st.selectbox("جهت", ["لانگ 🟢", "شورت 🔴", "خنثی ⚪"])
-                ca_text = st.text_area("متن تحلیل", value="", height=120, max_chars=1500)
-                ca_submit = st.form_submit_button("📨 ثبت و اشتراک‌گذاری", use_container_width=True)
-            if ca_submit:
-                if ca_text.strip():
-                    from datetime import datetime as _dt
-                    save_community({
-                        "name": (ca_name.strip() or "ناشناس"),
-                        "symbol": ca_symbol.strip().upper() or "—",
-                        "bias": ca_bias,
-                        "text": ca_text.strip(),
-                        "ts": _dt.now().strftime("%Y-%m-%d %H:%M"),
-                    })
-                    st.success("تحلیلت ثبت شد ✓ — در بخش «تحلیل‌های کاربران» ببین.")
-                else:
-                    st.warning("متن تحلیل را بنویس.")
-
     # apply chosen theme (and optional background image) across the whole app
     st.markdown(theme_css(THEMES[theme_name], bg_image_url.strip()), unsafe_allow_html=True)
-
-    # non-blocking auto-refresh: rerun the whole app every `auto_sec` seconds.
-    if auto:
-        refreshed = False
-        try:
-            # Streamlit >= 1.30 has a native helper
-            st.autorefresh(interval=auto_sec * 1000, key="nq_autorefresh")  # type: ignore[attr-defined]
-            refreshed = True
-        except Exception:
-            try:
-                from streamlit_autorefresh import st_autorefresh  # optional pkg
-                st_autorefresh(interval=auto_sec * 1000, key="nq_autorefresh")
-                refreshed = True
-            except Exception:
-                refreshed = False
-        if not refreshed:
-            # Fallback: a tiny meta-refresh injected into the parent document.
-            components.html(
-                f"<script>setTimeout(()=>window.parent.location.reload(), {auto_sec * 1000});</script>",
-                height=0,
-            )
-        st.caption(f"♻️ بازخوانی خودکار هر {auto_sec} ثانیه فعال است.")
 
     symbol = normalize_symbol(symbol_in, exchange)
     st.markdown(LIVE_CSS, unsafe_allow_html=True)
@@ -2578,30 +2528,133 @@ def main() -> None:
         else:
             st.info("یک نماد وارد کن و دکمه‌ی «ساخت تصویر تحلیل» را بزن.")
 
+    if section == "✍️ ثبت تحلیل شخصی":
+        st.subheader("✍️ ثبت تحلیل شخصی")
+        st.caption("تحلیل حرفه‌ای‌ات را با جزئیات کامل ثبت کن تا در بخش «👥 تحلیل‌های کاربران» برای همه دیده شود.")
+
+        with st.form("community_form", clear_on_submit=True):
+            r1c1, r1c2, r1c3 = st.columns(3)
+            with r1c1:
+                ca_name = st.text_input("نام یا نام مستعار *", value="", max_chars=30)
+            with r1c2:
+                ca_symbol = st.text_input("نماد ارز *", value="BTC-USDT", max_chars=20,
+                                          help="مثل BTC-USDT، ETH، SOL")
+            with r1c3:
+                ca_exchange = st.selectbox("صرافی", EXCHANGES + ["سایر"], index=0)
+
+            r2c1, r2c2, r2c3, r2c4 = st.columns(4)
+            with r2c1:
+                ca_bias = st.selectbox("جهت *", ["لانگ 🟢", "شورت 🔴", "خنثی ⚪"])
+            with r2c2:
+                ca_tf = st.selectbox("تایم‌فریم", list(INTERVAL_MINUTES.keys()), index=1)
+            with r2c3:
+                ca_entry = st.number_input("قیمت ورود", min_value=0.0, value=0.0, format="%.6f")
+            with r2c4:
+                ca_stop = st.number_input("حد ضرر (SL)", min_value=0.0, value=0.0, format="%.6f")
+
+            r3c1, r3c2, r3c3, r3c4 = st.columns(4)
+            with r3c1:
+                ca_tp1 = st.number_input("هدف ۱ (TP1)", min_value=0.0, value=0.0, format="%.6f")
+            with r3c2:
+                ca_tp2 = st.number_input("هدف ۲ (TP2)", min_value=0.0, value=0.0, format="%.6f")
+            with r3c3:
+                ca_tp3 = st.number_input("هدف ۳ (TP3)", min_value=0.0, value=0.0, format="%.6f")
+            with r3c4:
+                ca_conf = st.slider("اطمینان ٪", 0, 100, 60)
+
+            ca_text = st.text_area("شرح تحلیل *", value="", height=140, max_chars=2000,
+                                   placeholder="دلیل ورود، ستاپ تکنیکال، سطوح کلیدی، مدیریت ریسک …")
+            ca_submit = st.form_submit_button("📨 ثبت و اشتراک‌گذاری تحلیل", use_container_width=True, type="primary")
+
+        if ca_submit:
+            if ca_name.strip() and ca_symbol.strip() and ca_text.strip():
+                from datetime import datetime as _dt
+                # auto R:R if entry/stop/tp1 provided
+                rr = ""
+                try:
+                    risk = abs(ca_entry - ca_stop)
+                    if risk > 0 and ca_tp1 > 0:
+                        rr = f"1:{round(abs(ca_tp1 - ca_entry) / risk, 2)}"
+                except Exception:
+                    rr = ""
+                save_community({
+                    "name": ca_name.strip(),
+                    "symbol": ca_symbol.strip().upper(),
+                    "exchange": ca_exchange,
+                    "bias": ca_bias,
+                    "tf": ca_tf,
+                    "entry": ca_entry or None,
+                    "stop": ca_stop or None,
+                    "tp1": ca_tp1 or None, "tp2": ca_tp2 or None, "tp3": ca_tp3 or None,
+                    "rr": rr,
+                    "confidence": ca_conf,
+                    "text": ca_text.strip(),
+                    "ts": _dt.now().strftime("%Y-%m-%d %H:%M"),
+                })
+                st.success("تحلیلت ثبت شد ✓ — در بخش «👥 تحلیل‌های کاربران» ببین.")
+            else:
+                st.warning("فیلدهای ستاره‌دار (نام، نماد، شرح تحلیل) را پر کن.")
+
     if section == "👥 تحلیل‌های کاربران":
         st.subheader("👥 تحلیل‌های کاربران")
-        st.caption("تحلیل‌هایی که کاربران ثبت کرده‌اند. برای ثبت تحلیل خودت، از سایدبار → «✍️ ثبت تحلیل شخصی».")
-        colf1, colf2 = st.columns([3, 1])
-        with colf2:
+        hc1, hc2 = st.columns([3, 1])
+        with hc1:
+            st.caption("تحلیل‌هایی که کاربران ثبت کرده‌اند. برای ثبت تحلیل خودت → بخش «✍️ ثبت تحلیل شخصی».")
+        with hc2:
             if st.button("🔄 بازخوانی", use_container_width=True):
                 st.rerun()
+
         posts = load_community()
         if not posts:
-            st.info("هنوز تحلیلی ثبت نشده. اولین نفر باش! (سایدبار → ✍️ ثبت تحلیل شخصی)")
+            st.info("هنوز تحلیلی ثبت نشده. اولین نفر باش! (بخش → ✍️ ثبت تحلیل شخصی)")
         else:
-            st.caption(f"{len(posts)} تحلیل ثبت‌شده")
+            # filter bar
+            fcol1, fcol2 = st.columns([1, 1])
+            with fcol1:
+                syms = ["همه"] + sorted({p.get("symbol", "—") for p in posts})
+                fsym = st.selectbox("فیلتر نماد", syms, index=0)
+            with fcol2:
+                fbias = st.selectbox("فیلتر جهت", ["همه", "لانگ 🟢", "شورت 🔴", "خنثی ⚪"], index=0)
+            shown = [p for p in posts
+                     if (fsym == "همه" or p.get("symbol") == fsym)
+                     and (fbias == "همه" or p.get("bias") == fbias)]
+            st.caption(f"{len(shown)} از {len(posts)} تحلیل")
+
             bias_tone = {"لانگ 🟢": "#16a34a", "شورت 🔴": "#ef4444", "خنثی ⚪": "#94a3b8"}
-            for p in posts:
+
+            def _chip(lbl, val, color="#e2e8f0"):
+                if val in (None, "", 0):
+                    return ""
+                return (f"<div style='background:rgba(148,163,184,.1);border-radius:8px;padding:6px 8px;text-align:center'>"
+                        f"<div style='font-size:9px;color:#94a3b8'>{lbl}</div>"
+                        f"<div style='font-family:ui-monospace,monospace;font-weight:800;font-size:13px;color:{color}'>{val}</div></div>")
+
+            for p in shown:
                 tone = bias_tone.get(p.get("bias", ""), "#94a3b8")
+                def _fmt(v):
+                    try:
+                        return f"{float(v):,.6g}"
+                    except Exception:
+                        return v
+                chips = "".join([
+                    _chip("ورود", _fmt(p.get("entry")), "#f59e0b"),
+                    _chip("حد ضرر", _fmt(p.get("stop")), "#ef4444"),
+                    _chip("TP1", _fmt(p.get("tp1")), "#16a34a"),
+                    _chip("TP2", _fmt(p.get("tp2")), "#16a34a"),
+                    _chip("TP3", _fmt(p.get("tp3")), "#16a34a"),
+                    _chip("R:R", p.get("rr"), "#38bdf8"),
+                    _chip("اطمینان", (f"{p.get('confidence')}%" if p.get("confidence") else ""), "#a855f7"),
+                ])
+                meta = " · ".join(x for x in [p.get("symbol", "—"), p.get("exchange", ""), p.get("tf", ""), p.get("bias", "")] if x)
                 st.markdown(
-                    f"<div dir='rtl' style='border:1px solid rgba(148,163,184,0.2);border-right:4px solid {tone};"
-                    f"border-radius:12px;padding:12px 14px;margin:8px 0;background:rgba(148,163,184,0.05)'>"
-                    f"<div style='display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px'>"
-                    f"<b style='font-size:14px'>{p.get('name','ناشناس')}</b>"
-                    f"<span style='font-family:ui-monospace,monospace;font-size:12px;color:{tone}'>"
-                    f"{p.get('symbol','—')} · {p.get('bias','')}</span></div>"
-                    f"<div style='margin-top:8px;line-height:2;font-size:14px;white-space:pre-wrap'>{p.get('text','')}</div>"
-                    f"<div style='margin-top:6px;font-size:11px;color:#94a3b8'>{p.get('ts','')}</div>"
+                    f"<div dir='rtl' style='border:1px solid rgba(148,163,184,0.2);border-right:5px solid {tone};"
+                    f"border-radius:14px;padding:14px 16px;margin:10px 0;background:rgba(148,163,184,0.05)'>"
+                    f"<div style='display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:center'>"
+                    f"<b style='font-size:16px'>👤 {p.get('name','ناشناس')}</b>"
+                    f"<span style='font-family:ui-monospace,monospace;font-size:13px;color:{tone};font-weight:700'>{meta}</span></div>"
+                    + (f"<div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(78px,1fr));gap:8px;margin-top:12px'>{chips}</div>" if chips else "")
+                    + f"<div style='margin-top:12px;line-height:2;font-size:14px;white-space:pre-wrap'>{p.get('text','')}</div>"
+                    f"<div style='margin-top:8px;font-size:11px;color:#94a3b8'>🕒 {p.get('ts','')}</div>"
                     f"</div>",
                     unsafe_allow_html=True,
                 )

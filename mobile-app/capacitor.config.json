@@ -3,7 +3,7 @@
   "appName": "NorthmanQuant",
   "webDir": "www",
   "server": {
-    "url": "https://https://northmanquant-kp9pyqw2ipf4dpivk2fvxj.streamlit.app/
+        "url": "https://northmanquant-kp9pyqw2ipf4dpivk2fvxj.streamlit.app",
     "allowNavigation": [
       "*.streamlit.app",
       "*.streamlitapp.com"

@@ -2562,8 +2562,10 @@ def main() -> None:
             with r3c4:
                 ca_conf = st.slider("اطمینان ٪", 0, 100, 60)
 
-            ca_text = st.text_area("شرح تحلیل *", value="", height=140, max_chars=2000,
+            ca_text = st.text_area("شرح تحلیل و دلیل *", value="", height=140, max_chars=2000,
                                    placeholder="دلیل ورود، ستاپ تکنیکال، سطوح کلیدی، مدیریت ریسک …")
+            ca_image = st.file_uploader("📷 عکس چارت/تحلیل (اختیاری)", type=["png", "jpg", "jpeg", "webp"],
+                                        help="می‌توانی اسکرین‌شات چارت یا تحلیلت را هم پیوست کنی.")
             ca_submit = st.form_submit_button("📨 ثبت و اشتراک‌گذاری تحلیل", use_container_width=True, type="primary")
 
         if ca_submit:
@@ -2577,6 +2579,19 @@ def main() -> None:
                         rr = f"1:{round(abs(ca_tp1 - ca_entry) / risk, 2)}"
                 except Exception:
                     rr = ""
+                # encode the optional image to a small base64 data-URI (resized)
+                img_uri = ""
+                if ca_image is not None:
+                    try:
+                        import base64 as _b64
+                        import io as _io
+                        im = Image.open(ca_image).convert("RGB")
+                        im.thumbnail((1000, 1000))  # cap size so the JSON stays light
+                        buf = _io.BytesIO()
+                        im.save(buf, format="JPEG", quality=80)
+                        img_uri = "data:image/jpeg;base64," + _b64.b64encode(buf.getvalue()).decode()
+                    except Exception:
+                        img_uri = ""
                 save_community({
                     "name": ca_name.strip(),
                     "symbol": ca_symbol.strip().upper(),
@@ -2589,6 +2604,7 @@ def main() -> None:
                     "rr": rr,
                     "confidence": ca_conf,
                     "text": ca_text.strip(),
+                    "image": img_uri,
                     "ts": _dt.now().strftime("%Y-%m-%d %H:%M"),
                 })
                 st.success("تحلیلت ثبت شد ✓ — در بخش «👥 تحلیل‌های کاربران» ببین.")
@@ -2654,7 +2670,9 @@ def main() -> None:
                     f"<span style='font-family:ui-monospace,monospace;font-size:13px;color:{tone};font-weight:700'>{meta}</span></div>"
                     + (f"<div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(78px,1fr));gap:8px;margin-top:12px'>{chips}</div>" if chips else "")
                     + f"<div style='margin-top:12px;line-height:2;font-size:14px;white-space:pre-wrap'>{p.get('text','')}</div>"
-                    f"<div style='margin-top:8px;font-size:11px;color:#94a3b8'>🕒 {p.get('ts','')}</div>"
+                    + (f"<img src='{p.get('image')}' style='margin-top:12px;max-width:100%;border-radius:10px;"
+                       f"border:1px solid rgba(148,163,184,0.2)'/>" if p.get("image") else "")
+                    + f"<div style='margin-top:8px;font-size:11px;color:#94a3b8'>🕒 {p.get('ts','')}</div>"
                     f"</div>",
                     unsafe_allow_html=True,
                 )

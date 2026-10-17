@@ -1,0 +1,7 @@
+# Capacitor generates these — CI rebuilds them on every run.
+/android/
+/ios/
+node_modules/
+output/
+*.apk
+.DS_Store

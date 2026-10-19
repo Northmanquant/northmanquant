@@ -2064,27 +2064,7 @@ def main() -> None:
         section = st.radio("بخش‌ها", SECTIONS, index=0, key="nav_section")
 
         # --- bazaar / market settings ---------------------------------------
-        with st.expander("🏦 بازار و نماد", expanded=True):
-            symbol_in = st.text_input("نماد", value="BTC-USDT",
-                                      help="مثل BTC-USDT یا gramusdt · برای Lighter فقط BTC")
-            exch_choice = st.selectbox("صرافی", EXCHANGES + ["XT", "LBank"] + ["➕ صرافی دیگر (CCXT)"])
-            if exch_choice.startswith("➕"):
-                custom_ex = st.text_input(
-                    "نام یا شناسه‌ی صرافی", value="Kraken",
-                    help="هر صرافیِ CCXT: kraken، coinbase، gate، mexc، bitget، htx، xt، lbank، …",
-                )
-                st.caption("نمونه‌ها: " + " · ".join(CCXT_SUGGESTED))
-                exchange = custom_ex.strip() or "Kraken"
-            else:
-                exchange = exch_choice
-            interval = st.selectbox("تایم‌فریم", list(INTERVAL_MINUTES.keys()), index=1)
-
-        # --- chart settings --------------------------------------------------
-        with st.expander("📈 تنظیمات چارت", expanded=False):
-            candle_count = st.slider("تعداد کندل روی چارت (فشرده/باز)", min_value=40, max_value=500,
-                                     value=160, step=20,
-                                     help="کمتر = کندل‌ها بازتر و درشت‌تر · بیشتر = فشرده‌تر")
-            live_on = st.checkbox("🔴 حالت زنده (قیمت هر ۵ ثانیه)", value=True)
+        بازار و نماد
 
         # --- appearance ------------------------------------------------------
         with st.expander("🎨 شخصی‌سازی ظاهر", expanded=False):

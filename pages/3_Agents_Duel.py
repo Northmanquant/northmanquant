@@ -1,324 +1,351 @@
-"""Agents Duel - v3: evidence-based duel.
-
-4 agents run a backtest on the same coin AND then take a final position that is
-fully justified by real evidence: candles, market structure, trend, liquidity
-(sweeps / pools / equal highs-lows), money flow in/out (CMF / MFI / OBV / volume),
-momentum, FVG / BVG and support/resistance. Every agent gets its own evidence
-table + structural entry / stop / 3 targets. The best (consensus) position can be
-saved to 👥 تحلیل‌های کاربران.
 """
-import json
-import os
-from datetime import datetime
+core/gaps.py — موتور FVG / BVG برای NorthmanQuant
+====================================================
+FVG  = Fair Value Gap (گپ ارزش منصفانه)
+       ناترازی سه‌کندلی: وقتی «سایه‌ی» کندل ۱ و کندل ۳ همپوشانی ندارند.
+       صعودی: low[t] > high[t-2]   ·   نزولی: high[t] < low[t-2]
+BVG  = Body-Volume Gap (گپ بدنه با تأیید حجم)
+       ناترازی سه‌کندلی روی «بدنه‌ها» (نه سایه‌ها) که کندل وسط (کندل جابه‌جایی)
+       حجمی بالاتر از میانگین ۲۰ کندل دارد. در کریپتو که بازار ۲۴/۷ است و گپِ
+       بین دو کندل متوالی تقریباً وجود ندارد، این تعریف جای «Volume Imbalance» را می‌گیرد.
+IFVG = اگر قیمت با «کلوز» از آن‌سوی یک FVG عبور کند، زون معکوس می‌شود (حمایت ↔ مقاومت).
+
+همه‌چیز «علّی» (causal) است: امتیاز کندل t فقط از داده‌ی ≤ t استفاده می‌کند،
+بنابراین می‌توان با خیال راحت روی آن بک‌تست گرفت.
+
+خروجی اصلی: gap_analysis(df) -> dict
+    fvg_score / bvg_score : آرایه‌ی امتیاز هر کندل در بازه‌ی [-1, +1]
+    fvg_zones / bvg_zones : فهرست زون‌ها (فعال و پرشده) با جزئیات
+    fvg_info  / bvg_info  : خلاصه‌ی کندل آخر (برای جدول/Neural Shell)
+"""
+from __future__ import annotations
+
+import math
 
 import numpy as np
 import pandas as pd
-import streamlit as st
 
-st.set_page_config(page_title="Agents Duel", page_icon="🤖", layout="wide")
-st.title("🤖 دوئل ایجنت‌ها — کدوم ربات می‌بره؟")
-st.caption("۴ ربات روی ۱ ارز بک‌تست می‌شوند و بعد هرکدام بر اساس **مدرک واقعی** (کندل‌ها، ساختار و جهت بازار، "
-           "نقدینگی، ورود/خروج پول، مومنتوم، FVG/BVG و سطوح) پوزیشن نهایی می‌دهد — بدون حدس.")
+__all__ = [
+    "gap_analysis", "gap_scores", "active_zones", "short_label", "table_rows",
+    "plotly_shapes", "zones_frame", "GAP_HELP",
+]
 
-# دقیق مثل app_base - همه 8 تا صرافی
-EXCHANGES = ["KuCoin", "OKX", "Binance", "Bybit", "Lighter", "XT", "LBank", "KCEX"]
-COMMUNITY_FILE = "community_analyses.json"
-POS_FA = {"LONG": "لانگ 🟢", "SHORT": "شورت 🔴", "FLAT": "خنثی ⚪ (بدون پوزیشن)"}
-POS_COL = {"LONG": "#16a34a", "SHORT": "#ef4444", "FLAT": "#94a3b8"}
-
-
-def save_duel(entry):
-    rows = []
-    if os.path.exists(COMMUNITY_FILE):
-        try:
-            with open(COMMUNITY_FILE, "r", encoding="utf-8") as f:
-                rows = json.load(f)
-        except Exception:
-            rows = []
-    rows.insert(0, entry)
-    rows = rows[:200]
-    try:
-        with open(COMMUNITY_FILE, "w", encoding="utf-8") as f:
-            json.dump(rows, f, ensure_ascii=False)
-        return True
-    except Exception as e:
-        st.warning(f"ذخیره نشد: {e}")
-        return False
+GAP_HELP = {
+    "FVG": "FVG (Fair Value Gap): ناترازی سه‌کندلی؛ سایه‌ی کندل ۱ و ۳ همپوشانی ندارند. "
+           "زون صعودی زیر قیمت = حمایت/ناحیه‌ی ورود لانگ، زون نزولی بالای قیمت = مقاومت/ناحیه‌ی ورود شورت. "
+           "عبور با کلوز از زون، آن را به IFVG (معکوس) تبدیل می‌کند.",
+    "BVG": "BVG (Body-Volume Gap): ناترازی سه‌کندلی روی بدنه‌ی کندل‌ها که کندل وسط حجمی ≥۱.۲ برابر "
+           "میانگین ۲۰ کندل دارد؛ یعنی جابه‌جایی قیمت با پولِ واقعی انجام شده است.",
+}
 
 
-def get_df(exchange, symbol, interval):
-    """دیتا از app_base میاد که Lighter و KCEX رو هم بلده (با FVG/BVG و همه اندیکاتورها)"""
-    import app_base as B
-    sym = B.normalize_symbol(symbol, exchange)
-    df = B.fetch_candles(exchange, sym, interval, 500)
-    d = B.add_indicators(df)
-    sc, comp = B.confluence(d)
-    return B, d, sc, comp, sym
+# ----------------------------------------------------------------------------- helpers
+def _col(d: pd.DataFrame, name: str, default: np.ndarray | None = None) -> np.ndarray:
+    if name in d.columns:
+        return pd.to_numeric(d[name], errors="coerce").to_numpy(dtype=float)
+    if default is None:
+        raise KeyError(name)
+    return default
 
 
-def rule_signals(d):
-    """Per-bar rule of each agent (used for the backtest track record)."""
-    c = d["close"]
-    sig_trend = np.sign((c - d["ema50"]).fillna(0).to_numpy())
-    mom = c.diff(10).fillna(0).to_numpy()
-    sig_mom = np.where(mom > 0, 1, np.where(mom < 0, -1, 0))
-    sma20 = c.rolling(20).mean()
-    std20 = c.rolling(20).std().replace(0, np.nan)
-    z = ((c - sma20) / std20).fillna(0)
-    sig_mr = np.where(z < -1, 1, np.where(z > 1, -1, 0))
-    fvg = d.get("fvg_score", pd.Series(0.0, index=d.index)).fillna(0)
-    bvg = d.get("bvg_score", pd.Series(0.0, index=d.index)).fillna(0)
-    cmf = (d["cmf"].fillna(0) * 3).clip(-1, 1)
-    sm = (fvg * 0.5 + bvg * 0.3 + cmf * 0.2).to_numpy()
-    sig_sm = np.where(sm > 0.1, 1, np.where(sm < -0.1, -1, 0))
-    return {"Trend Rider📊": sig_trend, "Momentum🧠": sig_mom, "MeanRev🎯": sig_mr, "Smart Money💧": sig_sm}
+def _atr_fallback(h: np.ndarray, l: np.ndarray, c: np.ndarray, n: int = 14) -> np.ndarray:
+    prev_c = np.roll(c, 1)
+    prev_c[0] = c[0]
+    tr = np.maximum(h - l, np.maximum(np.abs(h - prev_c), np.abs(l - prev_c)))
+    return pd.Series(tr).ewm(alpha=1 / n, adjust=False).mean().to_numpy()
 
 
-def backtest(sig, close, balance, fee=0.0006):
-    rets = np.zeros(len(close))
-    rets[1:] = (close[1:] - close[:-1]) / close[:-1]
-    strat = np.zeros(len(close))
-    strat[1:] = sig[:-1] * rets[1:]
-    strat = strat - (np.abs(np.diff(sig, prepend=0)) > 0) * fee
-    eq = np.cumprod(1 + strat) * balance
-    total = (eq[-1] / balance - 1) * 100
-    wins, losses = (strat > 0).sum(), (strat < 0).sum()
-    peak = np.maximum.accumulate(eq)
-    return {"eq": eq, "total": float(total), "win": float(wins / max(1, wins + losses) * 100),
-            "trades": int((np.abs(np.diff(sig)) > 0).sum()), "dd": float(((peak - eq) / peak).max() * 100),
-            "rule_state": "LONG" if sig[-1] > 0 else "SHORT" if sig[-1] < 0 else "FLAT"}
+def _clamp(x: float) -> float:
+    if not np.isfinite(x):
+        return 0.0
+    return float(max(-1.0, min(1.0, x)))
 
 
-def fmt(v, dec):
-    return "—" if v is None else f"{v:,.{dec}f}"
+# ----------------------------------------------------------------------------- engine
+def gap_analysis(
+    d: pd.DataFrame,
+    min_fvg_atr: float = 0.10,
+    min_bvg_atr: float = 0.10,
+    bvg_vol_ratio: float = 1.20,
+    max_age: int = 400,
+    fresh_window: int = 12,
+) -> dict:
+    """تحلیل کامل FVG و BVG روی یک DataFrame کندل (ستون‌های open/high/low/close/volume)."""
+    n = len(d)
+    out = {
+        "fvg_score": np.zeros(n), "bvg_score": np.zeros(n),
+        "fvg_zones": [], "bvg_zones": [],
+        "fvg_info": _empty_info(), "bvg_info": _empty_info(),
+    }
+    if n < 5:
+        return out
 
+    o = _col(d, "open")
+    h = _col(d, "high")
+    l = _col(d, "low")
+    c = _col(d, "close")
+    v = _col(d, "volume", np.ones(n))
+    v = np.where(np.isfinite(v), v, 0.0)
 
-def narrative(name, dec_, plan, dec):
-    """Human-readable reasoning built ONLY from the evidence rows."""
-    s = dec_["score"]
-    rows = [r for r in dec_["rows"] if r["w"] > 0 and abs(r["contrib"]) > 1e-9]
-    sup = sorted([r for r in rows if (r["contrib"] > 0) == (s > 0)], key=lambda r: -abs(r["contrib"]))[:4]
-    opp = sorted([r for r in rows if (r["contrib"] > 0) != (s > 0)], key=lambda r: -abs(r["contrib"]))[:3]
-    out = [f"تصمیم {name}: {POS_FA[dec_['position']]} · اطمینان {dec_['confidence']}% · امتیاز شواهد {s:+.2f} "
-           f"· هم‌راستایی شواهد {dec_['agree'] * 100:.0f}%"]
-    if dec_["position"] == "FLAT":
-        out.append("دلیل خنثی ماندن: شواهد صعودی و نزولی تقریباً هم‌وزن‌اند؛ ورود بدون لبه‌ی آماری توصیه نمی‌شود.")
-        out.append(plan.get("entry_why", ""))
-    if sup:
-        out.append("دلایل اصلی: " + " ؛ ".join(f"{r['tool']} ({r['value']}) ← {r['reading']}" for r in sup))
-    if opp:
-        out.append("شواهد مخالف / ریسک: " + " ؛ ".join(f"{r['tool']} ({r['value']}) ← {r['reading']}" for r in opp))
-    if plan.get("entry") is not None:
-        out.append(f"ورود {fmt(plan['entry'], dec)} ({plan['entry_why']}) · حد ضرر {fmt(plan['stop'], dec)} ({plan['stop_why']})")
-        out.append(" · ".join(f"TP{i + 1} {fmt(t[0], dec)} ({t[1]})" for i, t in enumerate(plan["tps"]))
-                   + f" · R:R تا TP1 = 1:{plan['rr']}")
+    atr = _col(d, "atr", _atr_fallback(h, l, c))
+    atr = np.where(np.isfinite(atr) & (atr > 0), atr, np.nan)
+    if np.all(np.isnan(atr)):
+        atr = np.abs(c) * 0.01
+    atr = pd.Series(atr).ffill().bfill().to_numpy()
+    atr = np.where(atr > 0, atr, np.abs(c) * 0.01 + 1e-12)
+
+    vol_sma = pd.Series(v).rolling(20, min_periods=5).mean().to_numpy()
+    body_top = np.maximum(o, c)
+    body_bot = np.minimum(o, c)
+
+    times = None
+    if "dt" in d.columns:
+        times = list(d["dt"])
+    elif "time" in d.columns:
+        times = list(d["time"])
+
+    fvg_active: list[dict] = []
+    bvg_active: list[dict] = []
+    fvg_all: list[dict] = []
+    bvg_all: list[dict] = []
+    fvg_fresh: list[tuple[int, float]] = []   # (index, signed strength)
+    bvg_fresh: list[tuple[int, float]] = []
+
+    for t in range(n):
+        a = atr[t]
+        price = c[t]
+
+        # ---- 1) mitigation / inversion of existing zones using candle t --------
+        _update_zones(fvg_active, t, h[t], l[t], c[t], allow_inversion=True)
+        _update_zones(bvg_active, t, h[t], l[t], c[t], allow_inversion=False)
+        fvg_active = [z for z in fvg_active if not z["mitigated"] and t - z["i"] <= max_age]
+        bvg_active = [z for z in bvg_active if not z["mitigated"] and t - z["i"] <= max_age]
+
+        if t >= 2:
+            vr_mid = float(v[t - 1] / vol_sma[t - 1]) if np.isfinite(vol_sma[t - 1]) and vol_sma[t - 1] > 0 else 1.0
+            rng_mid = h[t - 1] - l[t - 1]
+            body_mid_ratio = float((body_top[t - 1] - body_bot[t - 1]) / rng_mid) if rng_mid > 0 else 0.0
+
+            # ---- 2) FVG (wick based) -----------------------------------------
+            if l[t] > h[t - 2] and (l[t] - h[t - 2]) >= min_fvg_atr * a:
+                z = _mk_zone("FVG", +1, bot=h[t - 2], top=l[t], i=t, a=a, vr=vr_mid, body=body_mid_ratio, times=times)
+                fvg_active.append(z); fvg_all.append(z); fvg_fresh.append((t, +z["strength"]))
+            elif h[t] < l[t - 2] and (l[t - 2] - h[t]) >= min_fvg_atr * a:
+                z = _mk_zone("FVG", -1, bot=h[t], top=l[t - 2], i=t, a=a, vr=vr_mid, body=body_mid_ratio, times=times)
+                fvg_active.append(z); fvg_all.append(z); fvg_fresh.append((t, -z["strength"]))
+
+            # ---- 3) BVG (body based + volume confirmation) -------------------
+            if vr_mid >= bvg_vol_ratio and body_mid_ratio >= 0.55:
+                if body_bot[t] > body_top[t - 2] and (body_bot[t] - body_top[t - 2]) >= min_bvg_atr * a and c[t - 1] > o[t - 1]:
+                    z = _mk_zone("BVG", +1, bot=body_top[t - 2], top=body_bot[t], i=t, a=a, vr=vr_mid, body=body_mid_ratio, times=times)
+                    bvg_active.append(z); bvg_all.append(z); bvg_fresh.append((t, +z["strength"]))
+                elif body_top[t] < body_bot[t - 2] and (body_bot[t - 2] - body_top[t]) >= min_bvg_atr * a and c[t - 1] < o[t - 1]:
+                    z = _mk_zone("BVG", -1, bot=body_top[t], top=body_bot[t - 2], i=t, a=a, vr=vr_mid, body=body_mid_ratio, times=times)
+                    bvg_active.append(z); bvg_all.append(z); bvg_fresh.append((t, -z["strength"]))
+
+        # ---- 4) per-bar scores -------------------------------------------------
+        fvg_fresh = [(i, s) for i, s in fvg_fresh if t - i <= fresh_window]
+        bvg_fresh = [(i, s) for i, s in bvg_fresh if t - i <= fresh_window]
+        out["fvg_score"][t] = _score(fvg_active, fvg_fresh, t, price, a)
+        out["bvg_score"][t] = _score(bvg_active, bvg_fresh, t, price, a)
+
+    last_price = float(c[-1])
+    out["fvg_zones"] = fvg_all
+    out["bvg_zones"] = bvg_all
+    out["fvg_info"] = _summarize(fvg_all, last_price, float(atr[-1]), n - 1, float(out["fvg_score"][-1]))
+    out["bvg_info"] = _summarize(bvg_all, last_price, float(atr[-1]), n - 1, float(out["bvg_score"][-1]))
     return out
 
 
-def plan_table(plan, price, dec):
-    if plan.get("entry") is None:
-        return pd.DataFrame([{"مورد": "وضعیت", "قیمت": "—", "فاصله از قیمت%": "—", "دلیل / مدرک": plan.get("entry_why", "")}])
-    rows = [{"مورد": "ورود", "قیمت": fmt(plan["entry"], dec),
-             "فاصله از قیمت%": round((plan["entry"] - price) / price * 100, 2), "دلیل / مدرک": plan["entry_why"]},
-            {"مورد": "حد ضرر", "قیمت": fmt(plan["stop"], dec),
-             "فاصله از قیمت%": round((plan["stop"] - price) / price * 100, 2), "دلیل / مدرک": plan["stop_why"]}]
-    risk = abs(plan["entry"] - plan["stop"]) or 1e-12
-    for i, (tp, why) in enumerate(plan["tps"]):
-        rows.append({"مورد": f"TP{i + 1} ({abs(tp - plan['entry']) / risk:.1f}R)", "قیمت": fmt(tp, dec),
-                     "فاصله از قیمت%": round((tp - price) / price * 100, 2), "دلیل / مدرک": why})
+def _mk_zone(kind, typ, bot, top, i, a, vr, body, times) -> dict:
+    size = float(top - bot)
+    strength = float(min(1.5, size / a)) * (0.7 + 0.3 * min(1.0, body))
+    if kind == "BVG":
+        strength *= min(1.6, 0.6 + vr / 2.0)  # volume-weighted
+    strength = float(min(1.5, strength))
+    return {
+        "kind": kind, "type": int(typ), "bot": float(bot), "top": float(top), "mid": float((top + bot) / 2),
+        "i": int(i), "time": (times[i] if times is not None else i),
+        "size": size, "size_atr": float(size / a), "vol_ratio": float(vr), "body_ratio": float(body),
+        "strength": strength, "touched": False, "touched_i": None,
+        "mitigated": False, "mit_i": None, "mit_time": None, "inverted": False,
+    }
+
+
+def _update_zones(zones: list[dict], t: int, hi: float, lo: float, cl: float, allow_inversion: bool) -> None:
+    for z in zones:
+        if z["mitigated"] or z["i"] == t:
+            continue
+        if z["type"] == +1:
+            if lo <= z["top"] and not z["touched"]:
+                z["touched"], z["touched_i"] = True, t
+            if lo <= z["bot"]:
+                if allow_inversion and cl < z["bot"] and not z["inverted"]:
+                    # قیمت با کلوز از زیر زون صعودی عبور کرد → IFVG نزولی (مقاومت)
+                    z["inverted"], z["type"], z["touched"] = True, -1, False
+                    z["inv_i"] = t
+                else:
+                    z["mitigated"], z["mit_i"] = True, t
+        else:
+            if hi >= z["bot"] and not z["touched"]:
+                z["touched"], z["touched_i"] = True, t
+            if hi >= z["top"]:
+                if allow_inversion and cl > z["top"] and not z["inverted"]:
+                    z["inverted"], z["type"], z["touched"] = True, +1, False
+                    z["inv_i"] = t
+                else:
+                    z["mitigated"], z["mit_i"] = True, t
+
+
+def _score(active: list[dict], fresh: list[tuple[int, float]], t: int, price: float, a: float) -> float:
+    # (الف) جابه‌جایی تازه: گپ‌های تازه در جهت ایمپالس
+    disp = 0.0
+    for i, s in fresh:
+        disp += s * math.exp(-(t - i) / 6.0)
+    disp = _clamp(disp)
+
+    # (ب) موقعیت قیمت نسبت به نزدیک‌ترین زون‌های فعال
+    inside_bull = 0.0
+    inside_bear = 0.0
+    support = 0.0
+    resist = 0.0
+    for z in active:
+        w = 0.6 + 0.4 * min(1.0, z["strength"])
+        if z["bot"] <= price <= z["top"]:
+            if z["type"] > 0:
+                inside_bull = max(inside_bull, w)
+            else:
+                inside_bear = max(inside_bear, w)
+        elif z["type"] > 0 and z["top"] < price:
+            dist = (price - z["top"]) / a
+            support = max(support, w * math.exp(-dist / 1.5))
+        elif z["type"] < 0 and z["bot"] > price:
+            dist = (z["bot"] - price) / a
+            resist = max(resist, w * math.exp(-dist / 1.5))
+    if inside_bull or inside_bear:
+        zone = inside_bull - inside_bear          # داخل زون: حمایت (+) یا مقاومت (−)
+    else:
+        zone = support - resist                   # نزدیکی به زون زیر/بالای قیمت
+    return _clamp(0.55 * disp + 0.45 * zone)
+
+
+def _empty_info() -> dict:
+    return {"active_bull": 0, "active_bear": 0, "inside": None, "nearest_support": None,
+            "nearest_resist": None, "last_gap": None, "score": 0.0, "total": 0, "filled": 0, "inverted": 0}
+
+
+def _summarize(zones: list[dict], price: float, a: float, last_i: int, score: float) -> dict:
+    info = _empty_info()
+    info["score"] = score
+    info["total"] = len(zones)
+    info["filled"] = sum(1 for z in zones if z["mitigated"])
+    info["inverted"] = sum(1 for z in zones if z["inverted"])
+    act = [z for z in zones if not z["mitigated"]]
+    info["active_bull"] = sum(1 for z in act if z["type"] > 0)
+    info["active_bear"] = sum(1 for z in act if z["type"] < 0)
+    inside = [z for z in act if z["bot"] <= price <= z["top"]]
+    if inside:
+        info["inside"] = max(inside, key=lambda z: z["strength"])
+    sup = [z for z in act if z["type"] > 0 and z["top"] < price]
+    res = [z for z in act if z["type"] < 0 and z["bot"] > price]
+    if sup:
+        z = max(sup, key=lambda z: z["top"])
+        info["nearest_support"] = {**z, "dist_atr": (price - z["top"]) / a}
+    if res:
+        z = min(res, key=lambda z: z["bot"])
+        info["nearest_resist"] = {**z, "dist_atr": (z["bot"] - price) / a}
+    if zones:
+        z = zones[-1]
+        info["last_gap"] = {**z, "age": last_i - z["i"]}
+    return info
+
+
+# ----------------------------------------------------------------------------- convenience
+def gap_scores(d: pd.DataFrame) -> tuple[pd.Series, pd.Series, dict]:
+    res = gap_analysis(d)
+    idx = d.index
+    return (pd.Series(res["fvg_score"], index=idx), pd.Series(res["bvg_score"], index=idx), res)
+
+
+def active_zones(res: dict, kind: str = "FVG", price: float | None = None, limit: int = 8) -> list[dict]:
+    zones = [z for z in res.get(f"{kind.lower()}_zones", []) if not z["mitigated"]]
+    if price is not None:
+        zones.sort(key=lambda z: abs(z["mid"] - price))
+    return zones[:limit]
+
+
+def short_label(info: dict, kind: str = "FVG") -> str:
+    """متن کوتاه برای ستون «مقدار» (Neural Shell جا ندارد)."""
+    if info.get("inside") is not None:
+        z = info["inside"]
+        return f"داخل {kind} {'صعودی' if z['type'] > 0 else 'نزولی'}{' (IFVG)' if z.get('inverted') else ''}"
+    parts = [f"{info.get('active_bull', 0)}🟢 {info.get('active_bear', 0)}🔴"]
+    s, r = info.get("nearest_support"), info.get("nearest_resist")
+    if s is not None and (r is None or s["dist_atr"] <= r["dist_atr"]):
+        parts.append(f"حمایت {s['dist_atr']:.1f}ATR↓")
+    elif r is not None:
+        parts.append(f"مقاومت {r['dist_atr']:.1f}ATR↑")
+    else:
+        parts.append("زون فعالی نزدیک نیست")
+    return " · ".join(parts)
+
+
+def _dir_label(v: float) -> str:
+    return "خرید 🟢" if v > 0.15 else "فروش 🔴" if v < -0.15 else "خنثی ⚪"
+
+
+def table_rows(res: dict) -> list[dict]:
+    """ردیف‌های آماده برای جدول «اجزای همگرایی» (همان ستون‌های app_base)."""
+    f, b = res["fvg_info"], res["bvg_info"]
+    return [
+        {"اندیکاتور": "FVG گپ ارزش", "مقدار": short_label(f, "FVG"), "جهت": _dir_label(f["score"]),
+         "امتیاز": round(float(f["score"]), 2)},
+        {"اندیکاتور": "BVG گپ حجمی", "مقدار": short_label(b, "BVG"), "جهت": _dir_label(b["score"]),
+         "امتیاز": round(float(b["score"]), 2)},
+    ]
+
+
+def zones_frame(res: dict, price: float, dec: int = 4, limit: int = 14) -> pd.DataFrame:
+    """جدول خوانا از زون‌های فعال FVG/BVG (نزدیک‌ترین‌ها اول)."""
+    rows = []
+    for kind in ("FVG", "BVG"):
+        for z in active_zones(res, kind, price, limit):
+            role = "حمایت" if z["type"] > 0 else "مقاومت"
+            where = "داخل زون" if z["bot"] <= price <= z["top"] else ("زیر قیمت" if z["top"] < price else "بالای قیمت")
+            rows.append({
+                "نوع": kind + (" (IFVG)" if z.get("inverted") else ""),
+                "جهت": ("صعودی 🟢" if z["type"] > 0 else "نزولی 🔴"),
+                "نقش": role,
+                "پایین زون": f"{z['bot']:,.{dec}f}",
+                "بالای زون": f"{z['top']:,.{dec}f}",
+                "اندازه/ATR": round(z["size_atr"], 2),
+                "حجم کندل وسط": f"{z['vol_ratio']:.2f}×",
+                "موقعیت قیمت": where,
+                "لمس شده": "بله" if z["touched"] else "خیر",
+                "زمان شکل‌گیری": str(z["time"])[:16],
+            })
     return pd.DataFrame(rows)
 
 
-# ------------------------------------------------------------------ inputs
-c1, c2, c3, c4 = st.columns(4)
-with c1:
-    symbol = st.text_input("ارز", value="BTC-USDT", help="برای Lighter فقط BTC بنویس (بدون USDT)")
-with c2:
-    exchange = st.selectbox("صرافی", EXCHANGES, index=0)
-with c3:
-    interval = st.selectbox("تایم‌فریم", ["15min", "1hour", "4hour", "1day"], index=1)
-with c4:
-    balance = st.number_input("بالانس شروع", value=10000)
-
-if exchange == "Lighter":
-    st.info("Lighter پرپ هست - مثلا BTC یا ETH بنویس، نه BTC-USDT")
-
-if st.button("🚀 شروع دوئل", type="primary"):
-    try:
-        with st.spinner("در حال دریافت داده، بک‌تست و جمع‌آوری مدارک…"):
-            B, d, score, comp, sym_used = get_df(exchange, symbol, interval)
-            close = d["close"].to_numpy()
-            evidence, ctx = B.market_evidence(d)
-            results = []
-            for name, sig in rule_signals(d).items():
-                bt = backtest(np.asarray(sig, dtype=float), close, balance)
-                persona = B.AGENT_PERSONAS[name]
-                dec_ = B.agent_decision(evidence, persona["w"])
-                plan = B.structured_plan(dec_["position"], ctx, style=persona.get("style", "fvg"))
-                results.append({"name": name, "desc": persona["desc"], "w": persona["w"], "style": persona.get("style", "fvg"), **bt,
-                                "decision": dec_, "plan": plan})
-            # consensus: weight each agent's evidence-weights by its backtest quality
-            perf = {r["name"]: float(np.clip(1 + r["total"] / 20, 0.3, 2.0) * (0.5 + r["win"] / 100)) for r in results}
-            tot = sum(perf.values()) or 1.0
-            cats = set().union(*[r["w"].keys() for r in results])
-            w_cons = {c: sum(perf[r["name"]] * r["w"].get(c, 0) for r in results) / tot for c in cats}
-            final_dec = B.agent_decision(evidence, w_cons, flat_band=0.1)
-            final_plan = B.structured_plan(final_dec["position"], ctx)
-            st.session_state["duel_res"] = {
-                "sym": sym_used, "exchange": exchange, "interval": interval, "balance": balance,
-                "d": d, "score": float(score.iloc[-1]), "evidence": evidence, "ctx": ctx,
-                "results": results, "perf": perf, "w_cons": w_cons,
-                "final_dec": final_dec, "final_plan": final_plan,
-                "ts": datetime.now().strftime("%Y-%m-%d %H:%M"),
-            }
-            st.session_state.pop("duel_saved", None)
-    except Exception as e:  # noqa: BLE001
-        st.error(f"دوئل انجام نشد: {e}")
-        st.info("نماد را مثل BTC-USDT بنویس؛ اگر صرافی مسدود است KuCoin یا OKX را امتحان کن.")
-
-res = st.session_state.get("duel_res")
-if not res:
-    st.info("ارز، صرافی و تایم‌فریم را انتخاب کن و «🚀 شروع دوئل» را بزن.")
-    st.stop()
-
-import app_base as B  # noqa: E402
-import plotly.graph_objects as go  # noqa: E402
-
-d, ctx, results = res["d"], res["ctx"], res["results"]
-price, dec = ctx["price"], ctx["dec"]
-st.caption(f"دیتا: {res['sym']} روی {res['exchange']} · {res['interval']} · {len(d)} کندل · {res['ts']} · "
-           f"قیمت فعلی {fmt(price, dec)} · ATR {fmt(ctx['atr'], dec)} · همگرایی {res['score']:+.0f}")
-
-# ------------------------------------------------------------------ 1) equity race
-fig = go.Figure()
-for r in results:
-    fig.add_trace(go.Scatter(y=r["eq"], mode="lines", name=f"{r['name']} ({r['total']:+.2f}%)"))
-fig.update_layout(template="plotly_dark", height=380, title="Equity — موجودی هر ربات (بک‌تست قانون هر ایجنت)",
-                  margin=dict(l=8, r=8, t=40, b=8))
-st.plotly_chart(fig, use_container_width=True)
-
-# ------------------------------------------------------------------ 2) scoreboard
-winner = max(results, key=lambda x: x["total"])
-board = []
-for r in results:
-    p, dc = r["plan"], r["decision"]
-    tps = [t[0] for t in p.get("tps", [])] + [None, None, None]
-    board.append({
-        "ربات": r["name"], "بازده بک‌تست%": round(r["total"], 2), "معاملات": r["trades"], "وین%": round(r["win"], 1),
-        "DD%": round(r["dd"], 2), "پوزیشن نهایی (با مدرک)": POS_FA[dc["position"]], "اطمینان%": dc["confidence"],
-        "ورود": fmt(p.get("entry"), dec), "حد ضرر": fmt(p.get("stop"), dec),
-        "TP1": fmt(tps[0], dec), "TP2": fmt(tps[1], dec), "TP3": fmt(tps[2], dec),
-        "R:R": f"1:{p['rr']}" if p.get("rr") else "—",
-    })
-st.subheader("🏁 جدول نتایج دوئل")
-st.dataframe(pd.DataFrame(board).sort_values("بازده بک‌تست%", ascending=False), use_container_width=True, hide_index=True)
-st.success(f"🏆 برنده‌ی بک‌تست: {winner['name']} با {winner['total']:+.2f}% — {winner['trades']} معامله — وین {winner['win']:.0f}% "
-           f"· پوزیشن نهایی‌اش: {POS_FA[winner['decision']['position']]}")
-
-# ------------------------------------------------------------------ 3) best (consensus) position
-fd, fp = res["final_dec"], res["final_plan"]
-st.subheader("🎯 بهترین پوزیشن نهایی — اجماع وزنی ایجنت‌ها")
-st.caption("وزن هر ایجنت = کیفیت بک‌تست (بازده و وین‌ریت). وزن دسته‌های مدرک از ترکیب وزنی ایجنت‌ها ساخته می‌شود.")
-m1, m2, m3, m4 = st.columns(4)
-m1.metric("جهت", POS_FA[fd["position"]])
-m2.metric("اطمینان", f"{fd['confidence']}%", f"امتیاز {fd['score']:+.2f}")
-m3.metric("ورود", fmt(fp.get("entry"), dec))
-m4.metric("حد ضرر", fmt(fp.get("stop"), dec), (f"ریسک {fp['risk_pct']:.2f}%" if fp.get("risk_pct") else None))
-if fp.get("tps"):
-    tc = st.columns(3)
-    risk = abs(fp["entry"] - fp["stop"]) or 1e-12
-    for i, (tp, why) in enumerate(fp["tps"]):
-        tc[i].metric(f"TP{i + 1} · {abs(tp - fp['entry']) / risk:.1f}R", fmt(tp, dec), why, delta_color="off")
-for line in narrative("اجماع", fd, fp, dec):
-    if line:
-        st.markdown(f"<div dir='rtl' style='line-height:2'>• {line}</div>", unsafe_allow_html=True)
-st.markdown("**📐 جدول دلیل سطوح پوزیشن**")
-st.dataframe(plan_table(fp, price, dec), use_container_width=True, hide_index=True)
-
-# chart: candles + FVG/BVG + final plan lines
-dc_ = d.tail(140)
-cf = go.Figure(go.Candlestick(x=dc_["dt"], open=dc_["open"], high=dc_["high"], low=dc_["low"], close=dc_["close"],
-                              increasing_line_color="#26a69a", decreasing_line_color="#ef5350", name="قیمت"))
-fz = ctx["fvg"]
-x_last, x_first = dc_["dt"].iloc[-1], dc_["dt"].iloc[0]
-for z, fc, tag in ([(z, "rgba(38,166,154,0.18)", "FVG▲") for z in fz["bulls"][:4]]
-                   + [(z, "rgba(239,83,80,0.18)", "FVG▼") for z in fz["bears"][:4]]
-                   + [(b, "rgba(168,85,247,0.22)", "BVG") for b in fz["bvgs"][:3]]):
-    x0 = z["dt"] if z["dt"] >= x_first else x_first
-    cf.add_shape(type="rect", x0=x0, x1=x_last, y0=z["bottom"], y1=z["top"], fillcolor=fc, line_width=0, layer="below")
-    cf.add_annotation(x=x0, y=z["top"], text=tag, showarrow=False, xanchor="left", yanchor="bottom", font=dict(size=9))
-if fp.get("entry") is not None:
-    for yv, col, nm in ([(fp["entry"], "#f59e0b", "ENTRY"), (fp["stop"], "#ef4444", "SL")]
-                        + [(t[0], "#38bdf8", f"TP{i + 1}") for i, t in enumerate(fp["tps"])]):
-        cf.add_hline(y=yv, line_color=col, line_dash="dash", annotation_text=f"{nm} {yv:,.{dec}f}",
-                     annotation_position="right")
-for p in ctx["bsl"][:2]:
-    cf.add_hline(y=p, line_color="rgba(250,204,21,.5)", line_dash="dot", annotation_text="BSL", annotation_position="left")
-for p in ctx["ssl"][:2]:
-    cf.add_hline(y=p, line_color="rgba(250,204,21,.5)", line_dash="dot", annotation_text="SSL", annotation_position="left")
-cf.update_layout(template="plotly_dark", height=520, xaxis_rangeslider_visible=False, margin=dict(l=8, r=90, t=30, b=8),
-                 title="چارت مدرک: FVG/BVG · نقدینگی (BSL/SSL) · سطوح پوزیشن نهایی")
-st.plotly_chart(cf, use_container_width=True)
-
-# ------------------------------------------------------------------ 4) per-agent full reasoning
-st.subheader("🧾 تحلیل کامل هر ایجنت — مدرک، دلیل و پوزیشن")
-tabs = st.tabs([f"{r['name']} · {POS_FA[r['decision']['position']].split(' (')[0]}" for r in results])
-for tab, r in zip(tabs, results):
-    with tab:
-        dc, p = r["decision"], r["plan"]
-        col = POS_COL[dc["position"]]
-        st.markdown(
-            f"<div dir='rtl' style='border-right:5px solid {col};padding:10px 14px;border-radius:12px;"
-            f"background:rgba(148,163,184,.06)'><b style='font-size:17px'>{r['name']}</b> — {r['desc']}<br>"
-            f"<span style='color:{col};font-weight:800'>{POS_FA[dc['position']]}</span> · اطمینان {dc['confidence']}% · "
-            f"امتیاز شواهد {dc['score']:+.2f} · بک‌تست {r['total']:+.2f}% (وین {r['win']:.0f}% · DD {r['dd']:.1f}% · "
-            f"{r['trades']} معامله) · سیگنال قانون بک‌تست الان: {r['rule_state']}</div>",
-            unsafe_allow_html=True,
-        )
-        for line in narrative(r["name"], dc, p, dec):
-            if line:
-                st.markdown(f"<div dir='rtl' style='line-height:2'>• {line}</div>", unsafe_allow_html=True)
-        st.markdown("**📊 جدول مدارک و سهم هرکدام در تصمیم**")
-        st.dataframe(B.evidence_table(dc["rows"]), use_container_width=True, hide_index=True)
-        # category summary
-        cat_rows = []
-        for cat in B.EV_CATS:
-            rr = [x for x in dc["rows"] if x["cat"] == cat]
-            if not rr:
-                continue
-            s = sum(x["contrib"] for x in rr)
-            cat_rows.append({"دسته": cat, "وزن ایجنت": r["w"].get(cat, 0), "تعداد مدرک": len(rr),
-                             "برآیند": "🟢 صعودی" if s > 0.05 else "🔴 نزولی" if s < -0.05 else "⚪ خنثی",
-                             "سهم%": round(sum(x["share"] for x in rr), 1)})
-        st.markdown("**🧭 خلاصه‌ی دسته‌ها**")
-        st.dataframe(pd.DataFrame(cat_rows), use_container_width=True, hide_index=True)
-        st.markdown("**📐 دلیل ورود / حد ضرر / اهداف**")
-        st.dataframe(plan_table(p, price, dec), use_container_width=True, hide_index=True)
-
-# ------------------------------------------------------------------ 5) save to community
-bias = {"LONG": "لانگ 🟢", "SHORT": "شورت 🔴", "FLAT": "خنثی ⚪"}[fd["position"]]
-analysis_text = (
-    f"دوئل ایجنت‌ها روی {res['sym']} ({res['exchange']}/{res['interval']}) · قیمت {fmt(price, dec)}\n"
-    + "\n".join(f"{r['name']}: بک‌تست {r['total']:+.2f}% | {r['trades']} ترید | DD {r['dd']:.1f}% | "
-                f"پوزیشن {POS_FA[r['decision']['position']]} ({r['decision']['confidence']}%)" for r in results)
-    + "\n\n— بهترین پوزیشن (اجماع) —\n"
-    + "\n".join(x for x in narrative("اجماع", fd, fp, dec) if x)
-    + "\n\nاین نتیجه تحلیلی/بک‌تست است و توصیه‌ی سرمایه‌گذاری نیست."
-)
-st.text_area("📝 تحلیل نهایی (می‌ره تو تحلیل کاربران)", value=analysis_text, height=260, key="duel_txt")
-
-if st.button("💾 ذخیره در 👥 تحلیل‌های کاربران", type="primary"):
-    tps = [t[0] for t in fp.get("tps", [])] + [None, None, None]
-    ok = save_duel({
-        "name": "🤖 دوئل ایجنت‌ها (اجماع)", "symbol": res["sym"].upper(), "exchange": res["exchange"],
-        "bias": bias, "tf": res["interval"],
-        "entry": fp.get("entry") if fp.get("entry") is not None else float(price),
-        "stop": fp.get("stop"), "tp1": tps[0], "tp2": tps[1], "tp3": tps[2],
-        "rr": f"1:{fp['rr']}" if fp.get("rr") else "",
-        "confidence": fd["confidence"], "text": st.session_state.get("duel_txt", analysis_text),
-        "image": "", "ts": datetime.now().strftime("%Y-%m-%d %H:%M"),
-    })
-    if ok:
-        st.session_state["duel_saved"] = True
-if st.session_state.get("duel_saved"):
-    st.success("ذخیره شد! برو صفحه اصلی → بخش «🧑‍💻 تحلیل‌ها» → تب «👥 تحلیل‌های کاربران».")
+def plotly_shapes(res: dict, x_end, price: float, max_fvg: int = 8, max_bvg: int = 6) -> tuple[list[dict], list[dict]]:
+    """شکل‌ها و برچسب‌های Plotly برای زون‌های فعال (بدون نیاز به import plotly)."""
+    shapes, notes = [], []
+    spec = [
+        ("FVG", max_fvg, "rgba(34,197,94,0.16)", "rgba(239,68,68,0.16)", "#22c55e", "#ef4444", "solid"),
+        ("BVG", max_bvg, "rgba(59,130,246,0.14)", "rgba(168,85,247,0.14)", "#3b82f6", "#a855f7", "dot"),
+    ]
+    for kind, lim, fill_up, fill_dn, col_up, col_dn, dash in spec:
+        for z in active_zones(res, kind, price, lim):
+            up = z["type"] > 0
+            col = col_up if up else col_dn
+            shapes.append(dict(
+                type="rect", xref="x", yref="y", x0=z["time"], x1=x_end, y0=z["bot"], y1=z["top"],
+                fillcolor=fill_up if up else fill_dn, line=dict(color=col, width=1, dash=dash), layer="below",
+            ))
+            notes.append(dict(
+                x=z["time"], y=z["top"] if up else z["bot"], xref="x", yref="y",
+                text=f"{kind}{' (IFVG)' if z.get('inverted') else ''} {'▲' if up else '▼'}",
+                showarrow=False, xanchor="left", yanchor="bottom" if up else "top",
+                font=dict(size=9, color=col),
+            ))
+    return shapes, notes

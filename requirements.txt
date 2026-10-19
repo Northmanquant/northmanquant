@@ -6,3 +6,8 @@ plotly>=5.20,<6
 Pillow>=10.0
 matplotlib>=3.7,<4
 ccxt>=4.3
+requests
+aiohttp
+plotly
+pandas
+numpy

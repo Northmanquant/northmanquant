@@ -41,7 +41,7 @@ BYBIT_TF = {"15min": "15", "1hour": "60", "4hour": "240", "1day": "D", "1week": 
 OKX_TF = {"15min": "15m", "1hour": "1H", "4hour": "4H", "1day": "1D", "1week": "1W"}
 LIGHTER_TF = {"15min": "15m", "1hour": "1h", "4hour": "4h", "1day": "1d", "1week": "1w"}
 
-EXCHANGES = ["KuCoin", "OKX", "Binance", "Bybit", "Lighter"]
+EXCHANGES = ["KuCoin", "OKX", "Binance", "Bybit", "Lighter", "XT", "LBank", "KCEX"]
 
 # Extra exchanges accessible through CCXT (100+ venues, public data, no keys).
 # Users can also type ANY ccxt exchange id (e.g. "kraken", "gate", "htx").

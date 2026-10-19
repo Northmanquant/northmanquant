@@ -366,7 +366,49 @@ def _annular_sector(cx: float, cy: float, r1: float, r2: float, a1: float, a2: f
     )
 
 
-def build_neural_shell_svg(comp_table: pd.DataFrame, score: float) -> str:
+def _fvg_radar_svg(fvg: dict, price: float, y0: float, W: float) -> str:
+    """Bottom band of the Neural Shell: live FVG / BVG zones as animated chips."""
+    items = []
+    for z in (fvg.get("bulls") or [])[:2]:
+        items.append(("BULL FVG", "#16a34a", z))
+    for z in (fvg.get("bears") or [])[:2]:
+        items.append(("BEAR FVG", "#ef4444", z))
+    for b in (fvg.get("bvgs") or [])[:2]:
+        items.append(("BVG " + ("SUP" if b["type"] == "bull" else "RES"), "#a855f7", b))
+    items = items[:6]
+    out = [
+        f'<line x1="18" y1="{y0 - 6}" x2="{W - 18}" y2="{y0 - 6}" stroke="#e5e9f0" stroke-width="1"/>',
+        f'<text x="18" y="{y0 + 12}" font-size="11" font-family="ui-monospace,monospace" font-weight="800" '
+        f'fill="#475569" letter-spacing="1">FVG · BVG RADAR</text>',
+        f'<circle cx="150" cy="{y0 + 8}" r="3" fill="#a855f7"><animate attributeName="opacity" '
+        f'values="0.3;1;0.3" dur="1.1s" repeatCount="indefinite"/></circle>',
+        f'<text x="{W - 18}" y="{y0 + 12}" text-anchor="end" font-size="10.5" fill="#334155" font-weight="700">'
+        f'نواحی عدم تعادل فعال (پر نشده) — سبز حمایت · قرمز مقاومت · بنفش ناحیه متعادل</text>',
+    ]
+    if not items:
+        out.append(f'<text x="{W / 2}" y="{y0 + 44}" text-anchor="middle" font-size="11" fill="#94a3b8">'
+                   f'هیچ FVG/BVG فعالی نزدیک قیمت نیست</text>')
+        return "".join(out)
+    cw = (W - 36 - (len(items) - 1) * 10) / len(items)
+    for i, (lbl, col, z) in enumerate(items):
+        x = 18 + i * (cw + 10)
+        dist = (z["mid"] - price) / price * 100 if price else 0
+        fill = z.get("fill")
+        meta = f"{dist:+.2f}%" + (f" · fill {fill * 100:.0f}%" if fill is not None else "")
+        out.append(
+            f'<g><rect x="{x:.1f}" y="{y0 + 22}" width="{cw:.1f}" height="38" rx="8" fill="{col}" fill-opacity="0.08" '
+            f'stroke="{col}" stroke-opacity="0.5">'
+            f'<animate attributeName="fill-opacity" values="0.05;0.16;0.05" dur="{2 + i * 0.3:.1f}s" repeatCount="indefinite"/></rect>'
+            f'<text x="{x + 8:.1f}" y="{y0 + 37}" font-size="9.5" font-weight="800" fill="{col}" '
+            f'font-family="ui-monospace,monospace">{lbl} · {meta}</text>'
+            f'<text x="{x + 8:.1f}" y="{y0 + 52}" font-size="10" fill="#334155" font-family="ui-monospace,monospace">'
+            f'{z["bottom"]:,.6g} – {z["top"]:,.6g}</text></g>'
+        )
+    return "".join(out)
+
+
+def build_neural_shell_svg(comp_table: pd.DataFrame, score: float, fvg: dict | None = None,
+                           price: float | None = None) -> str:
     """
     NEURAL SHELL — live animated feature-extraction dashboard (pure SVG + SMIL).
 
@@ -510,10 +552,11 @@ def build_neural_shell_svg(comp_table: pd.DataFrame, score: float) -> str:
         bar_w = (rx1 - rx0) * (pct / 100.0)
         # RTL: Persian label on the right, p(up)/value on the left
         meta = f"p(up) {pct}%" + (f" · {val}" if val else "")
+        is_imb = label in ("FVG", "BVG")
         right_rows.append(
             f'<g>'
-            f'<text x="{rx1}" y="{y}" text-anchor="end" font-size="10.5" fill="#334155" '
-            f'font-weight="600">{label}</text>'
+            f'<text x="{rx1}" y="{y}" text-anchor="end" font-size="10.5" fill="{"#7c3aed" if is_imb else "#334155"}" '
+            f'font-weight="{"800" if is_imb else "600"}">{"◆ " if is_imb else ""}{label}</text>'
             f'<text x="{rx0}" y="{y}" text-anchor="start" font-size="9" fill="#64748b" '
             f'font-family="ui-monospace,monospace">{meta}</text>'
             f'<rect x="{rx0}" y="{y + 6:.1f}" width="{rx1 - rx0:.0f}" height="4" rx="2" fill="#e2e8f0"/>'
@@ -523,11 +566,17 @@ def build_neural_shell_svg(comp_table: pd.DataFrame, score: float) -> str:
             f'</g>'
         )
 
+    radar = ""
+    HT = H
+    if fvg is not None:
+        HT = H + 74
+        radar = _fvg_radar_svg(fvg, float(price or 0), H + 4, W)
     return (
         '<div style="display:flex;justify-content:center">'
-        f'<svg viewBox="0 0 {W} {H}" width="100%" style="max-width:1130px" '
+        f'<svg viewBox="0 0 {W} {HT}" width="100%" style="max-width:1130px" '
         f'role="img" aria-label="neural shell feature extraction">'
-        f'<rect x="0" y="0" width="{W}" height="{H}" rx="12" fill="#f6f8fb"/>'
+        f'<rect x="0" y="0" width="{W}" height="{HT}" rx="12" fill="#f6f8fb"/>'
+        f'{radar}'
         # header
         f'<text x="18" y="22" font-size="12" font-family="ui-monospace,monospace" '
         f'font-weight="800" fill="#475569" letter-spacing="1">FEATURE EXTRACTION · LIVE</text>'
@@ -559,6 +608,8 @@ AGENTS = [
     {"key": "شکست کانال", "name": "شکست کانال", "en": "BREAKOUT", "tag": "BO", "color": "#f59e0b"},
     {"key": "سوپرترند", "name": "سوپرترند", "en": "SUPERTREND", "tag": "ST", "color": "#10b981"},
     {"key": "جریان پول", "name": "جریان پول", "en": "FLOW", "tag": "FL", "color": "#f97316"},
+    {"key": "FVG", "name": "شکارچی FVG", "en": "FVG HUNTER", "tag": "FV", "color": "#6366f1"},
+    {"key": "BVG", "name": "ناحیه BVG", "en": "BVG / BPR", "tag": "BV", "color": "#a855f7"},
 ]
 
 
@@ -578,6 +629,12 @@ def _agent_signals(d: pd.DataFrame) -> dict:
     out["سوپرترند"] = d["supertrend_dir"].fillna(0).to_numpy()
     # Flow: CMF sign
     out["جریان پول"] = np.sign(d["cmf"].fillna(0)).to_numpy()
+    # FVG hunter: trade with nearby unfilled imbalances (support below / resistance above)
+    fs = (d["fvg_score"] if "fvg_score" in d else pd.Series(0.0, index=d.index)).fillna(0).to_numpy()
+    out["FVG"] = np.where(fs > 0.1, 1, np.where(fs < -0.1, -1, 0))
+    # BVG: side of the latest balanced range (BPR)
+    bs = (d["bvg_score"] if "bvg_score" in d else pd.Series(0.0, index=d.index)).fillna(0).to_numpy()
+    out["BVG"] = np.sign(bs)
     return out
 
 
@@ -1577,7 +1634,559 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     dx = (100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan)).fillna(0)
     d["adx"] = dx.ewm(alpha=1 / 14, adjust=False).mean()
     d["plus_di"], d["minus_di"] = plus_di, minus_di
+
+    # OBV (money in / out of the market)
+    d["obv"] = (np.sign(c.diff().fillna(0)) * v).cumsum()
+
+    # FVG / BVG smart-money imbalance features (per bar, no look-ahead)
+    try:
+        f = fvg_features(d)
+        for col in f.columns:
+            d[col] = f[col].to_numpy()
+    except Exception:  # noqa: BLE001
+        for col in ("fvg_score", "bvg_score", "fvg_bull_active", "fvg_bear_active", "fvg_bull_new", "fvg_bear_new"):
+            d[col] = 0.0
     return d
+
+
+# ------------------------------------------------------------------ FVG / BVG (smart-money imbalances)
+#
+# FVG  = Fair Value Gap — 3-candle imbalance.
+#        Bullish: low[i]  > high[i-2]  → gap zone [high[i-2], low[i]]  (support / magnet)
+#        Bearish: high[i] < low[i-2]   → gap zone [high[i], low[i-2]]  (resistance / magnet)
+#        A gap is "mitigated" when later price fully fills it.
+# BVG  = Balanced Value Gap (a.k.a. BPR / Balanced Price Range) — the overlap of a
+#        bullish and a bearish FVG formed close to each other. The newest gap sets
+#        the bias: bull-over-bear = strong support, bear-over-bull = strong resistance.
+
+FVG_MIN_GAP_ATR = 0.05   # ignore micro gaps smaller than 5% of ATR
+BVG_MAX_SEP = 30         # bars between the two opposite FVGs to form a BVG
+
+
+def fvg_features(d: pd.DataFrame, near_atr: float = 3.0, max_active: int = 30) -> pd.DataFrame:
+    """Per-bar FVG/BVG score in [-1, 1] computed strictly from past data."""
+    n = len(d)
+    h = d["high"].to_numpy(dtype=float)
+    l = d["low"].to_numpy(dtype=float)
+    c = d["close"].to_numpy(dtype=float)
+    atr = d["atr"].to_numpy(dtype=float) if "atr" in d else np.full(n, np.nan)
+    fvg_s = np.zeros(n)
+    bvg_s = np.zeros(n)
+    bull_act = np.zeros(n)
+    bear_act = np.zeros(n)
+    bull_new = np.zeros(n)
+    bear_new = np.zeros(n)
+    active: list[list] = []   # [type, top, bottom, idx]
+    recent: list[tuple] = []  # recent FVGs for BVG pairing
+    bvgs: list[list] = []     # [type, top, bottom, idx]
+    for i in range(2, n):
+        a = atr[i] if np.isfinite(atr[i]) and atr[i] > 0 else max(h[i] - l[i], abs(c[i]) * 1e-4, 1e-12)
+        # 1) mitigation of existing gaps by this bar
+        keep = []
+        for z in active:
+            if z[0] == "bull" and l[i] <= z[2]:
+                continue
+            if z[0] == "bear" and h[i] >= z[1]:
+                continue
+            keep.append(z)
+        active = keep[-max_active:]
+        bvgs = [b for b in bvgs
+                if not ((b[0] == "bull" and c[i] < b[2]) or (b[0] == "bear" and c[i] > b[1]))][-10:]
+        # 2) new gap completed on this bar
+        new = None
+        if l[i] > h[i - 2]:
+            new = ("bull", l[i], h[i - 2], i)
+        elif h[i] < l[i - 2]:
+            new = ("bear", l[i - 2], h[i], i)
+        if new is not None and (new[1] - new[2]) >= a * FVG_MIN_GAP_ATR:
+            if new[0] == "bull":
+                bull_new[i] = 1
+            else:
+                bear_new[i] = 1
+            for p in reversed(recent):
+                if i - p[3] > BVG_MAX_SEP:
+                    break
+                if p[0] != new[0]:
+                    top, bot = min(p[1], new[1]), max(p[2], new[2])
+                    if top > bot:
+                        bvgs.append([new[0], top, bot, i])
+                    break
+            recent.append(new)
+            recent = recent[-40:]
+            active.append(list(new))
+        # 3) score: nearby unfilled gaps act as support (bull, below) / resistance (bear, above)
+        s = 0.0
+        nb = ne = 0
+        for z in active:
+            if z[0] == "bull":
+                nb += 1
+                dist = max(0.0, c[i] - z[1]) / a
+                if dist <= near_atr:
+                    s += 0.45 * (1 - dist / near_atr)
+            else:
+                ne += 1
+                dist = max(0.0, z[2] - c[i]) / a
+                if dist <= near_atr:
+                    s -= 0.45 * (1 - dist / near_atr)
+        lo = max(0, i - 4)
+        s += (bull_new[lo:i + 1].sum() - bear_new[lo:i + 1].sum()) * 0.2
+        fvg_s[i] = max(-1.0, min(1.0, s))
+        bull_act[i], bear_act[i] = nb, ne
+        if bvgs:
+            b = bvgs[-1]
+            if b[0] == "bull":
+                prox = 1.0 if (c[i] - b[1]) / a <= 2 else 0.5
+                bvg_s[i] = 0.8 * prox
+            else:
+                prox = 1.0 if (b[2] - c[i]) / a <= 2 else 0.5
+                bvg_s[i] = -0.8 * prox
+    return pd.DataFrame({
+        "fvg_score": fvg_s, "bvg_score": bvg_s,
+        "fvg_bull_active": bull_act, "fvg_bear_active": bear_act,
+        "fvg_bull_new": bull_new, "fvg_bear_new": bear_new,
+    }, index=d.index)
+
+
+def detect_fvg_zones(d: pd.DataFrame, lookback: int = 300) -> list[dict]:
+    """All FVG zones in the last `lookback` bars with fill % and mitigation flag."""
+    n = len(d)
+    if n < 5:
+        return []
+    h = d["high"].to_numpy(dtype=float)
+    l = d["low"].to_numpy(dtype=float)
+    atr = d["atr"].to_numpy(dtype=float) if "atr" in d else np.full(n, np.nan)
+    has_dt = "dt" in d
+    zones = []
+    for i in range(max(2, n - lookback), n):
+        a = atr[i] if np.isfinite(atr[i]) and atr[i] > 0 else max(h[i] - l[i], 1e-12)
+        z = None
+        if l[i] > h[i - 2] and (l[i] - h[i - 2]) >= a * FVG_MIN_GAP_ATR:
+            z = {"type": "bull", "top": float(l[i]), "bottom": float(h[i - 2])}
+        elif h[i] < l[i - 2] and (l[i - 2] - h[i]) >= a * FVG_MIN_GAP_ATR:
+            z = {"type": "bear", "top": float(l[i - 2]), "bottom": float(h[i])}
+        if z is None:
+            continue
+        z["idx"] = i - 1  # the impulse (middle) candle
+        z["dt"] = d["dt"].iloc[i - 1] if has_dt else i - 1
+        size = (z["top"] - z["bottom"]) or 1e-12
+        after = i + 1
+        if after < n:
+            if z["type"] == "bull":
+                fill = (z["top"] - float(l[after:].min())) / size
+            else:
+                fill = (float(h[after:].max()) - z["bottom"]) / size
+        else:
+            fill = 0.0
+        z["fill"] = float(max(0.0, min(1.0, fill)))
+        z["mitigated"] = z["fill"] >= 1.0
+        z["mid"] = (z["top"] + z["bottom"]) / 2
+        zones.append(z)
+    return zones
+
+
+def detect_bvg_zones(d: pd.DataFrame, zones: list[dict]) -> list[dict]:
+    """BVG / BPR: overlap of a bullish and a bearish FVG within BVG_MAX_SEP bars."""
+    out = []
+    c = d["close"].to_numpy(dtype=float)
+    has_dt = "dt" in d
+    for j, z in enumerate(zones):
+        for k in range(j - 1, -1, -1):
+            p = zones[k]
+            if z["idx"] - p["idx"] > BVG_MAX_SEP:
+                break
+            if p["type"] == z["type"]:
+                continue
+            top, bot = min(z["top"], p["top"]), max(z["bottom"], p["bottom"])
+            if top > bot:
+                after = c[z["idx"] + 2:] if z["idx"] + 2 < len(c) else np.array([])
+                if z["type"] == "bull":
+                    broken = bool(len(after) and (after < bot).any())
+                else:
+                    broken = bool(len(after) and (after > top).any())
+                out.append({"type": z["type"], "top": float(top), "bottom": float(bot),
+                            "idx": int(p["idx"]), "dt": d["dt"].iloc[p["idx"]] if has_dt else p["idx"],
+                            "broken": broken, "mid": (top + bot) / 2})
+            break
+    return out
+
+
+def fvg_summary(d: pd.DataFrame) -> dict:
+    """Active (unfilled) FVG + BVG zones, nearest ones and a Persian one-liner."""
+    zones = detect_fvg_zones(d)
+    bvgs = detect_bvg_zones(d, zones)
+    price = float(d["close"].iloc[-1])
+    active = [z for z in zones if not z["mitigated"]]
+    bulls = sorted([z for z in active if z["type"] == "bull"], key=lambda z: abs(price - z["top"]))
+    bears = sorted([z for z in active if z["type"] == "bear"], key=lambda z: abs(z["bottom"] - price))
+    live_bvg = [b for b in bvgs if not b["broken"]]
+    live_bvg = sorted(live_bvg, key=lambda b: abs(price - b["mid"]))
+    parts = []
+    if bulls:
+        parts.append(f"FVG صعودی پر نشده {bulls[0]['bottom']:,.6g}–{bulls[0]['top']:,.6g}")
+    if bears:
+        parts.append(f"FVG نزولی پر نشده {bears[0]['bottom']:,.6g}–{bears[0]['top']:,.6g}")
+    if live_bvg:
+        b = live_bvg[0]
+        parts.append(f"BVG {'حمایتی' if b['type'] == 'bull' else 'مقاومتی'} {b['bottom']:,.6g}–{b['top']:,.6g}")
+    return {
+        "zones": zones, "active": active, "bulls": bulls, "bears": bears, "bvgs": live_bvg,
+        "nearest_bull": bulls[0] if bulls else None,
+        "nearest_bear": bears[0] if bears else None,
+        "nearest_bvg": live_bvg[0] if live_bvg else None,
+        "text": " · ".join(parts) if parts else "ناحیه‌ی FVG/BVG فعالی نزدیک قیمت نیست",
+    }
+
+
+def fvg_table(summary: dict, price: float, dec: int, limit: int = 10) -> pd.DataFrame:
+    """Readable table of active FVG/BVG zones sorted by distance to price."""
+    rows = []
+    for z in summary.get("active", []):
+        rows.append({
+            "نوع": "🟩 FVG صعودی (حمایت)" if z["type"] == "bull" else "🟥 FVG نزولی (مقاومت)",
+            "بالا": f"{z['top']:,.{dec}f}", "پایین": f"{z['bottom']:,.{dec}f}",
+            "فاصله%": round((z["mid"] - price) / price * 100, 2),
+            "پرشدگی%": int(round(z["fill"] * 100)),
+            "زمان": str(z["dt"])[:16],
+            "_d": abs(z["mid"] - price),
+        })
+    for b in summary.get("bvgs", []):
+        rows.append({
+            "نوع": "🟪 BVG حمایتی" if b["type"] == "bull" else "🟪 BVG مقاومتی",
+            "بالا": f"{b['top']:,.{dec}f}", "پایین": f"{b['bottom']:,.{dec}f}",
+            "فاصله%": round((b["mid"] - price) / price * 100, 2),
+            "پرشدگی%": None, "زمان": str(b["dt"])[:16], "_d": abs(b["mid"] - price),
+        })
+    if not rows:
+        return pd.DataFrame()
+    return pd.DataFrame(rows).sort_values("_d").head(limit).drop(columns=["_d"]).reset_index(drop=True)
+
+
+# ------------------------------------------------------------------ evidence engine (for agents)
+#
+# Every agent decision must be backed by real evidence computed from the candles:
+# candles, market structure, trend, liquidity, money flow (in/out), momentum,
+# FVG/BVG, support/resistance and mean-reversion stretch. Each row has a
+# direction in [-1, 1] and a strength in [0, 1]; agents weight categories.
+
+EV_CATS = ["کندل‌ها", "ساختار بازار", "روند", "نقدینگی", "جریان پول", "مومنتوم", "FVG/BVG", "سطوح", "بازگشت به میانگین"]
+
+
+def _pivots(d: pd.DataFrame, k: int = 3) -> tuple[list[tuple[int, float]], list[tuple[int, float]]]:
+    h, l = d["high"].to_numpy(dtype=float), d["low"].to_numpy(dtype=float)
+    ph, pl = [], []
+    for i in range(k, len(d) - k):
+        if h[i] == h[i - k:i + k + 1].max():
+            ph.append((i, float(h[i])))
+        if l[i] == l[i - k:i + k + 1].min():
+            pl.append((i, float(l[i])))
+    return ph, pl
+
+
+def market_evidence(d: pd.DataFrame) -> tuple[list[dict], dict]:
+    """Collect directional evidence + context (levels, liquidity pools, FVGs)."""
+    ev: list[dict] = []
+    last = d.iloc[-1]
+    price = float(last["close"])
+    atr = float(last["atr"]) if np.isfinite(last["atr"]) and last["atr"] > 0 else price * 0.01
+    dec = 2 if price >= 1000 else 4 if price >= 1 else 6
+
+    def add(cat, tool, value, reading, direction, strength=1.0):
+        ev.append({"cat": cat, "tool": tool, "value": value, "reading": reading,
+                   "dir": float(max(-1, min(1, direction))), "str": float(max(0, min(1, strength)))})
+
+    o, h, l, c = (d[x].to_numpy(dtype=float) for x in ("open", "high", "low", "close"))
+    v = d["volume"].to_numpy(dtype=float)
+
+    # ---- candles ---------------------------------------------------------------
+    rng = max(h[-1] - l[-1], 1e-12)
+    body = c[-1] - o[-1]
+    up_w = h[-1] - max(c[-1], o[-1])
+    lo_w = min(c[-1], o[-1]) - l[-1]
+    pb = abs(c[-2] - o[-2])
+    if body > 0 and c[-2] < o[-2] and c[-1] >= o[-2] and o[-1] <= c[-2] and abs(body) > pb:
+        add("کندل‌ها", "الگوی پوشای صعودی", "Bullish Engulfing", "کندل آخر کل بدنه‌ی نزولی قبلی را بلعیده — ورود خریداران", 1, 0.9)
+    elif body < 0 and c[-2] > o[-2] and c[-1] <= o[-2] and o[-1] >= c[-2] and abs(body) > pb:
+        add("کندل‌ها", "الگوی پوشای نزولی", "Bearish Engulfing", "کندل آخر کل بدنه‌ی صعودی قبلی را بلعیده — ورود فروشندگان", -1, 0.9)
+    if lo_w > 2 * abs(body) and lo_w > up_w * 1.5:
+        add("کندل‌ها", "پین‌بار / چکش", f"سایه پایین {lo_w / rng * 100:.0f}%", "رد شدن قیمت‌های پایین — فشار خرید در کف", 1, 0.7)
+    elif up_w > 2 * abs(body) and up_w > lo_w * 1.5:
+        add("کندل‌ها", "پین‌بار / ستاره دنباله‌دار", f"سایه بالا {up_w / rng * 100:.0f}%", "رد شدن قیمت‌های بالا — فشار فروش در سقف", -1, 0.7)
+    if abs(body) / rng > 0.8:
+        add("کندل‌ها", "ماروبوزو (بدنه قوی)", f"بدنه {abs(body) / rng * 100:.0f}%", "کندل قدرتمند بدون سایه — کنترل کامل یک طرف", 1 if body > 0 else -1, 0.6)
+    if h[-1] < h[-2] and l[-1] > l[-2]:
+        add("کندل‌ها", "اینساید بار", "Inside Bar", "فشردگی و تعادل — منتظر شکست", 0, 0.3)
+    r5 = np.maximum(h[-5:] - l[-5:], 1e-12)
+    press = float(np.mean((c[-5:] - o[-5:]) / r5))
+    add("کندل‌ها", "فشار ۵ کندل اخیر", f"{press:+.2f}",
+        "بدنه‌ها غالباً سبز — خریدار مسلط" if press > 0.1 else "بدنه‌ها غالباً قرمز — فروشنده مسلط" if press < -0.1 else "تعادل بین خریدار و فروشنده",
+        press * 2, min(1, abs(press) * 2 + 0.2))
+
+    # ---- market structure -------------------------------------------------------
+    ph, pl = _pivots(d)
+    if len(ph) >= 2 and len(pl) >= 2:
+        hh = ph[-1][1] > ph[-2][1]
+        hl = pl[-1][1] > pl[-2][1]
+        if hh and hl:
+            add("ساختار بازار", "سقف/کف بالاتر (HH/HL)", f"H {ph[-1][1]:,.{dec}f} · L {pl[-1][1]:,.{dec}f}", "ساختار صعودی کلاسیک", 1, 1)
+        elif not hh and not hl:
+            add("ساختار بازار", "سقف/کف پایین‌تر (LH/LL)", f"H {ph[-1][1]:,.{dec}f} · L {pl[-1][1]:,.{dec}f}", "ساختار نزولی کلاسیک", -1, 1)
+        else:
+            add("ساختار بازار", "ساختار مختلط", "HH/LL یا LH/HL", "بازار رنج/در حال تغییر ساختار", 0, 0.4)
+        if price > ph[-1][1]:
+            add("ساختار بازار", "شکست ساختار (BOS) صعودی", f"> {ph[-1][1]:,.{dec}f}", "بسته شدن بالای آخرین سقف سوئینگ", 1, 0.9)
+        elif price < pl[-1][1]:
+            add("ساختار بازار", "شکست ساختار (BOS) نزولی", f"< {pl[-1][1]:,.{dec}f}", "بسته شدن زیر آخرین کف سوئینگ", -1, 0.9)
+
+    # ---- trend ------------------------------------------------------------------
+    e20, e50, e200 = float(last["ema20"]), float(last["ema50"]), float(last["ema200"])
+    if e20 > e50 > e200:
+        add("روند", "چیدمان EMA 20/50/200", "20>50>200", "چیدمان کاملاً صعودی میانگین‌ها", 1, 1)
+    elif e20 < e50 < e200:
+        add("روند", "چیدمان EMA 20/50/200", "20<50<200", "چیدمان کاملاً نزولی میانگین‌ها", -1, 1)
+    else:
+        add("روند", "چیدمان EMA 20/50/200", "درهم", "میانگین‌ها در هم — روند غالب ضعیف", 0, 0.4)
+    add("روند", "قیمت نسبت به EMA200", f"{(price / e200 - 1) * 100:+.2f}%",
+        "بالای میانگین بلندمدت — روند بزرگ صعودی" if price > e200 else "زیر میانگین بلندمدت — روند بزرگ نزولی",
+        1 if price > e200 else -1, 0.8)
+    add("روند", "سوپرترند (10,3)", "صعودی" if last["supertrend_dir"] == 1 else "نزولی",
+        "سوپرترند خرید" if last["supertrend_dir"] == 1 else "سوپرترند فروش", float(last["supertrend_dir"]), 0.8)
+    adx = float(last["adx"]) if np.isfinite(last["adx"]) else 0
+    di = 1 if float(last.get("plus_di", 0) or 0) > float(last.get("minus_di", 0) or 0) else -1
+    add("روند", "ADX / DI", f"ADX {adx:.0f} · {'+DI' if di > 0 else '-DI'} غالب",
+        ("روند قوی" if adx > 25 else "روند ضعیف/رنج") + (" به سمت بالا" if di > 0 else " به سمت پایین"),
+        di, min(1, adx / 40))
+
+    # ---- liquidity ----------------------------------------------------------------
+    tol = atr * 0.15
+    highs_above = sorted([p for _, p in ph if p > price])
+    lows_below = sorted([p for _, p in pl if p < price], reverse=True)
+    eq_highs = [p for i, p in enumerate(highs_above) if any(abs(p - q) <= tol for q in highs_above[i + 1:])]
+    eq_lows = [p for i, p in enumerate(lows_below) if any(abs(p - q) <= tol for q in lows_below[i + 1:])]
+    if ph:
+        last_sh = ph[-1][1]
+        if h[-3:].max() > last_sh and price < last_sh and ph[-1][0] < len(d) - 3:
+            add("نقدینگی", "جمع‌آوری نقدینگی سقف (Sweep)", f"{last_sh:,.{dec}f}",
+                "سایه بالای سقف قبلی و برگشت — شکار استاپ خریداران، احتمال ریزش", -1, 0.9)
+    if pl:
+        last_sl = pl[-1][1]
+        if l[-3:].min() < last_sl and price > last_sl and pl[-1][0] < len(d) - 3:
+            add("نقدینگی", "جمع‌آوری نقدینگی کف (Sweep)", f"{last_sl:,.{dec}f}",
+                "سایه زیر کف قبلی و برگشت — شکار استاپ فروشندگان، احتمال صعود", 1, 0.9)
+    bsl = highs_above[0] if highs_above else None
+    ssl = lows_below[0] if lows_below else None
+    if bsl and ssl:
+        db, ds = (bsl - price) / atr, (price - ssl) / atr
+        add("نقدینگی", "نزدیک‌ترین استخر نقدینگی", f"BSL {bsl:,.{dec}f} ({db:.1f}ATR) · SSL {ssl:,.{dec}f} ({ds:.1f}ATR)",
+            "نقدینگی بالای سقف‌ها نزدیک‌تر است — آهن‌ربای صعود" if db < ds else "نقدینگی زیر کف‌ها نزدیک‌تر است — آهن‌ربای ریزش",
+            0.5 if db < ds else -0.5, 0.5)
+    if eq_highs:
+        add("نقدینگی", "سقف‌های برابر (EQH)", f"{eq_highs[0]:,.{dec}f}", "استاپ‌های فروشندگان بالای سقف‌های برابر — هدف خرید", 0.4, 0.5)
+    if eq_lows:
+        add("نقدینگی", "کف‌های برابر (EQL)", f"{eq_lows[0]:,.{dec}f}", "استاپ‌های خریداران زیر کف‌های برابر — هدف فروش", -0.4, 0.5)
+
+    # ---- money flow (in / out) -------------------------------------------------------
+    cmf = float(last["cmf"]) if np.isfinite(last["cmf"]) else 0
+    add("جریان پول", "CMF چایکین", f"{cmf:+.3f}", "ورود پول به بازار" if cmf > 0.05 else "خروج پول از بازار" if cmf < -0.05 else "جریان پول خنثی",
+        cmf * 6, min(1, abs(cmf) * 6 + 0.2))
+    mfi = float(last["mfi"])
+    add("جریان پول", "MFI", f"{mfi:.0f}", "پول هوشمند در حال خرید" if mfi > 55 else "پول هوشمند در حال فروش" if mfi < 45 else "MFI خنثی",
+        (mfi - 50) / 30, min(1, abs(mfi - 50) / 30 + 0.2))
+    obv = d["obv"].to_numpy(dtype=float) if "obv" in d else np.cumsum(np.sign(np.diff(c, prepend=c[0])) * v)
+    obv_slope = (obv[-1] - obv[-20]) / (np.abs(v[-20:]).sum() or 1)
+    add("جریان پول", "شیب OBV (۲۰ کندل)", f"{obv_slope:+.2f}", "حجم در کندل‌های صعودی بیشتر — انباشت" if obv_slope > 0 else "حجم در کندل‌های نزولی بیشتر — توزیع",
+        obv_slope * 3, min(1, abs(obv_slope) * 3 + 0.2))
+    vol_avg = float(np.mean(v[-21:-1])) or 1
+    vr = v[-1] / vol_avg
+    if vr > 1.5:
+        add("جریان پول", "حجم غیرعادی کندل آخر", f"{vr:.1f}× میانگین", "حجم بالا هم‌جهت کندل آخر — تأیید حرکت", 1 if c[-1] >= o[-1] else -1, min(1, vr / 3))
+
+    # ---- momentum -------------------------------------------------------------------
+    rsi = float(last["rsi"])
+    add("مومنتوم", "RSI 14", f"{rsi:.1f}", "مومنتوم صعودی" if rsi > 55 else "مومنتوم نزولی" if rsi < 45 else "مومنتوم خنثی", (rsi - 50) / 25, min(1, abs(rsi - 50) / 25 + 0.2))
+    mh = d["macd_hist"].to_numpy(dtype=float)
+    add("مومنتوم", "هیستوگرام MACD", f"{mh[-1]:+.4g} ({'رو به افزایش' if mh[-1] > mh[-2] else 'رو به کاهش'})",
+        "مومنتوم مثبت و در حال تقویت" if mh[-1] > 0 and mh[-1] > mh[-2] else "مومنتوم مثبت ولی ضعیف‌شونده" if mh[-1] > 0 else
+        "مومنتوم منفی و در حال تقویت" if mh[-1] < mh[-2] else "مومنتوم منفی ولی ضعیف‌شونده",
+        (1 if mh[-1] > 0 else -1) * (1 if (mh[-1] > mh[-2]) == (mh[-1] > 0) else 0.5), 0.8)
+    sk = float(last["stoch_k"])
+    add("مومنتوم", "استوکاستیک", f"{sk:.0f}", "بالای ۵۰ — قدرت خریدار" if sk > 50 else "زیر ۵۰ — قدرت فروشنده", (sk - 50) / 50, 0.5)
+
+    # ---- FVG / BVG ---------------------------------------------------------------------
+    fz = fvg_summary(d)
+    if fz["nearest_bull"]:
+        z = fz["nearest_bull"]
+        dist = max(0.0, price - z["top"]) / atr
+        add("FVG/BVG", "FVG صعودی پر نشده", f"{z['bottom']:,.{dec}f}–{z['top']:,.{dec}f} · {dist:.1f}ATR · پر {z['fill'] * 100:.0f}%",
+            "ناحیه عدم تعادل خرید زیر قیمت — حمایت/محل ورود", 1, max(0.2, 1 - dist / 4))
+    if fz["nearest_bear"]:
+        z = fz["nearest_bear"]
+        dist = max(0.0, z["bottom"] - price) / atr
+        add("FVG/BVG", "FVG نزولی پر نشده", f"{z['bottom']:,.{dec}f}–{z['top']:,.{dec}f} · {dist:.1f}ATR · پر {z['fill'] * 100:.0f}%",
+            "ناحیه عدم تعادل فروش بالای قیمت — مقاومت/محل ورود شورت", -1, max(0.2, 1 - dist / 4))
+    if fz["nearest_bvg"]:
+        b = fz["nearest_bvg"]
+        add("FVG/BVG", "BVG / BPR", f"{b['bottom']:,.{dec}f}–{b['top']:,.{dec}f}",
+            "ناحیه متعادل حمایتی (FVG صعودی روی نزولی) — کف قوی" if b["type"] == "bull" else "ناحیه متعادل مقاومتی (FVG نزولی روی صعودی) — سقف قوی",
+            1 if b["type"] == "bull" else -1, 0.8)
+    fs = float(last.get("fvg_score", 0) or 0)
+    add("FVG/BVG", "امتیاز FVG (عدم تعادل اخیر)", f"{fs:+.2f}", "عدم تعادل‌های اخیر به نفع خریدار" if fs > 0.1 else "عدم تعادل‌های اخیر به نفع فروشنده" if fs < -0.1 else "عدم تعادل معنادار نیست", fs, 0.7)
+
+    # ---- support / resistance ----------------------------------------------------------
+    levels = swing_levels(d)
+    if not levels.empty:
+        sup = levels[levels["سطح"] < price]
+        res = levels[levels["سطح"] > price]
+        if not sup.empty:
+            s = float(sup["سطح"].max())
+            ds = (price - s) / atr
+            if ds < 0.8:
+                add("سطوح", "نزدیک حمایت", f"{s:,.{dec}f} ({ds:.1f}ATR)", "قیمت روی حمایت — ریسک کم برای خرید", 1, 0.8)
+        if not res.empty:
+            r = float(res["سطح"].min())
+            dr = (r - price) / atr
+            if dr < 0.8:
+                add("سطوح", "نزدیک مقاومت", f"{r:,.{dec}f} ({dr:.1f}ATR)", "قیمت زیر مقاومت — ریسک کم برای فروش", -1, 0.8)
+
+    # ---- mean-reversion stretch -------------------------------------------------------
+    bbu, bbl = float(last["bb_up"]), float(last["bb_lo"])
+    if np.isfinite(bbu) and np.isfinite(bbl) and bbu > bbl:
+        pos = (price - bbl) / (bbu - bbl)
+        add("بازگشت به میانگین", "موقعیت در باند بولینگر", f"{pos * 100:.0f}%",
+            "کف باند — کشیدگی به پایین، احتمال برگشت" if pos < 0.15 else "سقف باند — کشیدگی به بالا، احتمال اصلاح" if pos > 0.85 else "وسط باند",
+            (0.5 - pos) * 2, min(1, abs(pos - 0.5) * 2))
+    add("بازگشت به میانگین", "RSI اشباع", f"{rsi:.0f}",
+        "اشباع فروش" if rsi < 30 else "اشباع خرید" if rsi > 70 else "بدون اشباع",
+        1 if rsi < 30 else -1 if rsi > 70 else 0, 0.9 if (rsi < 30 or rsi > 70) else 0.2)
+
+    ctx = {
+        "price": price, "atr": atr, "dec": dec, "levels": levels, "fvg": fz,
+        "mean": float(last["bb_mid"]) if np.isfinite(last["bb_mid"]) else None,
+        "pivot_highs": ph, "pivot_lows": pl, "bsl": highs_above, "ssl": lows_below,
+        "eq_highs": eq_highs, "eq_lows": eq_lows,
+    }
+    return ev, ctx
+
+
+AGENT_PERSONAS = {
+    "Trend Rider📊": {"desc": "سوار روند — روند و ساختار بازار را دنبال می‌کند", "style": "market",
+                      "w": {"روند": 3.0, "ساختار بازار": 2.5, "مومنتوم": 1.0, "جریان پول": 1.0, "FVG/BVG": 0.8,
+                            "نقدینگی": 0.6, "کندل‌ها": 0.6, "سطوح": 0.5, "بازگشت به میانگین": 0.0}},
+    "Momentum🧠": {"desc": "مومنتوم — قدرت حرکت، کندل‌ها و ورود پول", "style": "market",
+                   "w": {"مومنتوم": 3.0, "کندل‌ها": 2.0, "جریان پول": 2.0, "روند": 1.0, "FVG/BVG": 1.0,
+                         "ساختار بازار": 1.0, "نقدینگی": 0.5, "سطوح": 0.5, "بازگشت به میانگین": 0.0}},
+    "MeanRev🎯": {"desc": "بازگشت به میانگین — کشیدگی، سطوح و شکار نقدینگی", "style": "mean",
+                  "w": {"بازگشت به میانگین": 3.0, "سطوح": 2.5, "نقدینگی": 2.0, "کندل‌ها": 1.5, "FVG/BVG": 1.0,
+                        "جریان پول": 0.8, "مومنتوم": 0.0, "روند": 0.3, "ساختار بازار": 0.3}},
+    "Smart Money💧": {"desc": "پول هوشمند — نقدینگی، FVG/BVG، ساختار و جریان پول", "style": "fvg",
+                      "w": {"نقدینگی": 3.0, "FVG/BVG": 3.0, "ساختار بازار": 2.0, "جریان پول": 2.0, "کندل‌ها": 1.0,
+                            "روند": 0.8, "سطوح": 1.0, "مومنتوم": 0.5, "بازگشت به میانگین": 0.3}},
+}
+
+
+def agent_decision(evidence: list[dict], weights: dict, flat_band: float = 0.12) -> dict:
+    """Weighted evidence vote → position + confidence + contribution table."""
+    num = den = 0.0
+    rows = []
+    for e in evidence:
+        w = float(weights.get(e["cat"], 0))
+        contrib = w * e["dir"] * e["str"]
+        num += contrib
+        den += w * e["str"]
+        rows.append({**e, "w": w, "contrib": contrib})
+    s = num / den if den > 0 else 0.0
+    pos = "LONG" if s > flat_band else "SHORT" if s < -flat_band else "FLAT"
+    tot = sum(abs(r["contrib"]) for r in rows) or 1.0
+    for r in rows:
+        r["share"] = r["contrib"] / tot * 100
+    agree = sum(abs(r["contrib"]) for r in rows if (r["contrib"] > 0) == (s > 0) and r["contrib"] != 0) / tot
+    conf = int(min(95, max(5, 30 + abs(s) * 90 + agree * 20))) if pos != "FLAT" else int(max(5, 50 - abs(s) * 100))
+    return {"score": s, "position": pos, "confidence": conf, "agree": agree, "rows": rows}
+
+
+def structured_plan(position: str, ctx: dict, style: str = "fvg") -> dict:
+    """Entry / SL / 3 TPs from structure: liquidity pools, FVG/BVG and S/R.
+
+    style: "market" = enter at current price · "fvg" = limit entry on the FVG/BVG edge
+    when close · "mean" = also target the mean (BB middle) first.
+    """
+    price, atr = ctx["price"], ctx["atr"]
+    fz = ctx["fvg"]
+    if position not in ("LONG", "SHORT"):
+        trig_up = ctx["bsl"][0] if ctx["bsl"] else price + atr
+        trig_dn = ctx["ssl"][0] if ctx["ssl"] else price - atr
+        return {"position": "FLAT", "entry": None, "stop": None, "tps": [], "rr": None,
+                "stop_why": "", "entry_why": f"منتظر شکست {trig_up:,.6g} (لانگ) یا {trig_dn:,.6g} (شورت)"}
+    long = position == "LONG"
+    entry, entry_why = price, "ورود در قیمت فعلی بازار"
+    zone = (fz["nearest_bull"] or fz["nearest_bvg"]) if long else (fz["nearest_bear"] or fz["nearest_bvg"])
+    if style != "market" and zone and ((zone["type"] == "bull") == long):
+        if long and 0 < price - zone["top"] < 1.5 * atr:
+            entry, entry_why = zone["top"], f"ورود لیمیت روی لبه‌ی FVG/BVG صعودی ({zone['bottom']:,.6g}–{zone['top']:,.6g})"
+        elif (not long) and 0 < zone["bottom"] - price < 1.5 * atr:
+            entry, entry_why = zone["bottom"], f"ورود لیمیت روی لبه‌ی FVG/BVG نزولی ({zone['bottom']:,.6g}–{zone['top']:,.6g})"
+    # --- stop: nearest structural invalidation at least 0.8 ATR away
+    cands = []
+    if long:
+        cands += [(p - 0.25 * atr, "زیر کف سوئینگ / نقدینگی فروش") for p in ctx["ssl"][:3]]
+        if zone and zone["type"] == "bull":
+            cands.append((min(zone["bottom"] - 0.2 * atr, entry - 0.8 * atr), "زیر ناحیه FVG/BVG صعودی"))
+        cands = [x for x in cands if 0.79 * atr <= entry - x[0] <= 3 * atr]
+        stop, stop_why = max(cands, key=lambda x: x[0]) if cands else (entry - 1.5 * atr, "۱.۵×ATR زیر ورود (ساختار نزدیک نبود)")
+    else:
+        cands += [(p + 0.25 * atr, "بالای سقف سوئینگ / نقدینگی خرید") for p in ctx["bsl"][:3]]
+        if zone and zone["type"] == "bear":
+            cands.append((max(zone["top"] + 0.2 * atr, entry + 0.8 * atr), "بالای ناحیه FVG/BVG نزولی"))
+        cands = [x for x in cands if 0.79 * atr <= x[0] - entry <= 3 * atr]
+        stop, stop_why = min(cands, key=lambda x: x[0]) if cands else (entry + 1.5 * atr, "۱.۵×ATR بالای ورود (ساختار نزدیک نبود)")
+    risk = abs(entry - stop) or atr
+    # --- targets: liquidity pools, opposite FVGs, S/R
+    tcs = []
+    mean = ctx.get("mean")
+    if style == "mean" and mean and np.isfinite(mean):
+        if (long and mean > entry) or ((not long) and mean < entry):
+            tcs.append((float(mean), "بازگشت به میانگین (باند میانی بولینگر)"))
+    if long:
+        tcs += [(p, "نقدینگی بالای سقف (BSL)") for p in ctx["bsl"]]
+        tcs += [(z["bottom"], "FVG نزولی پر نشده") for z in fz["bears"]]
+        if not ctx["levels"].empty:
+            tcs += [(float(x), "مقاومت") for x in ctx["levels"]["سطح"] if x > entry]
+        tcs = sorted([t for t in tcs if t[0] >= entry + risk * (0.6 if style == "mean" else 1.0)], key=lambda t: t[0])
+    else:
+        tcs += [(p, "نقدینگی زیر کف (SSL)") for p in ctx["ssl"]]
+        tcs += [(z["top"], "FVG صعودی پر نشده") for z in fz["bulls"]]
+        if not ctx["levels"].empty:
+            tcs += [(float(x), "حمایت") for x in ctx["levels"]["سطح"] if x < entry]
+        tcs = sorted([t for t in tcs if t[0] <= entry - risk * (0.6 if style == "mean" else 1.0)], key=lambda t: -t[0])
+    tps: list[tuple[float, str]] = []
+    for t in tcs:
+        if not tps or abs(t[0] - tps[-1][0]) > 0.5 * risk:
+            tps.append(t)
+        if len(tps) == 3:
+            break
+    while len(tps) < 3:
+        last_r = abs(tps[-1][0] - entry) / risk if tps else 0.0
+        r_next = float(max(1, int(np.floor(last_r)) + 1))
+        lvl = entry + risk * r_next if long else entry - risk * r_next
+        tps.append((lvl, f"{r_next:g}R (سطح ساختاری بعدی نبود)"))
+    tps = sorted(tps, key=lambda t: t[0], reverse=not long)[:3]
+    rr = round(abs(tps[0][0] - entry) / risk, 2)
+    return {"position": position, "entry": entry, "entry_why": entry_why, "stop": stop, "stop_why": stop_why,
+            "tps": tps, "rr": rr, "risk_pct": risk / entry * 100}
+
+
+def evidence_table(rows: list[dict]) -> pd.DataFrame:
+    """Readable evidence table (sorted by absolute contribution)."""
+    out = []
+    for r in sorted(rows, key=lambda x: -abs(x.get("contrib", x["dir"] * x["str"]))):
+        if r.get("w", 1) == 0:
+            continue
+        dsym = "🟢 صعودی" if r["dir"] > 0.05 else "🔴 نزولی" if r["dir"] < -0.05 else "⚪ خنثی"
+        row = {"دسته": r["cat"], "ابزار": r["tool"], "مقدار": r["value"], "خوانش / مدرک": r["reading"], "جهت": dsym}
+        if "w" in r:
+            row["وزن ایجنت"] = r["w"]
+            row["سهم در تصمیم%"] = round(r["share"], 1)
+        out.append(row)
+    return pd.DataFrame(out)
 
 
 def _clamp(x: float) -> float:
@@ -1598,11 +2207,17 @@ def confluence(d: pd.DataFrame) -> tuple[pd.Series, pd.DataFrame]:
         "جریان پول CMF": (d["cmf"] * 3).apply(_clamp),
         "CCI": (d["cci"] / 150).apply(_clamp),
         "MFI": ((d["mfi"] - 50) / 50).apply(_clamp),
+        "FVG": (d["fvg_score"] if "fvg_score" in d else pd.Series(0.0, index=d.index)).astype(float).apply(_clamp),
+        "BVG": (d["bvg_score"] if "bvg_score" in d else pd.Series(0.0, index=d.index)).astype(float).apply(_clamp),
     }
-    weights = {"روند EMA50": 0.18, "سوپرترند": 0.14, "MACD": 0.16, "RSI": 0.13, "استوکاستیک": 0.09,
-               "ورتکس": 0.10, "جریان پول CMF": 0.10, "CCI": 0.05, "MFI": 0.05}
+    base_w = {"روند EMA50": 0.18, "سوپرترند": 0.14, "MACD": 0.16, "RSI": 0.13, "استوکاستیک": 0.09,
+              "ورتکس": 0.10, "جریان پول CMF": 0.10, "CCI": 0.05, "MFI": 0.05}
+    # classic indicators keep 88% of the weight; FVG (7%) + BVG (5%) take the rest
+    weights = {k: w * 0.88 for k, w in base_w.items()}
+    weights.update({"FVG": 0.07, "BVG": 0.05})
     score = sum(comps[k].fillna(0) * w for k, w in weights.items()) * 100
     last = d.iloc[-1]
+    _bvg_last = float(comps["BVG"].iloc[-1])
     raw = {
         "روند EMA50": "بالای EMA50" if price.iloc[-1] > last["ema50"] else "زیر EMA50",
         "سوپرترند": "صعودی" if last["supertrend_dir"] == 1 else "نزولی",
@@ -1613,6 +2228,8 @@ def confluence(d: pd.DataFrame) -> tuple[pd.Series, pd.DataFrame]:
         "جریان پول CMF": f"{last['cmf']:.3f}",
         "CCI": f"{last['cci']:.0f}",
         "MFI": f"{last['mfi']:.1f}",
+        "FVG": f"{int(last.get('fvg_bull_active', 0) or 0)}↑ / {int(last.get('fvg_bear_active', 0) or 0)}↓ فعال",
+        "BVG": "BPR حمایتی" if _bvg_last > 0 else "BPR مقاومتی" if _bvg_last < 0 else "—",
     }
     table = pd.DataFrame([
         {"اندیکاتور": k, "مقدار": raw[k], "جهت": "خرید 🟢" if comps[k].iloc[-1] > 0.15 else "فروش 🔴" if comps[k].iloc[-1] < -0.15 else "خنثی ⚪",
@@ -1717,16 +2334,32 @@ def make_plan(d: pd.DataFrame, score: float, levels: pd.DataFrame) -> dict:
                 targets.append((lvl, round((lvl - entry) / risk, 2)))
             if direction == "short" and lvl < entry - risk * 1.15:
                 targets.append((lvl, round((entry - lvl) / risk, 2)))
-    targets = sorted(targets, key=lambda x: x[1])[:2]
+    # unfilled opposite FVGs are price magnets → valid targets too
+    fz = None
+    try:
+        fz = fvg_summary(d)
+        for z in (fz["bears"] if direction == "long" else fz["bulls"]):
+            lvl = z["bottom"] if direction == "long" else z["top"]
+            if direction == "long" and lvl > entry + risk * 1.15:
+                targets.append((lvl, round((lvl - entry) / risk, 2)))
+            if direction == "short" and lvl < entry - risk * 1.15:
+                targets.append((lvl, round((entry - lvl) / risk, 2)))
+    except Exception:  # noqa: BLE001
+        fz = None
+    targets = sorted(set(targets), key=lambda x: x[1])[:2]
     if not targets or targets[-1][1] < 2:
         t2 = entry + risk * 2 if direction == "long" else entry - risk * 2
         targets.append((t2, 2.0))
     rr = targets[0][1] if targets else 0
+    fvg_now = float(d["fvg_score"].iloc[-1]) if "fvg_score" in d else 0.0
+    align = fvg_now if direction == "long" else -fvg_now
+    fvg_bonus = 6 if align > 0.15 else -6 if align < -0.15 else 0
     return {
         "direction": "لانگ (خرید) 🟢" if direction == "long" else "شورت (فروش) 🔴",
         "entry": entry, "stop": stop, "targets": targets, "rr": rr,
-        "confidence": int(min(92, 35 + abs(score) * 0.4 + (10 if rr > 1.5 else 0))),
+        "confidence": int(max(5, min(92, 35 + abs(score) * 0.4 + (10 if rr > 1.5 else 0) + fvg_bonus))),
         "atr": atr,
+        "fvg_note": fz["text"] if fz else "",
     }
 
 
@@ -1752,10 +2385,42 @@ def triple_tp_plan(d: pd.DataFrame, score: float) -> dict:
             "tps": tps, "atr": atr, "risk_pct": risk / price * 100}
 
 
-@st.cache_data(ttl=120, show_spinner=False)
-def scan_opportunities(exchange: str, interval: str, top_n: int = 12, min_abs_score: int = 35) -> pd.DataFrame:
+def _pmap(fn, items: list, workers: int = 8) -> list:
+    """Run `fn` over items in parallel threads (keeps Streamlit cache context)."""
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    init = None
+    try:
+        from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ctx
+        ctx = get_script_run_ctx()
+        if ctx is not None:
+            def init():  # noqa: E306
+                add_script_run_ctx(threading.current_thread(), ctx)
+    except Exception:  # noqa: BLE001
+        init = None
+    if not items:
+        return []
+    with ThreadPoolExecutor(max_workers=max(1, min(workers, len(items))), initializer=init) as ex:
+        return list(ex.map(fn, items))
+
+
+def fetch_ticks_many(exchange: str, symbols: list[str]) -> dict:
+    """Live prices for many symbols at once (parallel, uncached)."""
+    def _one(sym):
+        try:
+            t = fetch_tick(exchange, sym)
+            return sym, (float(t["price"]) if t and t.get("price") else None)
+        except Exception:  # noqa: BLE001
+            return sym, None
+    return dict(_pmap(_one, list(symbols), workers=10))
+
+
+@st.cache_data(ttl=900, max_entries=24, show_spinner="🔍 در حال اسکن موازی بازار…")
+def scan_opportunities(exchange: str, interval: str, top_n: int = 12, min_abs_score: int = 35,
+                       bucket: int = 0) -> pd.DataFrame:
     """Scan the most liquid USDT markets and return the strongest setups
-    (long or short) with SL + triple TP. Ranked by |confluence| × ADX."""
+    (long or short) with SL + triple TP. Ranked by |confluence| × ADX × FVG alignment.
+    `bucket` is a time-slot key: a new bucket forces a fresh automatic re-scan."""
     try:
         movers = fetch_top_coins(exchange, 1_000_000, 40)
         pool = pd.concat([movers["volume"], movers["gainers"], movers["losers"]]).drop_duplicates("symbol")
@@ -1764,22 +2429,28 @@ def scan_opportunities(exchange: str, interval: str, top_n: int = 12, min_abs_sc
         symbols = ["BTC-USDT", "ETH-USDT", "SOL-USDT", "XRP-USDT", "BNB-USDT",
                    "DOGE-USDT", "ADA-USDT", "AVAX-USDT", "LINK-USDT", "TRX-USDT"]
 
-    rows = []
-    for sym in symbols:
+    def _analyse(sym):
         sym_use = normalize_symbol(sym, exchange)
         try:
             d = add_indicators(fetch_candles(exchange, sym_use, interval, limit=300))
             if len(d) < 60:
-                continue
+                return None
             score_series, _ = confluence(d)
             score = float(score_series.iloc[-1])
             if abs(score) < min_abs_score:
-                continue
+                return None
             adx = float(d["adx"].iloc[-1]) if np.isfinite(d["adx"].iloc[-1]) else 0.0
             plan = triple_tp_plan(d, score)
             price = plan["entry"]
             dec = 2 if price >= 1000 else 4 if price >= 1 else 6
-            rows.append({
+            fvg_s = float(d["fvg_score"].iloc[-1]) if "fvg_score" in d else 0.0
+            bvg_s = float(d["bvg_score"].iloc[-1]) if "bvg_score" in d else 0.0
+            align = (fvg_s * 0.6 + bvg_s * 0.4) * (1 if score >= 0 else -1)
+            try:
+                fvg_txt = fvg_summary(d)["text"]
+            except Exception:  # noqa: BLE001
+                fvg_txt = ""
+            return {
                 "symbol": sym_use,
                 "dir": "لانگ 🟢" if score >= 0 else "شورت 🔴",
                 "score": int(round(score)),
@@ -1788,11 +2459,17 @@ def scan_opportunities(exchange: str, interval: str, top_n: int = 12, min_abs_sc
                 "stop": plan["stop"],
                 "tp1": plan["tps"][0], "tp2": plan["tps"][1], "tp3": plan["tps"][2],
                 "risk_pct": round(plan["risk_pct"], 2),
+                "fvg": round(fvg_s, 2), "bvg": round(bvg_s, 2),
+                "fvg_align": "هم‌جهت ✅" if align > 0.1 else "خلاف ⚠️" if align < -0.1 else "خنثی",
+                "fvg_txt": fvg_txt,
                 "dec": dec,
-                "rank": abs(score) * (1 + adx / 50),
-            })
-        except Exception:
-            continue
+                "rank": abs(score) * (1 + adx / 50) * (1 + 0.25 * max(-1.0, min(1.0, align))),
+                "scanned_at": datetime.now().strftime("%H:%M:%S"),
+            }
+        except Exception:  # noqa: BLE001
+            return None
+
+    rows = [r for r in _pmap(_analyse, symbols, workers=8) if r]
     df = pd.DataFrame(rows)
     if df.empty:
         return df
@@ -1861,6 +2538,21 @@ def render_analysis_png(
             ax.axhline(lvl, color=col, linewidth=0.8, linestyle=":", alpha=0.65, zorder=1)
             ax.text(x_right + 0.5, lvl, f" {tag} {lvl:,.{dec}f}", color=col, fontsize=7.5,
                     va="center", ha="left", fontweight="bold")
+
+    # FVG / BVG zones (active, unfilled) as translucent boxes extended to the right
+    try:
+        fz = fvg_summary(d)
+        offset = len(d) - n
+        boxes = [(z, "#22c55e", "FVG+") for z in fz["bulls"][:3]] + \
+                [(z, "#ef4444", "FVG-") for z in fz["bears"][:3]] + \
+                [(b, "#a855f7", "BVG") for b in fz["bvgs"][:2]]
+        for z, col, tag in boxes:
+            x0 = max(0, z["idx"] - offset)
+            ax.add_patch(Rectangle((x0, z["bottom"]), (n + 4) - x0, z["top"] - z["bottom"],
+                                   color=col, alpha=0.13, zorder=1, linewidth=0))
+            ax.text(x0 + 0.5, z["top"], f"{tag}", color=col, fontsize=7, va="bottom", ha="left", fontweight="bold")
+    except Exception:  # noqa: BLE001
+        pass
 
     # entry / stop / targets
     ax.axhline(plan["entry"], color="#f59e0b", linewidth=1.6, zorder=5)
@@ -2054,8 +2746,10 @@ def main() -> None:
         unsafe_allow_html=True,
     )
 
-    SECTIONS = ["📊 تحلیل زنده", "💎 فرصت‌های سودده", "✍️ ثبت تحلیل شخصی",
-                "👥 تحلیل‌های کاربران", "🏆 برترین‌ها", "📰 اخبار", "🖼️ تصویر تحلیل", "📚 منابع داده"]
+    # «ثبت تحلیل شخصی» + «تصویر تحلیل» + «تحلیل‌های کاربران» → one combined section (tabs)
+    ANALYSES_SECTION = "🧑‍💻 تحلیل‌ها (ثبت · تصویر · کاربران)"
+    SECTIONS = ["📊 تحلیل زنده", "💎 فرصت‌های سودده", ANALYSES_SECTION,
+                "🏆 برترین‌ها", "📰 اخبار", "📚 منابع داده"]
 
     with st.sidebar:
         st.header("⚙️ تنظیمات")
@@ -2079,12 +2773,13 @@ def main() -> None:
                 exchange = exch_choice
             interval = st.selectbox("تایم‌فریم", list(INTERVAL_MINUTES.keys()), index=1)
 
-        # --- chart settings --------------------------------------------------
-        with st.expander("📈 تنظیمات چارت", expanded=False):
+            # --- chart settings (merged into «بازار و نماد») -----------------
+            st.markdown("**📈 تنظیمات چارت**")
             candle_count = st.slider("تعداد کندل روی چارت (فشرده/باز)", min_value=40, max_value=500,
                                      value=160, step=20,
                                      help="کمتر = کندل‌ها بازتر و درشت‌تر · بیشتر = فشرده‌تر")
-            live_on = st.checkbox("🔴 حالت زنده (قیمت هر ۵ ثانیه)", value=True)
+            show_fvg = st.checkbox("🟪 نمایش نواحی FVG / BVG روی چارت", value=True)
+            live_on = st.checkbox("🔴 حالت زنده (قیمت لحظه‌ای)", value=True)
 
         # --- appearance ------------------------------------------------------
         with st.expander("🎨 شخصی‌سازی ظاهر", expanded=False):
@@ -2095,12 +2790,6 @@ def main() -> None:
                 help="آدرس یک عکس بگذار تا پس‌زمینه‌ی دلخواهت شود.",
             )
 
-        # --- sharing ---------------------------------------------------------
-        with st.expander("🔗 اشتراک‌گذاری", expanded=False):
-            app_url = st.text_input("لینک اپ", value="",
-                                    placeholder="https://your-app.streamlit.app",
-                                    help="لینک اپ منتشرشده‌ات را بگذار تا در اشتراک‌گذاری‌ها بیاید.")
-            st.caption("دکمه‌ی شناور 🔗 گوشه‌ی صفحه را بکش و جابه‌جا کن؛ با زدن روی آن گزینه‌های اشتراک باز می‌شود.")
 
     # apply chosen theme (and optional background image) across the whole app
     st.markdown(theme_css(THEMES[theme_name], bg_image_url.strip()), unsafe_allow_html=True)
@@ -2167,13 +2856,20 @@ def main() -> None:
                 live_strip_manual(symbol, exchange, interval, dec, lighter_extra)
 
             # ===== NEURAL SHELL — placed ABOVE the chart =====================
-            st.subheader("◈ پوسته مدل‌ها (Neural Shell) — زنده")
+            st.subheader("◈ پوسته مدل‌ها (Neural Shell) — زنده · با FVG / BVG")
+            try:
+                fvg_info = fvg_summary(d)
+            except Exception:  # noqa: BLE001
+                fvg_info = {"zones": [], "active": [], "bulls": [], "bears": [], "bvgs": [],
+                            "nearest_bull": None, "nearest_bear": None, "nearest_bvg": None, "text": ""}
             components.html(
                 "<div style='background:#f6f8fb;margin:0;padding:2px;border-radius:12px'>"
-                + build_neural_shell_svg(comp_table, score)
+                + build_neural_shell_svg(comp_table, score, fvg=fvg_info, price=price)
                 + "</div>",
-                height=340,
+                height=420,
             )
+            if fvg_info.get("text"):
+                st.caption("🟪 " + fvg_info["text"])
             st.divider()
 
             # ---- TradingView-style chart ---------------------------------
@@ -2216,6 +2912,21 @@ def main() -> None:
                     bgcolor=col, borderpad=3, opacity=0.95, row=1, col=1,
                 )
 
+            # FVG (green/red) and BVG (purple) zones — active/unfilled only
+            if show_fvg:
+                first_dt = dc["dt"].iloc[0]
+                fvg_boxes = ([(z, "rgba(38,166,154,0.16)", "#26a69a", "FVG▲") for z in fvg_info["bulls"][:4]]
+                             + [(z, "rgba(239,83,80,0.16)", "#ef5350", "FVG▼") for z in fvg_info["bears"][:4]]
+                             + [(b, "rgba(168,85,247,0.20)", "#a855f7", "BVG") for b in fvg_info["bvgs"][:3]])
+                for z, fillc, linec, tag in fvg_boxes:
+                    x0 = z["dt"] if z["dt"] >= first_dt else first_dt
+                    fig.add_shape(type="rect", x0=x0, x1=x_last, y0=z["bottom"], y1=z["top"],
+                                  fillcolor=fillc, line=dict(color=linec, width=0.6), layer="below",
+                                  row=1, col=1)
+                    fig.add_annotation(x=x0, y=z["top"], xref="x", yref="y", text=tag, showarrow=False,
+                                       xanchor="left", yanchor="bottom", font=dict(size=9, color=linec),
+                                       row=1, col=1)
+
             vol_colors = ["#26a69a" if cl >= op else "#ef5350" for cl, op in zip(dc["close"], dc["open"])]
             fig.add_trace(go.Bar(x=dc["dt"], y=dc["volume"], marker_color=vol_colors, marker_line_width=0,
                                  name="حجم", opacity=0.55), row=2, col=1)
@@ -2247,20 +2958,7 @@ def main() -> None:
                 "modeBarButtonsToRemove": ["lasso2d", "select2d"],
             })
 
-            # ---- build the share text (used by the floating share button) ---
-            share_text = (
-                f"نماد: {symbol} · {exchange} ({interval})\n"
-                f"قیمت: {price:,.{dec}f}\n"
-                f"سیگنال همگرایی: {score:+.0f} ({label})\n"
-                f"جهت: {plan['direction']}\n"
-                f"ورود: {plan['entry']:,.{dec}f} · حد ضرر: {plan['stop']:,.{dec}f} · R:R 1:{plan['rr']}\n"
-                + "\n".join(f"هدف {i+1}: {tp:,.{dec}f} ({rr}R)" for i, (tp, rr) in enumerate(plan["targets"]))
-            )
-            # floating draggable share button (bottom-left, movable)
-            components.html(
-                floating_share(f"📈 تحلیل {symbol} — NorthmanQuant", share_text, app_url),
-                height=0,
-            )
+            # (floating share button removed by request)
 
             # ===== THE AGENTS — full-width strategy backtest row =============
             st.divider()
@@ -2271,7 +2969,7 @@ def main() -> None:
                     "<div style='background:#f6f8fb;margin:0;padding:2px;border-radius:14px'>"
                     + build_agents_svg(agent_cards)
                     + "</div>",
-                    height=520,
+                    height=520 if len(agent_cards) <= 6 else 730,
                 )
             except Exception:  # noqa: BLE001
                 pass
@@ -2287,6 +2985,25 @@ def main() -> None:
             tcols = st.columns(max(1, len(plan["targets"])))
             for i, (t_price, t_rr) in enumerate(plan["targets"]):
                 tcols[i].metric(f"هدف {i + 1}", f"{t_price:,.{dec}f}", f"{t_rr}R")
+            if plan.get("fvg_note"):
+                st.caption("🟪 FVG/BVG: " + plan["fvg_note"])
+            with st.expander("🧾 مدارک تحلیل — کندل، ساختار، نقدینگی، جریان پول، FVG/BVG، سطوح", expanded=False):
+                try:
+                    _ev, _ = market_evidence(d)
+                    st.dataframe(evidence_table(_ev), use_container_width=True, hide_index=True)
+                except Exception as _e:  # noqa: BLE001
+                    st.info(f"مدارک محاسبه نشد: {_e}")
+
+            # ===== FVG / BVG zones ==========================================
+            st.divider()
+            st.subheader("🟪 نواحی FVG / BVG (عدم تعادل پر نشده)")
+            _ft = fvg_table(fvg_info, price, dec)
+            if _ft.empty:
+                st.info("FVG یا BVG فعالی در این بازه پیدا نشد.")
+            else:
+                st.dataframe(_ft, use_container_width=True, hide_index=True)
+                st.caption("FVG صعودی = حمایت/محل ورود لانگ · FVG نزولی = مقاومت/محل ورود شورت · "
+                           "BVG (BPR) = هم‌پوشانی FVG صعودی و نزولی — ناحیه‌ی بسیار قوی.")
 
             # ===== CONFLUENCE COMPONENTS table ==============================
             st.divider()
@@ -2337,72 +3054,121 @@ def main() -> None:
             st.info("نماد را مثل BTC-USDT بنویس؛ اگر صرافی انتخابی در منطقه‌ات مسدود است، KuCoin یا OKX یا Lighter را انتخاب کن.")
 
     if section == "💎 فرصت‌های سودده":
-        st.subheader("💎 فرصت‌های سودده — اسکن زنده‌ی بازار")
-        st.caption("قوی‌ترین ستاپ‌های لانگ/شورت از میان پرمعامله‌ترین ارزها، با حد ضرر و سه تیک‌پرافیت. "
-                   f"صرافی: {exchange} · تایم‌فریم: {interval}")
-        oc1, oc2, oc3 = st.columns([1, 1, 1])
+        st.subheader("💎 فرصت‌های سودده — اسکن زنده‌ی بازار (خودکار)")
+        st.caption("قوی‌ترین ستاپ‌های لانگ/شورت از میان پرمعامله‌ترین ارزها، با حد ضرر و سه تیک‌پرافیت + FVG/BVG. "
+                   f"صرافی: {exchange} · تایم‌فریم: {interval} · قیمت‌ها و تحلیل‌ها خودکار به‌روز می‌شوند.")
+        oc1, oc2, oc3, oc4, oc5 = st.columns([1, 1, 1, 1, 0.9])
         with oc1:
             opp_n = st.slider("تعداد فرصت‌ها", 5, 20, 12, key="opp_n")
         with oc2:
             opp_minscore = st.slider("حداقل قدرت سیگنال", 20, 70, 35, step=5, key="opp_min")
         with oc3:
+            opp_price_s = st.select_slider("رفرش قیمت (ثانیه)", options=[2, 3, 5, 10], value=3, key="opp_price_s")
+        with oc4:
+            opp_rescan_s = st.select_slider("اسکن مجدد تحلیل (ثانیه)", options=[20, 30, 45, 60, 120],
+                                            value=30, key="opp_rescan_s")
+        with oc5:
             st.write("")
-            do_scan = st.button("🔍 اسکن بازار", type="primary", use_container_width=True)
+            if st.button("🔍 اسکن فوری", type="primary", use_container_width=True):
+                st.session_state["opp_force"] = st.session_state.get("opp_force", 0) + 1
 
-        if do_scan or st.session_state.get("opp_done"):
-            st.session_state["opp_done"] = True
-            with st.spinner("در حال اسکن بازار… (ممکن است چند ثانیه طول بکشد)"):
-                opp = scan_opportunities(exchange, interval, top_n=opp_n, min_abs_score=opp_minscore)
+        def _opp_live_impl(exchange: str, interval: str, opp_n: int, opp_minscore: int, rescan_s: int) -> None:
+            import time as _time
+            period = max(10, int(rescan_s))
+            bucket = int(_time.time() // period) * 1000 + int(st.session_state.get("opp_force", 0))
+            opp = scan_opportunities(exchange, interval, top_n=opp_n, min_abs_score=opp_minscore, bucket=bucket)
             if opp.empty:
-                st.info("فعلاً ستاپ قوی‌ای پیدا نشد. حداقل قدرت سیگنال را کم کن یا تایم‌فریم دیگری امتحان کن.")
-            else:
-                st.success(f"{len(opp)} فرصت پیدا شد — مرتب‌شده بر اساس قدرت سیگنال × روند (ADX).")
-                for _, r in opp.iterrows():
-                    dec = int(r["dec"])
-                    is_long = "لانگ" in r["dir"]
-                    tone = "#16a34a" if is_long else "#ef4444"
-                    sl_pct = (r["stop"] - r["price"]) / r["price"] * 100
-                    def _pct(v):
-                        return (v - r["price"]) / r["price"] * 100
-                    st.markdown(
-                        f"<div dir='rtl' style='border:1px solid rgba(148,163,184,.2);border-right:5px solid {tone};"
-                        f"border-radius:14px;padding:14px 16px;margin:10px 0;background:rgba(148,163,184,.05)'>"
-                        f"<div style='display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;align-items:center'>"
-                        f"<span style='font-size:18px;font-weight:800'>{r['symbol']}</span>"
-                        f"<span style='font-family:ui-monospace,monospace;font-size:14px;color:{tone};font-weight:800'>{r['dir']}</span>"
-                        f"<span style='font-family:ui-monospace,monospace;font-size:12px;color:#94a3b8'>قدرت {r['score']:+d} · ADX {r['adx']} · ریسک {r['risk_pct']}%</span>"
-                        f"</div>"
-                        f"<div style='display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:12px;text-align:center'>"
-                        f"<div style='background:rgba(148,163,184,.08);border-radius:10px;padding:8px'>"
-                        f"<div style='font-size:10px;color:#94a3b8'>ورود</div>"
-                        f"<div style='font-family:ui-monospace,monospace;font-weight:800;font-size:14px'>{r['price']:,.{dec}f}</div></div>"
-                        f"<div style='background:rgba(239,68,68,.12);border-radius:10px;padding:8px'>"
-                        f"<div style='font-size:10px;color:#fca5a5'>حد ضرر (SL)</div>"
-                        f"<div style='font-family:ui-monospace,monospace;font-weight:800;font-size:14px;color:#ef4444'>{r['stop']:,.{dec}f}</div>"
-                        f"<div style='font-size:9px;color:#94a3b8'>{sl_pct:+.2f}%</div></div>"
-                        f"<div style='background:rgba(34,197,94,.10);border-radius:10px;padding:8px'>"
-                        f"<div style='font-size:10px;color:#86efac'>TP1 · 1R</div>"
-                        f"<div style='font-family:ui-monospace,monospace;font-weight:800;font-size:14px;color:#16a34a'>{r['tp1']:,.{dec}f}</div>"
-                        f"<div style='font-size:9px;color:#94a3b8'>{_pct(r['tp1']):+.2f}%</div></div>"
-                        f"<div style='background:rgba(34,197,94,.14);border-radius:10px;padding:8px'>"
-                        f"<div style='font-size:10px;color:#86efac'>TP2 · 2R</div>"
-                        f"<div style='font-family:ui-monospace,monospace;font-weight:800;font-size:14px;color:#16a34a'>{r['tp2']:,.{dec}f}</div>"
-                        f"<div style='font-size:9px;color:#94a3b8'>{_pct(r['tp2']):+.2f}%</div></div>"
-                        f"<div style='background:rgba(34,197,94,.18);border-radius:10px;padding:8px'>"
-                        f"<div style='font-size:10px;color:#86efac'>TP3 · 3R</div>"
-                        f"<div style='font-family:ui-monospace,monospace;font-weight:800;font-size:14px;color:#16a34a'>{r['tp3']:,.{dec}f}</div>"
-                        f"<div style='font-size:9px;color:#94a3b8'>{_pct(r['tp3']):+.2f}%</div></div>"
-                        f"</div></div>",
-                        unsafe_allow_html=True,
-                    )
-                st.download_button(
-                    "💾 ذخیره فرصت‌ها (CSV)",
-                    data=opp.drop(columns=["dec", "rank"]).to_csv(index=False).encode("utf-8"),
-                    file_name=f"opportunities_{exchange}_{interval}.csv", mime="text/csv",
+                st.info("فعلاً ستاپ قوی‌ای پیدا نشد. حداقل قدرت سیگنال را کم کن یا تایم‌فریم دیگری امتحان کن. "
+                        "(اسکن بعدی خودکار انجام می‌شود)")
+                return
+            ticks = fetch_ticks_many(exchange, opp["symbol"].tolist())
+            next_scan = int(period - (_time.time() % period))
+            st.markdown(
+                f"<div dir='rtl' style='display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:12px;"
+                f"color:#94a3b8;margin:4px 0 2px'>"
+                f"<span><span style='display:inline-block;width:8px;height:8px;border-radius:50%;"
+                f"background:#ef4444;margin-left:6px'></span><b style='color:#ef4444'>LIVE</b></span>"
+                f"<span>قیمت: {datetime.now().strftime('%H:%M:%S')}</span>"
+                f"<span>آخرین اسکن تحلیل: {opp['scanned_at'].iloc[0]}</span>"
+                f"<span>اسکن بعدی ≈ {next_scan} ثانیه</span>"
+                f"<span>{len(opp)} فرصت · مرتب بر اساس قدرت × ADX × هم‌جهتی FVG</span></div>",
+                unsafe_allow_html=True,
+            )
+            for _, r in opp.iterrows():
+                dec = int(r["dec"])
+                is_long = "لانگ" in r["dir"]
+                tone = "#16a34a" if is_long else "#ef4444"
+                entry = float(r["price"])
+                live = ticks.get(r["symbol"]) or entry
+                pnl = (live - entry) / entry * 100 * (1 if is_long else -1)
+                sl, t1, t2, t3 = float(r["stop"]), float(r["tp1"]), float(r["tp2"]), float(r["tp3"])
+                if (is_long and live <= sl) or ((not is_long) and live >= sl):
+                    status, s_col = "❌ حد ضرر خورد", "#ef4444"
+                elif (is_long and live >= t3) or ((not is_long) and live <= t3):
+                    status, s_col = "🏆 TP3 لمس شد", "#16a34a"
+                elif (is_long and live >= t2) or ((not is_long) and live <= t2):
+                    status, s_col = "✅ TP2 لمس شد", "#16a34a"
+                elif (is_long and live >= t1) or ((not is_long) and live <= t1):
+                    status, s_col = "✅ TP1 لمس شد", "#22c55e"
+                else:
+                    status, s_col = "⏳ فعال", "#f59e0b"
+                span = (t3 - sl) or 1e-12
+                prog = max(0.0, min(1.0, (live - sl) / span))
+                ent_p = max(0.0, min(1.0, (entry - sl) / span))
+                sl_pct = (sl - entry) / entry * 100
+
+                def _pct(v, _e=entry):
+                    return (v - _e) / _e * 100
+
+                def _box(lbl, val, pct, bg, fg="#e2e8f0", lc="#94a3b8"):
+                    return (f"<div style='background:{bg};border-radius:10px;padding:8px'>"
+                            f"<div style='font-size:10px;color:{lc}'>{lbl}</div>"
+                            f"<div style='font-family:ui-monospace,monospace;font-weight:800;font-size:14px;color:{fg}'>{val}</div>"
+                            + (f"<div style='font-size:9px;color:#94a3b8'>{pct}</div>" if pct else "")
+                            + "</div>")
+
+                boxes = (
+                    _box("ورود", f"{entry:,.{dec}f}", "", "rgba(148,163,184,.08)")
+                    + _box("قیمت لحظه‌ای", f"{live:,.{dec}f}", f"PnL {pnl:+.2f}%", "rgba(56,189,248,.10)",
+                           "#16a34a" if pnl >= 0 else "#ef4444", "#7dd3fc")
+                    + _box("حد ضرر (SL)", f"{sl:,.{dec}f}", f"{sl_pct:+.2f}%", "rgba(239,68,68,.12)", "#ef4444", "#fca5a5")
+                    + _box("TP1 · 1R", f"{t1:,.{dec}f}", f"{_pct(t1):+.2f}%", "rgba(34,197,94,.10)", "#16a34a", "#86efac")
+                    + _box("TP2 · 2R", f"{t2:,.{dec}f}", f"{_pct(t2):+.2f}%", "rgba(34,197,94,.14)", "#16a34a", "#86efac")
+                    + _box("TP3 · 3R", f"{t3:,.{dec}f}", f"{_pct(t3):+.2f}%", "rgba(34,197,94,.18)", "#16a34a", "#86efac")
                 )
-                st.caption("این فهرست صرفاً تحلیلی است و توصیه‌ی سرمایه‌گذاری نیست. حتماً مدیریت ریسک را رعایت کن.")
-        else:
-            st.info("روی «🔍 اسکن بازار» بزن تا بهترین فرصت‌های لانگ/شورت پیدا شوند.")
+                fvg_line = (f"<div style='margin-top:8px;font-size:12px;color:#c4b5fd'>🟪 FVG {float(r.get('fvg', 0)):+.2f} · "
+                            f"BVG {float(r.get('bvg', 0)):+.2f} · {r.get('fvg_align', '')}"
+                            + (f" — {r.get('fvg_txt')}" if r.get("fvg_txt") else "") + "</div>")
+                st.markdown(
+                    f"<div dir='rtl' style='border:1px solid rgba(148,163,184,.2);border-right:5px solid {tone};"
+                    f"border-radius:14px;padding:14px 16px;margin:10px 0;background:rgba(148,163,184,.05)'>"
+                    f"<div style='display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;align-items:center'>"
+                    f"<span style='font-size:18px;font-weight:800'>{r['symbol']}</span>"
+                    f"<span style='font-family:ui-monospace,monospace;font-size:14px;color:{tone};font-weight:800'>{r['dir']}</span>"
+                    f"<span style='font-size:13px;font-weight:800;color:{s_col}'>{status}</span>"
+                    f"<span style='font-family:ui-monospace,monospace;font-size:12px;color:#94a3b8'>قدرت {r['score']:+d} · ADX {r['adx']} · ریسک {r['risk_pct']}%</span>"
+                    f"</div>"
+                    f"<div style='display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-top:12px;text-align:center'>{boxes}</div>"
+                    f"<div dir='ltr' style='position:relative;height:6px;border-radius:4px;margin-top:12px;"
+                    f"background:linear-gradient(90deg,#ef4444 0%,#f59e0b {ent_p * 100:.0f}%,#16a34a 100%);opacity:.55'>"
+                    f"<div style='position:absolute;top:-4px;left:calc({prog * 100:.1f}% - 7px);width:14px;height:14px;"
+                    f"border-radius:50%;background:#fff;border:3px solid {tone}'></div></div>"
+                    f"{fvg_line}"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+            st.download_button(
+                "💾 ذخیره فرصت‌ها (CSV)",
+                data=opp.drop(columns=["dec", "rank"]).to_csv(index=False).encode("utf-8"),
+                file_name=f"opportunities_{exchange}_{interval}.csv", mime="text/csv", key="dl_opp",
+            )
+            st.caption("این فهرست صرفاً تحلیلی است و توصیه‌ی سرمایه‌گذاری نیست. حتماً مدیریت ریسک را رعایت کن.")
+
+        try:
+            _opp_live = st.fragment(run_every=float(opp_price_s))(_opp_live_impl)
+        except Exception:  # noqa: BLE001  (older Streamlit without fragments)
+            _opp_live = _opp_live_impl
+        _opp_live(exchange, interval, opp_n, opp_minscore, opp_rescan_s)
 
     if section == "🏆 برترین‌ها":
         try:
@@ -2466,219 +3232,260 @@ def main() -> None:
         except Exception as e:  # noqa: BLE001
             st.error(f"دریافت اخبار ممکن نشد: {e}")
 
-    if section == "🖼️ تصویر تحلیل":
-        st.write(
-            "نماد را وارد کن تا خودش از داده‌ی **واقعی** صرافی تحلیل کند و یک **تصویر چارت آماده** "
-            "با نقاط ورود/حد ضرر/اهداف و سطوح حمایت و مقاومت بسازد — قابل دانلود و اشتراک‌گذاری."
-        )
+    if section == ANALYSES_SECTION:
+        st.subheader("🧑‍💻 تحلیل‌ها — ثبت تحلیل شخصی · تصویر تحلیل · تحلیل‌های کاربران")
+        tab_post, tab_img, tab_users = st.tabs(["✍️ ثبت تحلیل شخصی", "🖼️ تصویر تحلیل", "👥 تحلیل‌های کاربران"])
 
-        ic1, ic2, ic3 = st.columns([1.3, 1, 1])
-        with ic1:
-            img_symbol_in = st.text_input("نماد برای تصویر", value=symbol_in, key="img_symbol",
-                                          help="مثل BTC، ETH، SOL … · برای Lighter فقط نماد پایه")
-        with ic2:
-            img_exchange = st.selectbox("صرافی", EXCHANGES, index=EXCHANGES.index(exchange), key="img_exchange")
-        with ic3:
-            img_interval = st.selectbox("تایم‌فریم", list(INTERVAL_MINUTES.keys()),
-                                        index=list(INTERVAL_MINUTES.keys()).index(interval), key="img_interval")
+        # ---------------- tab 1: personal analysis form ----------------
+        with tab_post:
+            st.subheader("✍️ ثبت تحلیل شخصی")
+            st.caption("تحلیل حرفه‌ای‌ات را با جزئیات کامل ثبت کن تا در تب «👥 تحلیل‌های کاربران» برای همه دیده شود.")
 
-        make_img = st.button("🖼️ ساخت تصویر تحلیل", type="primary", use_container_width=True)
+            with st.form("community_form", clear_on_submit=True):
+                r1c1, r1c2, r1c3 = st.columns(3)
+                with r1c1:
+                    ca_name = st.text_input("نام یا نام مستعار *", value="", max_chars=30)
+                with r1c2:
+                    ca_symbol = st.text_input("نماد ارز *", value="BTC-USDT", max_chars=20,
+                                              help="مثل BTC-USDT، ETH، SOL")
+                with r1c3:
+                    ca_exchange = st.selectbox("صرافی", EXCHANGES + ["XT", "LBank", "سایر"], index=0)
 
-        if make_img:
-            img_symbol = normalize_symbol(img_symbol_in, img_exchange)
-            try:
-                with st.spinner(f"در حال تحلیل {img_symbol} روی {img_exchange} …"):
-                    idf = fetch_candles(img_exchange, img_symbol, img_interval)
-                    idd = add_indicators(idf)
-                    iscore_series, icomp = confluence(idd)
-                    iscore = float(iscore_series.iloc[-1])
-                    ilevels = swing_levels(idd)
-                    iplan = make_plan(idd, iscore, ilevels)
-                    iprice = float(idd["close"].iloc[-1])
-                    idec = 2 if iprice >= 1000 else 4 if iprice >= 1 else 6
-                    png = render_analysis_png(idd, iplan, ilevels, iscore, img_symbol, img_exchange, img_interval, idec)
+                r2c1, r2c2, r2c3, r2c4 = st.columns(4)
+                with r2c1:
+                    ca_bias = st.selectbox("جهت *", ["لانگ 🟢", "شورت 🔴", "خنثی ⚪"])
+                with r2c2:
+                    ca_tf = st.selectbox("تایم‌فریم", list(INTERVAL_MINUTES.keys()), index=1)
+                with r2c3:
+                    ca_entry = st.number_input("قیمت ورود", min_value=0.0, value=0.0, format="%.6f")
+                with r2c4:
+                    ca_stop = st.number_input("حد ضرر (SL)", min_value=0.0, value=0.0, format="%.6f")
 
-                ilabel = "خرید قوی" if iscore > 40 else "خرید" if iscore > 12 else "خنثی" if iscore > -12 else "فروش" if iscore > -40 else "فروش قوی"
-                st.success(f"تحلیل {img_symbol} آماده شد · قیمت {iprice:,.{idec}f} · همگرایی {iscore:+.0f} ({ilabel})")
+                r3c1, r3c2, r3c3, r3c4 = st.columns(4)
+                with r3c1:
+                    ca_tp1 = st.number_input("هدف ۱ (TP1)", min_value=0.0, value=0.0, format="%.6f")
+                with r3c2:
+                    ca_tp2 = st.number_input("هدف ۲ (TP2)", min_value=0.0, value=0.0, format="%.6f")
+                with r3c3:
+                    ca_tp3 = st.number_input("هدف ۳ (TP3)", min_value=0.0, value=0.0, format="%.6f")
+                with r3c4:
+                    ca_conf = st.slider("اطمینان ٪", 0, 100, 60)
 
-                st.image(png, use_container_width=True)
-                st.download_button(
-                    "⬇️ دانلود تصویر (PNG)",
-                    data=png,
-                    file_name=f"{img_symbol}_{img_interval}_northmanquant.png",
-                    mime="image/png",
-                    use_container_width=True,
-                )
+                ca_text = st.text_area("شرح تحلیل و دلیل *", value="", height=140, max_chars=2000,
+                                       placeholder="دلیل ورود، ستاپ تکنیکال، سطوح کلیدی، مدیریت ریسک …")
+                ca_image = st.file_uploader("📷 عکس چارت/تحلیل (اختیاری)", type=["png", "jpg", "jpeg", "webp"],
+                                            help="می‌توانی اسکرین‌شات چارت یا تحلیلت را هم پیوست کنی.")
+                ca_submit = st.form_submit_button("📨 ثبت و اشتراک‌گذاری تحلیل", use_container_width=True, type="primary")
 
-                m1, m2, m3, m4 = st.columns(4)
-                m1.metric("جهت", iplan["direction"])
-                m2.metric("ورود", f"{iplan['entry']:,.{idec}f}")
-                m3.metric("حد ضرر", f"{iplan['stop']:,.{idec}f}")
-                m4.metric("R:R / اطمینان", f"1:{iplan['rr']} · {iplan['confidence']}٪")
-                for i, (t_price, t_rr) in enumerate(iplan["targets"]):
-                    st.write(f"🎯 هدف {i + 1}: **{t_price:,.{idec}f}** ({t_rr}R)")
-
-                if not ilevels.empty:
-                    st.subheader("🧱 حمایت و مقاومت")
-                    show = ilevels.copy()
-                    show["سطح"] = show["سطح"].map(lambda v: f"{v:,.{idec}f}")
-                    st.dataframe(show, use_container_width=True, hide_index=True)
-                st.caption("برچسب‌های روی تصویر انگلیسی هستند (ENTRY/STOP/TP/S/R) تا در همه‌ی سیستم‌ها درست دیده شوند. این ابزار توصیه‌ی سرمایه‌گذاری نیست.")
-            except Exception as e:  # noqa: BLE001
-                st.error(f"ساخت تصویر ممکن نشد: {e}")
-                st.info("نماد را مثل BTC یا ETH بنویس؛ اگر صرافی مسدود است، OKX یا KuCoin یا Lighter را امتحان کن.")
-        else:
-            st.info("یک نماد وارد کن و دکمه‌ی «ساخت تصویر تحلیل» را بزن.")
-
-    if section == "✍️ ثبت تحلیل شخصی":
-        st.subheader("✍️ ثبت تحلیل شخصی")
-        st.caption("تحلیل حرفه‌ای‌ات را با جزئیات کامل ثبت کن تا در بخش «👥 تحلیل‌های کاربران» برای همه دیده شود.")
-
-        with st.form("community_form", clear_on_submit=True):
-            r1c1, r1c2, r1c3 = st.columns(3)
-            with r1c1:
-                ca_name = st.text_input("نام یا نام مستعار *", value="", max_chars=30)
-            with r1c2:
-                ca_symbol = st.text_input("نماد ارز *", value="BTC-USDT", max_chars=20,
-                                          help="مثل BTC-USDT، ETH، SOL")
-            with r1c3:
-                ca_exchange = st.selectbox("صرافی", EXCHANGES + ["XT", "LBank", "سایر"], index=0)
-
-            r2c1, r2c2, r2c3, r2c4 = st.columns(4)
-            with r2c1:
-                ca_bias = st.selectbox("جهت *", ["لانگ 🟢", "شورت 🔴", "خنثی ⚪"])
-            with r2c2:
-                ca_tf = st.selectbox("تایم‌فریم", list(INTERVAL_MINUTES.keys()), index=1)
-            with r2c3:
-                ca_entry = st.number_input("قیمت ورود", min_value=0.0, value=0.0, format="%.6f")
-            with r2c4:
-                ca_stop = st.number_input("حد ضرر (SL)", min_value=0.0, value=0.0, format="%.6f")
-
-            r3c1, r3c2, r3c3, r3c4 = st.columns(4)
-            with r3c1:
-                ca_tp1 = st.number_input("هدف ۱ (TP1)", min_value=0.0, value=0.0, format="%.6f")
-            with r3c2:
-                ca_tp2 = st.number_input("هدف ۲ (TP2)", min_value=0.0, value=0.0, format="%.6f")
-            with r3c3:
-                ca_tp3 = st.number_input("هدف ۳ (TP3)", min_value=0.0, value=0.0, format="%.6f")
-            with r3c4:
-                ca_conf = st.slider("اطمینان ٪", 0, 100, 60)
-
-            ca_text = st.text_area("شرح تحلیل و دلیل *", value="", height=140, max_chars=2000,
-                                   placeholder="دلیل ورود، ستاپ تکنیکال، سطوح کلیدی، مدیریت ریسک …")
-            ca_image = st.file_uploader("📷 عکس چارت/تحلیل (اختیاری)", type=["png", "jpg", "jpeg", "webp"],
-                                        help="می‌توانی اسکرین‌شات چارت یا تحلیلت را هم پیوست کنی.")
-            ca_submit = st.form_submit_button("📨 ثبت و اشتراک‌گذاری تحلیل", use_container_width=True, type="primary")
-
-        if ca_submit:
-            if ca_name.strip() and ca_symbol.strip() and ca_text.strip():
-                from datetime import datetime as _dt
-                # auto R:R if entry/stop/tp1 provided
-                rr = ""
-                try:
-                    risk = abs(ca_entry - ca_stop)
-                    if risk > 0 and ca_tp1 > 0:
-                        rr = f"1:{round(abs(ca_tp1 - ca_entry) / risk, 2)}"
-                except Exception:
+            if ca_submit:
+                if ca_name.strip() and ca_symbol.strip() and ca_text.strip():
+                    from datetime import datetime as _dt
+                    # auto R:R if entry/stop/tp1 provided
                     rr = ""
-                # encode the optional image to a small base64 data-URI (resized)
-                img_uri = ""
-                if ca_image is not None:
                     try:
-                        import base64 as _b64
-                        import io as _io
-                        im = Image.open(ca_image).convert("RGB")
-                        im.thumbnail((1000, 1000))  # cap size so the JSON stays light
-                        buf = _io.BytesIO()
-                        im.save(buf, format="JPEG", quality=80)
-                        img_uri = "data:image/jpeg;base64," + _b64.b64encode(buf.getvalue()).decode()
+                        risk = abs(ca_entry - ca_stop)
+                        if risk > 0 and ca_tp1 > 0:
+                            rr = f"1:{round(abs(ca_tp1 - ca_entry) / risk, 2)}"
                     except Exception:
-                        img_uri = ""
-                save_community({
-                    "name": ca_name.strip(),
-                    "symbol": ca_symbol.strip().upper(),
-                    "exchange": ca_exchange,
-                    "bias": ca_bias,
-                    "tf": ca_tf,
-                    "entry": ca_entry or None,
-                    "stop": ca_stop or None,
-                    "tp1": ca_tp1 or None, "tp2": ca_tp2 or None, "tp3": ca_tp3 or None,
-                    "rr": rr,
-                    "confidence": ca_conf,
-                    "text": ca_text.strip(),
-                    "image": img_uri,
-                    "ts": _dt.now().strftime("%Y-%m-%d %H:%M"),
-                })
-                st.success("تحلیلت ثبت شد ✓ — در بخش «👥 تحلیل‌های کاربران» ببین.")
+                        rr = ""
+                    # encode the optional image to a small base64 data-URI (resized)
+                    img_uri = ""
+                    if ca_image is not None:
+                        try:
+                            import base64 as _b64
+                            import io as _io
+                            im = Image.open(ca_image).convert("RGB")
+                            im.thumbnail((1000, 1000))  # cap size so the JSON stays light
+                            buf = _io.BytesIO()
+                            im.save(buf, format="JPEG", quality=80)
+                            img_uri = "data:image/jpeg;base64," + _b64.b64encode(buf.getvalue()).decode()
+                        except Exception:
+                            img_uri = ""
+                    save_community({
+                        "name": ca_name.strip(),
+                        "symbol": ca_symbol.strip().upper(),
+                        "exchange": ca_exchange,
+                        "bias": ca_bias,
+                        "tf": ca_tf,
+                        "entry": ca_entry or None,
+                        "stop": ca_stop or None,
+                        "tp1": ca_tp1 or None, "tp2": ca_tp2 or None, "tp3": ca_tp3 or None,
+                        "rr": rr,
+                        "confidence": ca_conf,
+                        "text": ca_text.strip(),
+                        "image": img_uri,
+                        "ts": _dt.now().strftime("%Y-%m-%d %H:%M"),
+                    })
+                    st.success("تحلیلت ثبت شد ✓ — در تب «👥 تحلیل‌های کاربران» ببین.")
+                else:
+                    st.warning("فیلدهای ستاره‌دار (نام، نماد، شرح تحلیل) را پر کن.")
+
+        # ---------------- tab 2: analysis image ------------------------
+        with tab_img:
+            st.write(
+                "نماد را وارد کن تا خودش از داده‌ی **واقعی** صرافی تحلیل کند و یک **تصویر چارت آماده** "
+                "با نقاط ورود/حد ضرر/اهداف و سطوح حمایت و مقاومت بسازد — قابل دانلود و اشتراک‌گذاری."
+            )
+
+            ic1, ic2, ic3 = st.columns([1.3, 1, 1])
+            with ic1:
+                img_symbol_in = st.text_input("نماد برای تصویر", value=symbol_in, key="img_symbol",
+                                              help="مثل BTC، ETH، SOL … · برای Lighter فقط نماد پایه")
+            with ic2:
+                img_exchange = st.selectbox("صرافی", EXCHANGES, index=EXCHANGES.index(exchange), key="img_exchange")
+            with ic3:
+                img_interval = st.selectbox("تایم‌فریم", list(INTERVAL_MINUTES.keys()),
+                                            index=list(INTERVAL_MINUTES.keys()).index(interval), key="img_interval")
+
+            make_img = st.button("🖼️ ساخت تصویر تحلیل", type="primary", use_container_width=True)
+
+            if make_img:
+                img_symbol = normalize_symbol(img_symbol_in, img_exchange)
+                try:
+                    with st.spinner(f"در حال تحلیل {img_symbol} روی {img_exchange} …"):
+                        idf = fetch_candles(img_exchange, img_symbol, img_interval)
+                        idd = add_indicators(idf)
+                        iscore_series, icomp = confluence(idd)
+                        iscore = float(iscore_series.iloc[-1])
+                        ilevels = swing_levels(idd)
+                        iplan = make_plan(idd, iscore, ilevels)
+                        iprice = float(idd["close"].iloc[-1])
+                        idec = 2 if iprice >= 1000 else 4 if iprice >= 1 else 6
+                        png = render_analysis_png(idd, iplan, ilevels, iscore, img_symbol, img_exchange, img_interval, idec)
+                        try:
+                            _ifvg = fvg_summary(idd)["text"]
+                        except Exception:  # noqa: BLE001
+                            _ifvg = ""
+                        import base64 as _b64img
+                        st.session_state["img_last"] = {
+                            "symbol": img_symbol, "exchange": img_exchange, "tf": img_interval,
+                            "dir": iplan["direction"], "entry": float(iplan["entry"]), "stop": float(iplan["stop"]),
+                            "tps": [float(t[0]) for t in iplan["targets"]][:3], "rr": iplan["rr"],
+                            "conf": int(iplan["confidence"]), "score": float(iscore), "fvg": _ifvg,
+                            "image": "data:image/png;base64," + _b64img.b64encode(png).decode(),
+                        }
+
+                    ilabel = "خرید قوی" if iscore > 40 else "خرید" if iscore > 12 else "خنثی" if iscore > -12 else "فروش" if iscore > -40 else "فروش قوی"
+                    st.success(f"تحلیل {img_symbol} آماده شد · قیمت {iprice:,.{idec}f} · همگرایی {iscore:+.0f} ({ilabel})")
+                    if st.session_state.get("img_last", {}).get("fvg"):
+                        st.caption("🟪 FVG/BVG: " + st.session_state["img_last"]["fvg"])
+
+                    st.image(png, use_container_width=True)
+                    st.download_button(
+                        "⬇️ دانلود تصویر (PNG)",
+                        data=png,
+                        file_name=f"{img_symbol}_{img_interval}_northmanquant.png",
+                        mime="image/png",
+                        use_container_width=True,
+                    )
+
+                    m1, m2, m3, m4 = st.columns(4)
+                    m1.metric("جهت", iplan["direction"])
+                    m2.metric("ورود", f"{iplan['entry']:,.{idec}f}")
+                    m3.metric("حد ضرر", f"{iplan['stop']:,.{idec}f}")
+                    m4.metric("R:R / اطمینان", f"1:{iplan['rr']} · {iplan['confidence']}٪")
+                    for i, (t_price, t_rr) in enumerate(iplan["targets"]):
+                        st.write(f"🎯 هدف {i + 1}: **{t_price:,.{idec}f}** ({t_rr}R)")
+
+                    if not ilevels.empty:
+                        st.subheader("🧱 حمایت و مقاومت")
+                        show = ilevels.copy()
+                        show["سطح"] = show["سطح"].map(lambda v: f"{v:,.{idec}f}")
+                        st.dataframe(show, use_container_width=True, hide_index=True)
+                    st.caption("برچسب‌های روی تصویر انگلیسی هستند (ENTRY/STOP/TP/S/R) تا در همه‌ی سیستم‌ها درست دیده شوند. این ابزار توصیه‌ی سرمایه‌گذاری نیست.")
+                except Exception as e:  # noqa: BLE001
+                    st.error(f"ساخت تصویر ممکن نشد: {e}")
+                    st.info("نماد را مثل BTC یا ETH بنویس؛ اگر صرافی مسدود است، OKX یا KuCoin یا Lighter را امتحان کن.")
             else:
-                st.warning("فیلدهای ستاره‌دار (نام، نماد، شرح تحلیل) را پر کن.")
+                st.info("یک نماد وارد کن و دکمه‌ی «ساخت تصویر تحلیل» را بزن.")
+            _il = st.session_state.get("img_last")
+            if _il:
+                st.divider()
+                st.caption(f"آخرین تصویر ساخته‌شده: {_il['symbol']} · {_il['exchange']} · {_il['tf']}")
+                if st.button("📨 ارسال این تحلیل تصویری به «👥 تحلیل‌های کاربران»", key="img_to_board",
+                             use_container_width=True):
+                    _tp = (_il["tps"] + [None, None, None])[:3]
+                    save_community({
+                        "name": "🖼️ تحلیل تصویری NorthmanQuant",
+                        "symbol": _il["symbol"].upper(), "exchange": _il["exchange"],
+                        "bias": "لانگ 🟢" if _il["dir"].startswith("لانگ") else "شورت 🔴",
+                        "tf": _il["tf"], "entry": _il["entry"], "stop": _il["stop"],
+                        "tp1": _tp[0], "tp2": _tp[1], "tp3": _tp[2], "rr": f"1:{_il['rr']}",
+                        "confidence": _il["conf"],
+                        "text": (f"تحلیل خودکار از داده‌ی واقعی صرافی · همگرایی {_il['score']:+.0f}\n"
+                                 + (f"FVG/BVG: {_il['fvg']}" if _il.get("fvg") else "")),
+                        "image": _il["image"],
+                        "ts": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                    })
+                    st.success("ارسال شد ✓ — تب «👥 تحلیل‌های کاربران» را ببین.")
 
-    if section == "👥 تحلیل‌های کاربران":
-        st.subheader("👥 تحلیل‌های کاربران")
-        hc1, hc2 = st.columns([3, 1])
-        with hc1:
-            st.caption("تحلیل‌هایی که کاربران ثبت کرده‌اند. برای ثبت تحلیل خودت → بخش «✍️ ثبت تحلیل شخصی».")
-        with hc2:
-            if st.button("🔄 بازخوانی", use_container_width=True):
-                st.rerun()
+        # ---------------- tab 3: users' analyses board -----------------
+        with tab_users:
+            st.subheader("👥 تحلیل‌های کاربران")
+            hc1, hc2 = st.columns([3, 1])
+            with hc1:
+                st.caption("تحلیل‌هایی که کاربران ثبت کرده‌اند. برای ثبت تحلیل خودت → تب «✍️ ثبت تحلیل شخصی».")
+            with hc2:
+                if st.button("🔄 بازخوانی", use_container_width=True):
+                    st.rerun()
 
-        posts = load_community()
-        if not posts:
-            st.info("هنوز تحلیلی ثبت نشده. اولین نفر باش! (بخش → ✍️ ثبت تحلیل شخصی)")
-        else:
-            # filter bar
-            fcol1, fcol2 = st.columns([1, 1])
-            with fcol1:
-                syms = ["همه"] + sorted({p.get("symbol", "—") for p in posts})
-                fsym = st.selectbox("فیلتر نماد", syms, index=0)
-            with fcol2:
-                fbias = st.selectbox("فیلتر جهت", ["همه", "لانگ 🟢", "شورت 🔴", "خنثی ⚪"], index=0)
-            shown = [p for p in posts
-                     if (fsym == "همه" or p.get("symbol") == fsym)
-                     and (fbias == "همه" or p.get("bias") == fbias)]
-            st.caption(f"{len(shown)} از {len(posts)} تحلیل")
+            posts = load_community()
+            if not posts:
+                st.info("هنوز تحلیلی ثبت نشده. اولین نفر باش! (تب → ✍️ ثبت تحلیل شخصی)")
+            else:
+                # filter bar
+                fcol1, fcol2 = st.columns([1, 1])
+                with fcol1:
+                    syms = ["همه"] + sorted({p.get("symbol", "—") for p in posts})
+                    fsym = st.selectbox("فیلتر نماد", syms, index=0)
+                with fcol2:
+                    fbias = st.selectbox("فیلتر جهت", ["همه", "لانگ 🟢", "شورت 🔴", "خنثی ⚪"], index=0)
+                shown = [p for p in posts
+                         if (fsym == "همه" or p.get("symbol") == fsym)
+                         and (fbias == "همه" or p.get("bias") == fbias)]
+                st.caption(f"{len(shown)} از {len(posts)} تحلیل")
 
-            bias_tone = {"لانگ 🟢": "#16a34a", "شورت 🔴": "#ef4444", "خنثی ⚪": "#94a3b8"}
+                bias_tone = {"لانگ 🟢": "#16a34a", "شورت 🔴": "#ef4444", "خنثی ⚪": "#94a3b8"}
 
-            def _chip(lbl, val, color="#e2e8f0"):
-                if val in (None, "", 0):
-                    return ""
-                return (f"<div style='background:rgba(148,163,184,.1);border-radius:8px;padding:6px 8px;text-align:center'>"
-                        f"<div style='font-size:9px;color:#94a3b8'>{lbl}</div>"
-                        f"<div style='font-family:ui-monospace,monospace;font-weight:800;font-size:13px;color:{color}'>{val}</div></div>")
+                def _chip(lbl, val, color="#e2e8f0"):
+                    if val in (None, "", 0):
+                        return ""
+                    return (f"<div style='background:rgba(148,163,184,.1);border-radius:8px;padding:6px 8px;text-align:center'>"
+                            f"<div style='font-size:9px;color:#94a3b8'>{lbl}</div>"
+                            f"<div style='font-family:ui-monospace,monospace;font-weight:800;font-size:13px;color:{color}'>{val}</div></div>")
 
-            for p in shown:
-                tone = bias_tone.get(p.get("bias", ""), "#94a3b8")
-                def _fmt(v):
-                    try:
-                        return f"{float(v):,.6g}"
-                    except Exception:
-                        return v
-                chips = "".join([
-                    _chip("ورود", _fmt(p.get("entry")), "#f59e0b"),
-                    _chip("حد ضرر", _fmt(p.get("stop")), "#ef4444"),
-                    _chip("TP1", _fmt(p.get("tp1")), "#16a34a"),
-                    _chip("TP2", _fmt(p.get("tp2")), "#16a34a"),
-                    _chip("TP3", _fmt(p.get("tp3")), "#16a34a"),
-                    _chip("R:R", p.get("rr"), "#38bdf8"),
-                    _chip("اطمینان", (f"{p.get('confidence')}%" if p.get("confidence") else ""), "#a855f7"),
-                ])
-                meta = " · ".join(x for x in [p.get("symbol", "—"), p.get("exchange", ""), p.get("tf", ""), p.get("bias", "")] if x)
-                st.markdown(
-                    f"<div dir='rtl' style='border:1px solid rgba(148,163,184,0.2);border-right:5px solid {tone};"
-                    f"border-radius:14px;padding:14px 16px;margin:10px 0;background:rgba(148,163,184,0.05)'>"
-                    f"<div style='display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:center'>"
-                    f"<b style='font-size:16px'>👤 {p.get('name','ناشناس')}</b>"
-                    f"<span style='font-family:ui-monospace,monospace;font-size:13px;color:{tone};font-weight:700'>{meta}</span></div>"
-                    + (f"<div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(78px,1fr));gap:8px;margin-top:12px'>{chips}</div>" if chips else "")
-                    + f"<div style='margin-top:12px;line-height:2;font-size:14px;white-space:pre-wrap'>{p.get('text','')}</div>"
-                    + (f"<img src='{p.get('image')}' style='margin-top:12px;max-width:100%;border-radius:10px;"
-                       f"border:1px solid rgba(148,163,184,0.2)'/>" if p.get("image") else "")
-                    + f"<div style='margin-top:8px;font-size:11px;color:#94a3b8'>🕒 {p.get('ts','')}</div>"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
-        st.caption("⚠️ این تخته‌ی اشتراکی سبک است؛ با ری‌استارت/دیپلویِ مجدد اپ پاک می‌شود و جای دیتابیس را نمی‌گیرد.")
+                for p in shown:
+                    tone = bias_tone.get(p.get("bias", ""), "#94a3b8")
+                    def _fmt(v):
+                        try:
+                            return f"{float(v):,.6g}"
+                        except Exception:
+                            return v
+                    chips = "".join([
+                        _chip("ورود", _fmt(p.get("entry")), "#f59e0b"),
+                        _chip("حد ضرر", _fmt(p.get("stop")), "#ef4444"),
+                        _chip("TP1", _fmt(p.get("tp1")), "#16a34a"),
+                        _chip("TP2", _fmt(p.get("tp2")), "#16a34a"),
+                        _chip("TP3", _fmt(p.get("tp3")), "#16a34a"),
+                        _chip("R:R", p.get("rr"), "#38bdf8"),
+                        _chip("اطمینان", (f"{p.get('confidence')}%" if p.get("confidence") else ""), "#a855f7"),
+                    ])
+                    meta = " · ".join(x for x in [p.get("symbol", "—"), p.get("exchange", ""), p.get("tf", ""), p.get("bias", "")] if x)
+                    st.markdown(
+                        f"<div dir='rtl' style='border:1px solid rgba(148,163,184,0.2);border-right:5px solid {tone};"
+                        f"border-radius:14px;padding:14px 16px;margin:10px 0;background:rgba(148,163,184,0.05)'>"
+                        f"<div style='display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:center'>"
+                        f"<b style='font-size:16px'>👤 {p.get('name','ناشناس')}</b>"
+                        f"<span style='font-family:ui-monospace,monospace;font-size:13px;color:{tone};font-weight:700'>{meta}</span></div>"
+                        + (f"<div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(78px,1fr));gap:8px;margin-top:12px'>{chips}</div>" if chips else "")
+                        + f"<div style='margin-top:12px;line-height:2;font-size:14px;white-space:pre-wrap'>{p.get('text','')}</div>"
+                        + (f"<img src='{p.get('image')}' style='margin-top:12px;max-width:100%;border-radius:10px;"
+                           f"border:1px solid rgba(148,163,184,0.2)'/>" if p.get("image") else "")
+                        + f"<div style='margin-top:8px;font-size:11px;color:#94a3b8'>🕒 {p.get('ts','')}</div>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+            st.caption("⚠️ این تخته‌ی اشتراکی سبک است؛ با ری‌استارت/دیپلویِ مجدد اپ پاک می‌شود و جای دیتابیس را نمی‌گیرد.")
 
     if section == "📚 منابع داده":
         st.subheader("📚 منابع داده (مستندات رسمی)")

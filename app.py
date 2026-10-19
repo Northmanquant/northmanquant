@@ -1,6 +1,8 @@
 """
-NorthmanQuant v2 loader - v4
-=============================
+NorthmanQuant v2 loader - v4.1 (blank-page hotfix)
+=================================================
+سازگار با app_base فعلی: عنوان نمایشی منو از مقدار واقعی مسیر جداست.
+فایل app_base.py و ساختار Streamlit تغییر نمی‌کنند.
 app_base.py = فایل اصلی خودت (دست نزن) — این فایل فقط روی آن «پچ» می‌زند.
 
 چه چیزهایی این‌جا تزریق می‌شود:
@@ -199,6 +201,12 @@ W_FVG, W_BVG = 0.10, 0.06
 
 def confluence_patched(d: pd.DataFrame):
     score, table = _orig_confluence(d)
+    # Recent app_base already scores FVG/BVG. Do not add a second set of
+    # rows or weight the same features twice on that version.
+    if isinstance(table, pd.DataFrame) and "اندیکاتور" in table.columns:
+        names = set(table["اندیکاتور"].astype(str))
+        if {"FVG", "BVG"}.issubset(names):
+            return score, table
     res = None
     try:
         res = _gap_cached(d)
@@ -369,14 +377,35 @@ class _MergedSection(str):
 
 
 def _radio_patched(label, options=None, *a, **kw):
-    if kw.get("key") == "nav_section" and options is not None and "📊 تحلیل زنده" in list(options):
+    if kw.get("key") == "nav_section" and options is not None:
+        original_options = list(options)
+        if "📊 تحلیل زنده" not in original_options:
+            return _st_radio(label, original_options, *a, **kw)
+
+        # New app_base versions already have a real combined section and tabs.
+        # Its emoji/label is not the loader's display label. Return the EXACT
+        # original string so `if section == ANALYSES_SECTION` actually executes.
+        native_analyses = next((
+            option for option in original_options
+            if isinstance(option, str)
+            and all(word in option for word in ("تحلیل", "ثبت", "تصویر", "کاربران"))
+        ), None)
+        remembered = st.session_state.get("nav_section")
+        if remembered not in NEW_SECTIONS and (
+            remembered == native_analyses or remembered in MERGED_TABS
+        ) and remembered is not None:
+            st.session_state["nav_section"] = MERGED_LABEL
+
         val = _st_radio(label, NEW_SECTIONS, *a, **kw)
         if val == MERGED_LABEL:
             _RUN["section"] = "merged"
+            if native_analyses is not None:
+                return native_analyses
+            # Only the original, pre-tabs app_base needs the legacy adapter.
             return _MergedSection(MERGED_LABEL, MERGED_TABS)
         if val == OPPS_LABEL:
             _RUN["section"] = "opps"
-            return OPPS_LABEL + " ⚡زنده"   # با هیچ بلوکی در main() برابر نیست → خودمان رندر می‌کنیم
+            return OPPS_LABEL + " ⚡زنده"
         _RUN["section"] = val
         return val
     return _st_radio(label, options, *a, **kw)

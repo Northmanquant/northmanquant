@@ -1,7 +1,8 @@
-streamlit
+streamlit>=1.37
 pandas
 numpy
 requests
 Pillow
 plotly
 ccxt
+matplotlib

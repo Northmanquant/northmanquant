@@ -15,7 +15,7 @@ import streamlit as st
 
 st.set_page_config(page_title="Agents Duel", page_icon="🤖", layout="wide")
 st.title("🤖 دوئل ایجنت‌ها — کدوم ربات می‌بره؟ (با مدرک)")
-st.caption("NorthmanQuant · Agents Duel v4.2 (+ شکار بازار) · صفحه آماده‌ی اجراست؛ داده فقط با «شروع دوئل» دریافت می‌شود.")
+st.caption("NorthmanQuant · Agents Duel v5.0 (+ شکار بازار · ستاپ اعتبارسنجی‌شده) · صفحه آماده‌ی اجراست؛ داده فقط با «شروع دوئل» دریافت می‌شود.")
 st.caption("۴ ایجنت روی ۱ ارز با قانون‌های شفاف پوزیشن می‌گیرند؛ هر کدام جدول دلیل و مدرک دارد. "
            "برنده + پوزیشن اجماعی با SL/TP به 👥 تحلیل‌های کاربران می‌رود.")
 
@@ -528,6 +528,15 @@ def _hunt_one(exchange: str, symbol: str, interval: str, balance: float, fee_pct
             break
     d_ = S_["d"]
     adx = float(d_["adx"].iloc[-1]) if "adx" in d_.columns and np.isfinite(d_["adx"].iloc[-1]) else 0.0
+    # فیلتر ۴: موتور ستاپ اعتبارسنجی‌شده‌ی app_base (walk-forward روی همین ارز) باید فعال و هم‌جهت باشد
+    try:
+        import app_base as _B
+        vp = _B.setup_plan(d_)
+        v_ok = vp["status"] == "active" and ((vp["direction"].startswith("لانگ") and fd > 0) or (vp["direction"].startswith("شورت") and fd < 0))
+        v_txt = vp.get("why", "") if v_ok else ("ستاپ معتبر فعال نیست" if vp["status"] != "active" else "ستاپ معتبر خلاف جهت ایجنت‌هاست")
+        v_stats = vp["stats"]
+    except Exception as _e:  # noqa: BLE001
+        vp, v_ok, v_txt, v_stats = None, False, f"اعتبارسنجی انجام نشد: {_e}", {}
     return {
         "symbol": S_["sym"], "dir": fd, "score": S_["final_s"], "confidence": S_["confidence"],
         "agree": agree, "n_agree": len(agree), "n_prof": len(prof), "open_pos": open_pos,
@@ -535,6 +544,7 @@ def _hunt_one(exchange: str, symbol: str, interval: str, balance: float, fee_pct
         "best_win": best_bt["win"] if best_bt else 0.0, "best_trades": best_bt["trades"] if best_bt else 0,
         "pos": fp, "dec": S_["dec"], "price": float(d_["close"].iloc[-1]), "adx": adx,
         "reasons": top_reasons, "winner": S_["winner"], "fvg_txt": "",
+        "v_ok": v_ok, "v_txt": v_txt, "v_plan": vp,
         "ts": S_["ts"],
     }
 
@@ -559,7 +569,14 @@ def run_hunt(exchange: str, interval: str, n_pool: int, balance: float, fee_pct:
     ok = [o for o in out if not o.get("error")]
     picks = [o for o in ok
              if o["dir"] != 0 and abs(o["score"]) >= min_score and o["n_agree"] >= min_agree and o["n_prof"] >= 1
-             and o["pos"]["direction"] != 0 and o["pos"]["rr"] >= 1.0]
+             and o["pos"]["direction"] != 0 and o["pos"]["rr"] >= 1.0 and o.get("v_ok")]
+    # سطوح نهایی از موتور اعتبارسنجی‌شده (ورود در لحظه‌ی ستاپ، SL ساختاری، TP نردبانی)
+    for o in picks:
+        vp = o.get("v_plan") or {}
+        if vp.get("entry") is not None:
+            o["pos"] = {"direction": o["dir"], "entry": vp["entry"], "stop": vp["stop"], "rr": vp["rr"],
+                        "targets": [(t[0], t[1], w) for t, w in zip(vp["targets"], vp.get("target_why", ["1R", "2R", "3R"]))],
+                        "sl_reason": vp.get("stop_why", ""), "atr": vp.get("atr", 0)}
     # رتبه: قدرت اجماع × تعداد موافق × کیفیت بک‌تست × R:R
     for o in picks:
         o["rank"] = abs(o["score"]) * (1 + 0.25 * o["n_agree"]) * min(2.5, o["best_pf"]) * (1 + min(o["pos"]["rr"], 3) / 4)
@@ -569,7 +586,8 @@ def run_hunt(exchange: str, interval: str, n_pool: int, balance: float, fee_pct:
 
 def render_hunt(exchange: str, interval: str, balance: float, fee_pct: float) -> None:
     st.caption("ایجنت‌ها خودشان پرحجم‌ترین ارزهای صرافی را یکی‌یکی از همان موتور دوئل رد می‌کنند و فقط ارزهایی را "
-               "برمی‌گزینند که ۱) اجماع قوی دارند، ۲) حداقل ۳ ایجنت هم‌جهت‌اند و ۳) ایجنت هم‌جهت روی همان ارز در بک‌تست سودده بوده. "
+               "برمی‌گزینند که ۱) اجماع قوی دارند، ۲) حداقل ۳ ایجنت هم‌جهت‌اند، ۳) ایجنت هم‌جهت روی همان ارز در بک‌تست سودده بوده و "
+               "۴) موتور ستاپ اعتبارسنجی‌شده (walk-forward روی همان ارز) همین الان ستاپ هم‌جهت داده باشد. "
                "اگر چیزی این فیلترها را رد نکند، چیزی نشان داده نمی‌شود — بهتر از سیگنال الکی.")
     h1, h2, h3, h4 = st.columns([1, 1, 1, 0.8])
     with h1:
@@ -642,7 +660,8 @@ def render_hunt(exchange: str, interval: str, balance: float, fee_pct: float) ->
                 f"<div style='display:grid;grid-template-columns:repeat({2 + len(tps)},1fr);gap:8px;margin-top:12px;text-align:center'>{cells}</div>"
                 f"<div style='margin-top:10px;font-size:12px;color:#cbd5e1'>"
                 f"<b>ایجنت‌های موافق:</b> {agents_txt}" + (f" · <b>پوزیشن باز:</b> {' · '.join(p['open_pos'])}" if p.get('open_pos') else "") + "<br>"
-                f"<b>بک‌تست بهترین ایجنت هم‌جهت روی همین ارز:</b> بازده {p['best_ret']:+.2f}% · PF {p['best_pf']:.2f} · وین {p['best_win']:.0f}% · {p['best_trades']} معامله"
+                f"<b>بک‌تست بهترین ایجنت هم‌جهت روی همین ارز:</b> بازده {p['best_ret']:+.2f}% · PF {p['best_pf']:.2f} · وین {p['best_win']:.0f}% · {p['best_trades']} معامله<br>"
+                f"<b>✅ ستاپ اعتبارسنجی‌شده:</b> {p.get('v_txt', '')}"
                 f"</div>"
                 f"<div style='margin-top:8px;font-size:12px;color:#e2e8f0'><b>چرا؟</b><ul style='margin:4px 18px 0 0;padding:0;line-height:1.9'>{reasons_html}</ul></div>"
                 f"</div>",
@@ -689,6 +708,8 @@ def render_hunt(exchange: str, interval: str, balance: float, fee_pct: float) ->
                 why.append("ایجنت هم‌جهت در بک‌تست سودده نبود")
             if o["pos"]["direction"] != 0 and o["pos"]["rr"] < 1.0:
                 why.append("R:R زیر ۱")
+            if not o.get("v_ok"):
+                why.append(o.get("v_txt", "ستاپ معتبر ندارد"))
             rows.append({"نماد": o["symbol"], "تمایل": "لانگ 🟢" if o["dir"] > 0 else "شورت 🔴" if o["dir"] < 0 else "خنثی ⚪",
                          "اجماع": round(o["score"], 2), "ایجنت موافق": f"{o['n_agree']}/4", "PF هم‌جهت": round(o["best_pf"], 2),
                          "نتیجه": "✅ برگزیده" if not why else " · ".join(why)})
@@ -832,6 +853,20 @@ with tab_duel:
         # --- final consensus position -----------------------------------------------------
         st.divider()
         st.subheader("🎯 بهترین پوزیشن (اجماع وزن‌دار ایجنت‌ها)")
+        try:
+            import app_base as _B
+            _vp = _B.setup_plan(d)
+            _agree = _vp["status"] == "active" and ((_vp["direction"].startswith("لانگ") and S["final_dir"] > 0) or (_vp["direction"].startswith("شورت") and S["final_dir"] < 0))
+            if _agree:
+                st.success(f"✅ موتور ستاپ اعتبارسنجی‌شده هم‌جهت است — {_vp['why']}")
+            elif _vp["status"] == "active":
+                st.error(f"⚠️ موتور ستاپ اعتبارسنجی‌شده **خلاف** نظر ایجنت‌هاست ({_vp['direction']}) — {_vp['why']}. در تست walk-forward، ورود بر اساس اجماع اندیکاتورها به‌تنهایی لبه نداشت؛ این پوزیشن را نگیر.")
+            else:
+                st.warning(f"⏸ موتور ستاپ اعتبارسنجی‌شده می‌گوید انتظار: {_vp.get('why', '')} · {_vp.get('watch', '')}")
+            with st.expander("📐 اعتبار ستاپ‌ها روی همین نماد (walk-forward)", expanded=False):
+                st.dataframe(_B.setup_stats_table(_vp["stats"]), use_container_width=True, hide_index=True)
+        except Exception as _e:  # noqa: BLE001
+            st.caption(f"اعتبارسنجی ستاپ انجام نشد: {_e}")
         fd = S["final_dir"]
         tone = "#16a34a" if fd > 0 else "#ef4444" if fd < 0 else "#94a3b8"
         st.markdown(

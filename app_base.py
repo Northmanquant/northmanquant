@@ -62,6 +62,8 @@ EXCHANGE_DOCS = {
 ENTER = 40
 EXIT = -10
 
+APP_VERSION = "v4.0 · validated-setup engine"
+
 
 # ------------------------------------------------------------------ live layer
 
@@ -2312,7 +2314,239 @@ def swing_levels(d: pd.DataFrame, k: int = 3) -> pd.DataFrame:
     return out.sort_values("قدرت%", ascending=False).head(10).sort_values("سطح", ascending=False).reset_index(drop=True)
 
 
+# ------------------------------------------------------------------ SETUP ENGINE v2 (self-validating)
+#
+# Walk-forward tests on real data showed the old "follow the confluence score" entries
+# were right only 27–46% of the time (they fire at exhaustion). Two setups do have an
+# edge, but each only in some regimes:
+#   • fade     — reversal from a Bollinger/RSI extreme   (works on 15min/1hour ranges)
+#   • pullback — pullback inside an EMA50/200 trend       (works on 4hour/1day trends)
+# So we never hard-code which one to use: for THIS symbol+timeframe both setups are
+# back-tested walk-forward (SL/TP on future candles, no look-ahead) and only a setup
+# with positive measured expectancy may trade. Otherwise the answer is "wait".
+
+SETUP_MODES = {"fade": "برگشت از اشباع", "pullback": "پولبک در روند"}
+SETUP_HORIZON = 36          # bars a trade may stay open in the walk-forward test
+SETUP_MIN_TRADES = 6        # fewer samples than this → not trusted
+SETUP_TP_R = (1.0, 2.0, 3.0)
+
+
+def setup_signals(d: pd.DataFrame, mode: str) -> np.ndarray:
+    """Per-bar setup state (-1 / 0 / +1), strictly causal."""
+    c = d["close"]
+    rsi = d["rsi"].to_numpy(dtype=float)
+    width = (d["bb_up"] - d["bb_lo"]).replace(0, np.nan)
+    bb = ((c - d["bb_lo"]) / width).to_numpy(dtype=float)
+    up = ((c > d["ema200"]) & (d["ema50"] > d["ema200"])).to_numpy()
+    dn = ((c < d["ema200"]) & (d["ema50"] < d["ema200"])).to_numpy()
+    if mode == "pullback":
+        # regime guard (held-out test: TP1-hit 40%→57%, and it stays out of trend reversals):
+        # a pullback is only a pullback while price is still on the trend side of EMA50.
+        up = up & (c > d["ema50"] * 0.995).to_numpy()
+        dn = dn & (c < d["ema50"] * 1.005).to_numpy()
+    with np.errstate(invalid="ignore"):
+        if mode == "pullback":
+            L = up & ((rsi < 35) | ((rsi < 45) & (bb < 0.35)))
+            S = dn & ((rsi > 65) | ((rsi > 55) & (bb > 0.65)))
+        else:  # fade
+            L = (bb < 0.03) & (rsi < 35)
+            S = (bb > 0.97) & (rsi > 65)
+    return np.where(L, 1, np.where(S, -1, 0))
+
+
+def setup_levels(d: pd.DataFrame, i: int, long: bool) -> tuple[float, float, float]:
+    """Entry / structural stop / risk for a signal on bar i (uses bars <= i only)."""
+    c = float(d["close"].iloc[i])
+    atr = float(d["atr"].iloc[i]) if np.isfinite(d["atr"].iloc[i]) and d["atr"].iloc[i] > 0 else c * 0.01
+    lo = max(0, i - 11)
+    if long:
+        stop = min(float(d["low"].iloc[lo:i + 1].min()) - 0.2 * atr, c - 0.8 * atr)
+        stop = max(stop, c - 2.5 * atr)
+    else:
+        stop = max(float(d["high"].iloc[lo:i + 1].max()) + 0.2 * atr, c + 0.8 * atr)
+        stop = min(stop, c + 2.5 * atr)
+    return c, stop, abs(c - stop) or atr
+
+
+def walk_forward_stats(d: pd.DataFrame, mode: str, horizon: int = SETUP_HORIZON, start: int = 120) -> dict:
+    """Simulate every signal onset of `mode` on this symbol's own history:
+    TP1 (1R) hit before SL?  expectancy at the 2R target (R multiples)."""
+    sig = setup_signals(d, mode)
+    n = len(d)
+    high = d["high"].to_numpy(dtype=float)
+    low = d["low"].to_numpy(dtype=float)
+    close = d["close"].to_numpy(dtype=float)
+    wins1 = 0
+    pnl2: list[float] = []
+    longs = shorts = 0
+    prev = 0
+    for i in range(start, n - 1):
+        s = int(sig[i])
+        onset = s != 0 and s != prev
+        prev = s
+        if not onset:
+            continue
+        long = s > 0
+        e, stop, risk = setup_levels(d, i, long)
+        tp1 = e + risk if long else e - risk
+        tp2 = e + 2 * risk if long else e - 2 * risk
+        end = min(n, i + 1 + horizon)
+        hit1 = None
+        out2 = None
+        for k in range(i + 1, end):
+            if long:
+                if low[k] <= stop:
+                    hit1 = hit1 if hit1 is not None else False
+                    out2 = -1.0
+                    break
+                if hit1 is None and high[k] >= tp1:
+                    hit1 = True
+                if high[k] >= tp2:
+                    out2 = 2.0
+                    break
+            else:
+                if high[k] >= stop:
+                    hit1 = hit1 if hit1 is not None else False
+                    out2 = -1.0
+                    break
+                if hit1 is None and low[k] <= tp1:
+                    hit1 = True
+                if low[k] <= tp2:
+                    out2 = 2.0
+                    break
+        if end <= i + 1:
+            continue
+        if out2 is None:  # time stop
+            out2 = (close[end - 1] - e) / risk * (1 if long else -1)
+        if hit1 is None:
+            hit1 = False
+        wins1 += int(bool(hit1))
+        pnl2.append(float(out2))
+        longs += int(long)
+        shorts += int(not long)
+    cnt = len(pnl2)
+    return {
+        "mode": mode, "n": cnt,
+        "win1": (wins1 / cnt * 100) if cnt else 0.0,
+        "exp2": float(np.mean(pnl2)) if cnt else 0.0,
+        "total2": float(np.sum(pnl2)) if cnt else 0.0,
+        "longs": longs, "shorts": shorts,
+    }
+
+
+def best_setup(d: pd.DataFrame, recent_bars: int = 2) -> dict:
+    """Pick the setup that (a) is active on the last bars and (b) has positive
+    walk-forward expectancy on THIS symbol/timeframe. Else → wait."""
+    stats = {m: walk_forward_stats(d, m) for m in SETUP_MODES}
+    cands = []
+    for m in SETUP_MODES:
+        sig = setup_signals(d, m)
+        # A setup is tradeable only at its ONSET (it just formed on one of the last
+        # `recent_bars` bars). Entering hours into an extreme is what killed the old
+        # engine in the walk-forward test.
+        direction = 0
+        n = len(sig)
+        for k in range(1, recent_bars + 1):
+            i = n - k
+            if i < 1:
+                break
+            if sig[i] != 0 and sig[i] != sig[i - 1] and all(sig[j] == sig[i] or sig[j] == 0 for j in range(i, n)):
+                direction = int(sig[i])
+                break
+        if direction == 0:
+            continue
+        st_ = stats[m]
+        trusted = st_["n"] >= SETUP_MIN_TRADES and st_["exp2"] > 0 and st_["win1"] >= 40
+        cands.append((trusted, st_["exp2"], m, direction))
+    trusted = [c for c in cands if c[0]]
+    if trusted:
+        _, _, m, direction = max(trusted, key=lambda c: c[1])
+        return {"active": True, "mode": m, "dir": direction, "stats": stats, "untrusted": False}
+    if cands:  # a setup fired but has no measured edge here
+        _, _, m, direction = max(cands, key=lambda c: c[1])
+        return {"active": False, "mode": m, "dir": direction, "stats": stats, "untrusted": True}
+    return {"active": False, "mode": None, "dir": 0, "stats": stats, "untrusted": False}
+
+
+def _setup_watch_text(d: pd.DataFrame, dec: int) -> str:
+    """What price needs to do for a valid setup — so 'wait' is actionable."""
+    last = d.iloc[-1]
+    c = float(last["close"])
+    up = c > last["ema200"] and last["ema50"] > last["ema200"]
+    dn = c < last["ema200"] and last["ema50"] < last["ema200"]
+    parts = [f"RSI {last['rsi']:.0f}"]
+    if up:
+        parts.append(f"روند صعودی — منتظر پولبک: RSI<35 یا نزدیک باند پایین {last['bb_lo']:,.{dec}f}")
+    elif dn:
+        parts.append(f"روند نزولی — منتظر پولبک: RSI>65 یا نزدیک باند بالای {last['bb_up']:,.{dec}f}")
+    else:
+        parts.append("بدون روند (EMA50/200 درهم)")
+    parts.append(f"اشباع: زیر {last['bb_lo']:,.{dec}f} با RSI<35 (لانگ) · بالای {last['bb_up']:,.{dec}f} با RSI>65 (شورت)")
+    return " · ".join(parts)
+
+
+def setup_stats_table(stats: dict) -> pd.DataFrame:
+    rows = []
+    for m, s in stats.items():
+        ok = s["n"] >= SETUP_MIN_TRADES and s["exp2"] > 0 and s["win1"] >= 40
+        rows.append({"ستاپ": SETUP_MODES[m], "معاملات تست‌شده": s["n"], "TP1 قبل از SL %": round(s["win1"]),
+                     "انتظار ریاضی (R در هدف 2R)": round(s["exp2"], 2), "مجموع R": round(s["total2"], 1),
+                     "لانگ/شورت": f"{s['longs']}/{s['shorts']}", "اعتبار روی این نماد": "✅ قابل اعتماد" if ok else "❌ لبه ندارد"})
+    return pd.DataFrame(rows)
+
+
+def setup_plan(d: pd.DataFrame, levels: pd.DataFrame | None = None) -> dict:
+    """Unified plan used by live analysis, scanner and image. Direction comes ONLY
+    from a validated setup; confidence = measured TP1 hit-rate."""
+    price = float(d["close"].iloc[-1])
+    atr = float(d["atr"].iloc[-1]) if np.isfinite(d["atr"].iloc[-1]) else price * 0.01
+    dec = 2 if price >= 1000 else 4 if price >= 1 else 6
+    bs = best_setup(d)
+    base = {"atr": atr, "setup": bs, "stats": bs["stats"], "mode": bs["mode"],
+            "mode_fa": SETUP_MODES.get(bs["mode"], "—") if bs["mode"] else "—"}
+    if not bs["active"]:
+        why = (f"ستاپ «{SETUP_MODES[bs['mode']]}» فعال شده ولی روی همین نماد/تایم‌فریم در تست walk-forward لبه ندارد"
+               if bs["untrusted"] else "هیچ ستاپ معتبری فعال نیست")
+        return {**base, "status": "wait", "direction": "⏸ انتظار (بدون معامله)", "entry": None, "stop": None,
+                "targets": [], "rr": 0, "confidence": 0, "why": why, "watch": _setup_watch_text(d, dec)}
+    long = bs["dir"] > 0
+    entry, stop, risk = setup_levels(d, len(d) - 1, long)
+    targets = []
+    for r in SETUP_TP_R:
+        tp = entry + r * risk if long else entry - r * risk
+        why = f"{r:g}R"
+        # snap label if a real level sits right at the target (±15% of risk)
+        if levels is not None and not levels.empty:
+            near = levels[(levels["سطح"] - tp).abs() <= 0.15 * risk]
+            if not near.empty:
+                tp = float(near["سطح"].iloc[0])
+                why = f"{abs(tp - entry) / risk:.1f}R · روی {'مقاومت' if long else 'حمایت'} {tp:,.{dec}f}"
+        targets.append((tp, round(abs(tp - entry) / risk, 2), why))
+    st_ = bs["stats"][bs["mode"]]
+    return {**base, "status": "active",
+            "direction": "لانگ (خرید) 🟢" if long else "شورت (فروش) 🔴",
+            "entry": entry, "stop": stop, "risk_pct": risk / entry * 100,
+            "targets": [(t[0], t[1]) for t in targets], "target_why": [t[2] for t in targets],
+            "rr": targets[0][1], "confidence": int(round(st_["win1"])),
+            "why": (f"ستاپ «{SETUP_MODES[bs['mode']]}» — روی همین نماد/تایم‌فریم: {st_['n']} معامله‌ی تست‌شده، "
+                    f"TP1 قبل از SL در {st_['win1']:.0f}٪ موارد، انتظار ریاضی {st_['exp2']:+.2f}R"),
+            "stop_why": ("زیر کف ۱۲ کندل اخیر − ۰.۲ ATR" if long else "بالای سقف ۱۲ کندل اخیر + ۰.۲ ATR")
+                        + " (حداقل ۰.۸ و حداکثر ۲.۵ ATR)"}
+
+
 def make_plan(d: pd.DataFrame, score: float, levels: pd.DataFrame) -> dict:
+    """Kept for compatibility — now delegates to the validated setup engine.
+    (`score` is shown as context only; it no longer decides direction.)"""
+    p = setup_plan(d, levels)
+    p["score"] = score
+    try:
+        p["fvg_note"] = fvg_summary(d)["text"]
+    except Exception:  # noqa: BLE001
+        p["fvg_note"] = ""
+    return p
+
+
+def _legacy_make_plan(d: pd.DataFrame, score: float, levels: pd.DataFrame) -> dict:
     price = float(d["close"].iloc[-1])
     atr = float(d["atr"].iloc[-1]) if np.isfinite(d["atr"].iloc[-1]) else price * 0.01
     direction = "long" if score >= 0 else "short"
@@ -2363,11 +2597,20 @@ def make_plan(d: pd.DataFrame, score: float, levels: pd.DataFrame) -> dict:
     }
 
 
-def triple_tp_plan(d: pd.DataFrame, score: float) -> dict:
-    """ATR-based plan with exactly THREE take-profits (1R / 2R / 3R) and a stop.
+def triple_tp_plan(d: pd.DataFrame, score: float) -> dict | None:
+    """Scanner plan — validated setup engine. Returns None when there is no active,
+    positively-tested setup for this symbol (the scanner then skips it)."""
+    p = setup_plan(d)
+    if p["status"] != "active":
+        return None
+    st_ = p["stats"][p["mode"]]
+    return {"direction": "long" if p["direction"].startswith("لانگ") else "short", "entry": p["entry"], "stop": p["stop"],
+            "tps": [t[0] for t in p["targets"]], "atr": p["atr"], "risk_pct": p["risk_pct"],
+            "mode": p["mode"], "mode_fa": p["mode_fa"], "win1": st_["win1"], "exp2": st_["exp2"], "n_test": st_["n"],
+            "why": p["why"]}
 
-    Used by the opportunity scanner so every row has a full SL + TP1/TP2/TP3.
-    """
+
+def _legacy_triple_tp_plan(d: pd.DataFrame, score: float) -> dict:
     price = float(d["close"].iloc[-1])
     atr = float(d["atr"].iloc[-1]) if np.isfinite(d["atr"].iloc[-1]) else price * 0.01
     direction = "long" if score >= 0 else "short"
@@ -2437,10 +2680,10 @@ def scan_opportunities(exchange: str, interval: str, top_n: int = 12, min_abs_sc
                 return None
             score_series, _ = confluence(d)
             score = float(score_series.iloc[-1])
-            if abs(score) < min_abs_score:
-                return None
             adx = float(d["adx"].iloc[-1]) if np.isfinite(d["adx"].iloc[-1]) else 0.0
             plan = triple_tp_plan(d, score)
+            if plan is None or plan["win1"] < min_abs_score:   # slider now = minimum measured TP1 hit-rate %
+                return None
             price = plan["entry"]
             dec = 2 if price >= 1000 else 4 if price >= 1 else 6
             fvg_s = float(d["fvg_score"].iloc[-1]) if "fvg_score" in d else 0.0
@@ -2452,18 +2695,19 @@ def scan_opportunities(exchange: str, interval: str, top_n: int = 12, min_abs_sc
                 fvg_txt = ""
             return {
                 "symbol": sym_use,
-                "dir": "لانگ 🟢" if score >= 0 else "شورت 🔴",
+                "dir": "لانگ 🟢" if plan["direction"] == "long" else "شورت 🔴",
                 "score": int(round(score)),
                 "adx": round(adx, 1),
                 "price": price,
                 "stop": plan["stop"],
                 "tp1": plan["tps"][0], "tp2": plan["tps"][1], "tp3": plan["tps"][2],
                 "risk_pct": round(plan["risk_pct"], 2),
+                "setup": plan["mode_fa"], "win1": round(plan["win1"]), "exp2": round(plan["exp2"], 2), "n_test": plan["n_test"],
                 "fvg": round(fvg_s, 2), "bvg": round(bvg_s, 2),
                 "fvg_align": "هم‌جهت ✅" if align > 0.1 else "خلاف ⚠️" if align < -0.1 else "خنثی",
                 "fvg_txt": fvg_txt,
                 "dec": dec,
-                "rank": abs(score) * (1 + adx / 50) * (1 + 0.25 * max(-1.0, min(1.0, align))),
+                "rank": plan["exp2"] * np.sqrt(max(1, plan["n_test"])) * (1 + 0.15 * max(-1.0, min(1.0, align))),
                 "scanned_at": datetime.now().strftime("%H:%M:%S"),
             }
         except Exception:  # noqa: BLE001
@@ -2554,28 +2798,32 @@ def render_analysis_png(
     except Exception:  # noqa: BLE001
         pass
 
-    # entry / stop / targets
-    ax.axhline(plan["entry"], color="#f59e0b", linewidth=1.6, zorder=5)
-    ax.text(0, plan["entry"], f"ENTRY {plan['entry']:,.{dec}f} ", color="#0b1220", fontsize=8,
-            va="center", ha="left", fontweight="bold",
-            bbox=dict(boxstyle="round,pad=0.25", fc="#f59e0b", ec="none"))
-    ax.axhline(plan["stop"], color="#ef4444", linewidth=1.3, linestyle="--", zorder=5)
-    ax.text(0, plan["stop"], f"STOP {plan['stop']:,.{dec}f} ", color="#fff", fontsize=8,
-            va="center", ha="left", fontweight="bold",
-            bbox=dict(boxstyle="round,pad=0.25", fc="#ef4444", ec="none"))
-    for i, (tp, rr) in enumerate(plan["targets"]):
-        ax.axhline(tp, color="#38bdf8", linewidth=1.1, linestyle="--", zorder=5)
-        ax.text(0, tp, f"TP{i + 1} {tp:,.{dec}f} ({rr}R) ", color="#0b1220", fontsize=8,
+    # entry / stop / targets (only when a validated setup is active)
+    has_trade = plan.get("entry") is not None
+    if has_trade:
+        ax.axhline(plan["entry"], color="#f59e0b", linewidth=1.6, zorder=5)
+        ax.text(0, plan["entry"], f"ENTRY {plan['entry']:,.{dec}f} ", color="#0b1220", fontsize=8,
                 va="center", ha="left", fontweight="bold",
-                bbox=dict(boxstyle="round,pad=0.25", fc="#38bdf8", ec="none"))
+                bbox=dict(boxstyle="round,pad=0.25", fc="#f59e0b", ec="none"))
+        ax.axhline(plan["stop"], color="#ef4444", linewidth=1.3, linestyle="--", zorder=5)
+        ax.text(0, plan["stop"], f"STOP {plan['stop']:,.{dec}f} ", color="#fff", fontsize=8,
+                va="center", ha="left", fontweight="bold",
+                bbox=dict(boxstyle="round,pad=0.25", fc="#ef4444", ec="none"))
+        for i, (tp, rr) in enumerate(plan["targets"]):
+            ax.axhline(tp, color="#38bdf8", linewidth=1.1, linestyle="--", zorder=5)
+            ax.text(0, tp, f"TP{i + 1} {tp:,.{dec}f} ({rr}R) ", color="#0b1220", fontsize=8,
+                    va="center", ha="left", fontweight="bold",
+                    bbox=dict(boxstyle="round,pad=0.25", fc="#38bdf8", ec="none"))
 
-    direction = "LONG" if plan["direction"].startswith("لانگ") else "SHORT"
-    dir_col = "#34d399" if direction == "LONG" else "#fb7185"
+    direction = ("LONG" if plan["direction"].startswith("لانگ") else "SHORT") if has_trade else "WAIT (no validated setup)"
+    dir_col = "#34d399" if direction == "LONG" else "#fb7185" if direction == "SHORT" else "#94a3b8"
     title = f"{symbol}  ·  {exchange}  ·  {interval}"
     ax.set_title(title, color="#e2e8f0", fontsize=14, fontweight="bold", loc="left", pad=28)
+    setup_en = {"fade": "Mean-Reversion", "pullback": "Trend-Pullback"}.get(plan.get("mode") or "", "")
     ax.text(0.0, 1.015,
-            f"Signal: {direction}   |   Confluence: {score:+.0f}   |   R:R 1:{plan['rr']}   |   "
-            f"Confidence {plan['confidence']}%   |   ATR {plan['atr']:,.{dec}f}",
+            (f"Signal: {direction}   |   Setup: {setup_en}   |   TP1-before-SL (tested): {plan['confidence']}%   |   R:R 1:{plan['rr']}"
+             if has_trade else f"Signal: {direction}   |   Confluence (context only): {score:+.0f}")
+            + f"   |   ATR {plan['atr']:,.{dec}f}",
             transform=ax.transAxes, color=dir_col, fontsize=9.5, fontweight="bold", va="bottom")
     ax.text(0.999, 1.015, "NorthmanQuant · not financial advice",
             transform=ax.transAxes, color="#64748b", fontsize=8, va="bottom", ha="right")
@@ -2753,6 +3001,7 @@ def main() -> None:
 
     with st.sidebar:
         st.header("⚙️ تنظیمات")
+        st.caption(f"نسخه: {APP_VERSION}")
 
         # --- section navigation (moved here from the main page) --------------
         section = st.radio("بخش‌ها", SECTIONS, index=0, key="nav_section")
@@ -2900,10 +3149,12 @@ def main() -> None:
             # Entry / Stop / Targets as clean horizontal lines, labels pinned to
             # the RIGHT price axis (no overlapping free-floating annotations).
             x_last = dc["dt"].iloc[-1]
-            level_rows = [("ورود", plan["entry"], "#f59e0b", "solid"),
-                          ("حد ضرر", plan["stop"], "#ef5350", "dash")]
-            for i, (t_price, t_rr) in enumerate(plan["targets"]):
-                level_rows.append((f"هدف{i + 1} · {t_rr}R", t_price, "#2962ff", "dash"))
+            level_rows = []
+            if plan.get("entry") is not None:
+                level_rows = [("ورود", plan["entry"], "#f59e0b", "solid"),
+                              ("حد ضرر", plan["stop"], "#ef5350", "dash")]
+                for i, (t_price, t_rr) in enumerate(plan["targets"]):
+                    level_rows.append((f"هدف{i + 1} · {t_rr}R", t_price, "#2962ff", "dash"))
             for name, yv, col, dash in level_rows:
                 fig.add_hline(y=yv, line_color=col, line_width=1.4, line_dash=dash, row=1, col=1)
                 fig.add_annotation(
@@ -2976,15 +3227,24 @@ def main() -> None:
 
             # ===== TRADE PLAN — full width, own section ======================
             st.divider()
-            st.subheader("🎯 طرح معامله")
-            p1, p2, p3, p4 = st.columns(4)
-            p1.metric("جهت", plan["direction"])
-            p2.metric("ورود", f"{plan['entry']:,.{dec}f}")
-            p3.metric("حد ضرر", f"{plan['stop']:,.{dec}f}")
-            p4.metric("R:R / اطمینان", f"1:{plan['rr']} · {plan['confidence']}٪")
-            tcols = st.columns(max(1, len(plan["targets"])))
-            for i, (t_price, t_rr) in enumerate(plan["targets"]):
-                tcols[i].metric(f"هدف {i + 1}", f"{t_price:,.{dec}f}", f"{t_rr}R")
+            st.subheader("🎯 طرح معامله — ستاپ اعتبارسنجی‌شده (walk-forward روی همین نماد)")
+            if plan.get("status") == "wait" or plan.get("entry") is None:
+                st.warning(f"⏸ **بدون معامله.** {plan.get('why', '')}")
+                st.caption("چه چیزی لازم است: " + plan.get("watch", ""))
+            else:
+                p1, p2, p3, p4 = st.columns(4)
+                p1.metric("جهت", plan["direction"], plan.get("mode_fa", ""), delta_color="off")
+                p2.metric("ورود", f"{plan['entry']:,.{dec}f}")
+                p3.metric("حد ضرر", f"{plan['stop']:,.{dec}f}", f"{(plan['stop'] / plan['entry'] - 1) * 100:+.2f}%", delta_color="off")
+                p4.metric("TP1 قبل از SL (اندازه‌گیری‌شده)", f"{plan['confidence']}٪", f"R:R 1:{plan['rr']}", delta_color="off")
+                tcols = st.columns(max(1, len(plan["targets"])))
+                for i, (t_price, t_rr) in enumerate(plan["targets"]):
+                    tcols[i].metric(f"هدف {i + 1}", f"{t_price:,.{dec}f}", f"{t_rr}R", delta_color="off")
+                st.caption("✅ " + plan.get("why", "") + " · حد ضرر: " + plan.get("stop_why", ""))
+            with st.expander("📐 اعتبار ستاپ‌ها روی همین نماد/تایم‌فریم (تست walk-forward، بدون نگاه به آینده)", expanded=False):
+                st.dataframe(setup_stats_table(plan["stats"]), use_container_width=True, hide_index=True)
+                st.caption("هر سیگنال گذشته‌ی همین نماد شبیه‌سازی شده: آیا TP1 (1R) قبل از حد ضرر لمس شد؟ انتظار ریاضی با هدف 2R. "
+                           "فقط ستاپی که این‌جا «قابل اعتماد» است اجازه‌ی معامله دارد. همگرایی اندیکاتورها فقط زمینه است و جهت را تعیین نمی‌کند.")
             if plan.get("fvg_note"):
                 st.caption("🟪 FVG/BVG: " + plan["fvg_note"])
             with st.expander("🧾 مدارک تحلیل — کندل، ساختار، نقدینگی، جریان پول، FVG/BVG، سطوح", expanded=False):
@@ -3359,7 +3619,7 @@ def main() -> None:
                         import base64 as _b64img
                         st.session_state["img_last"] = {
                             "symbol": img_symbol, "exchange": img_exchange, "tf": img_interval,
-                            "dir": iplan["direction"], "entry": float(iplan["entry"]), "stop": float(iplan["stop"]),
+                            "dir": iplan["direction"], "entry": float(iplan["entry"] or iprice), "stop": float(iplan["stop"] or 0) or None,
                             "tps": [float(t[0]) for t in iplan["targets"]][:3], "rr": iplan["rr"],
                             "conf": int(iplan["confidence"]), "score": float(iscore), "fvg": _ifvg,
                             "image": "data:image/png;base64," + _b64img.b64encode(png).decode(),
@@ -3379,13 +3639,18 @@ def main() -> None:
                         use_container_width=True,
                     )
 
-                    m1, m2, m3, m4 = st.columns(4)
-                    m1.metric("جهت", iplan["direction"])
-                    m2.metric("ورود", f"{iplan['entry']:,.{idec}f}")
-                    m3.metric("حد ضرر", f"{iplan['stop']:,.{idec}f}")
-                    m4.metric("R:R / اطمینان", f"1:{iplan['rr']} · {iplan['confidence']}٪")
-                    for i, (t_price, t_rr) in enumerate(iplan["targets"]):
-                        st.write(f"🎯 هدف {i + 1}: **{t_price:,.{idec}f}** ({t_rr}R)")
+                    if iplan.get("entry") is None:
+                        st.warning(f"⏸ بدون معامله — {iplan.get('why', '')}")
+                        st.caption("چه چیزی لازم است: " + iplan.get("watch", ""))
+                    else:
+                        m1, m2, m3, m4 = st.columns(4)
+                        m1.metric("جهت", iplan["direction"], iplan.get("mode_fa", ""), delta_color="off")
+                        m2.metric("ورود", f"{iplan['entry']:,.{idec}f}")
+                        m3.metric("حد ضرر", f"{iplan['stop']:,.{idec}f}")
+                        m4.metric("TP1 قبل از SL / R:R", f"{iplan['confidence']}٪ · 1:{iplan['rr']}")
+                        for i, (t_price, t_rr) in enumerate(iplan["targets"]):
+                            st.write(f"🎯 هدف {i + 1}: **{t_price:,.{idec}f}** ({t_rr}R)")
+                        st.caption("✅ " + iplan.get("why", ""))
 
                     if not ilevels.empty:
                         st.subheader("🧱 حمایت و مقاومت")

@@ -308,8 +308,8 @@ def save_community(entry: dict) -> None:
         pass
 
 
-def fetch_tick(exchange: str, symbol: str) -> dict | None:
-    """Latest price (+bid/ask) from the selected exchange. No caching — this is the live layer."""
+def _fetch_tick_one(exchange: str, symbol: str) -> dict | None:
+    """Single-venue tick (no fallback). Called by fetch_tick."""
     try:
         if exchange == "Binance":
             r = requests.get(f"{BINANCE}/api/v3/ticker/bookTicker", params={"symbol": symbol.replace("-", "")}, headers=HEADERS, timeout=6)
@@ -349,6 +349,27 @@ def fetch_tick(exchange: str, symbol: str) -> dict | None:
         return {"price": float(data["price"]), "bid": float(data.get("bestBid") or 0), "ask": float(data.get("bestAsk") or 0)}
     except Exception:
         return None
+
+
+def fetch_tick(exchange: str, symbol: str) -> dict | None:
+    """Latest price (+bid/ask) from the selected exchange. No caching — this is the live layer.
+
+    Cross-venue fallback: when the selected exchange fails or is geo-blocked
+    (e.g. Binance on US cloud servers, which is exactly where Streamlit Community
+    Cloud runs), the other built-in venues are tried so the live strip keeps
+    showing a price instead of an empty dash."""
+    t = _fetch_tick_one(exchange, symbol)
+    if t and t.get("price"):
+        return t
+    if exchange in EXCHANGES:
+        sym_alt = symbol if "-" in symbol else f"{symbol}-USDT"
+        for alt in EXCHANGES:
+            if alt == exchange:
+                continue
+            t = _fetch_tick_one(alt, sym_alt)
+            if t and t.get("price"):
+                return t
+    return None
 
 
 def _annular_sector(cx: float, cy: float, r1: float, r2: float, a1: float, a2: float) -> str:

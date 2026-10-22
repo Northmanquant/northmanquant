@@ -1,3 +1,4 @@
+[Uploading README.md…]()
 # 📱 NorthmanQuant — اپ اندروید (Capacitor + GitHub Actions)
 
 این پوشه یک **اپ اندروید واقعی (APK)** می‌سازد که اپ Streamlit تو را داخل یک WebView

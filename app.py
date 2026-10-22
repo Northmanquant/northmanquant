@@ -608,25 +608,29 @@ def _scan_fast(exchange: str, interval: str, top_n: int, min_abs: int) -> tuple[
                 continue
             score_series, _ = B.confluence(d)
             score = float(score_series.iloc[-1])
-            if abs(score) < min_abs:
-                continue
             adx = float(d["adx"].iloc[-1]) if np.isfinite(d["adx"].iloc[-1]) else 0.0
             plan = B.triple_tp_plan(d, score)
+            # v4: only symbols with an ACTIVE setup that has positive walk-forward
+            # expectancy on their own history. Slider = minimum measured TP1 hit-rate.
+            if plan is None or plan.get("win1", 0) < min_abs:
+                continue
             price = plan["entry"]
             dec = 2 if price >= 1000 else 4 if price >= 1 else 6
             res = _gap_cached(d)
             fvg_s = float(res["fvg_score"][-1]) if res else 0.0
             bvg_s = float(res["bvg_score"][-1]) if res else 0.0
             rows.append({
-                "symbol": s, "dir": "لانگ 🟢" if score >= 0 else "شورت 🔴", "score": int(round(score)),
+                "symbol": s, "dir": "لانگ 🟢" if plan["direction"] == "long" else "شورت 🔴", "score": int(round(score)),
                 "adx": round(adx, 1), "price": price, "stop": plan["stop"],
                 "tp1": plan["tps"][0], "tp2": plan["tps"][1], "tp3": plan["tps"][2],
                 "risk_pct": round(plan["risk_pct"], 2), "dec": dec,
+                "setup": plan.get("mode_fa", ""), "win1": round(plan.get("win1", 0)), "exp2": round(plan.get("exp2", 0), 2),
+                "n_test": int(plan.get("n_test", 0)),
                 "fvg": round(fvg_s, 2), "bvg": round(bvg_s, 2),
                 "fvg_txt": G.short_label(res["fvg_info"], "FVG") if res else "—",
                 "bvg_txt": G.short_label(res["bvg_info"], "BVG") if res else "—",
                 "candle_time": str(d["dt"].iloc[-1])[:16] if "dt" in d.columns else "",
-                "rank": abs(score) * (1 + adx / 50) * (1 + 0.15 * max(0.0, np.sign(score) * (fvg_s + bvg_s))),
+                "rank": plan.get("exp2", 0) * np.sqrt(max(1, plan.get("n_test", 1))) * (1 + 0.1 * max(0.0, (1 if plan["direction"] == "long" else -1) * (fvg_s + bvg_s))),
             })
         except Exception as exc:  # noqa: BLE001
             errors.append(f"{s}: {type(exc).__name__}: {exc}")
@@ -686,9 +690,9 @@ def _opps_body(exchange: str, interval: str, top_n: int, min_abs: int, refresh) 
         # BUGFIX: a broken analysis engine used to show up as "no setups found".
         st.error(f"تحلیل {len(errs)} از {meta['scanned']} نماد با خطا مواجه شد — خطای نمونه: {errs[0][:160]}")
     if opp.empty:
-        _st_info("فعلاً ستاپ قوی‌ای پیدا نشد. حداقل قدرت سیگنال را کم کن یا تایم‌فریم دیگری امتحان کن.")
+        _st_info("فعلاً هیچ نمادی ستاپ فعالِ اعتبارسنجی‌شده ندارد — این یعنی «معامله نکن»، نه اینکه اسکنر خراب است. تایم‌فریم دیگری را امتحان کن یا حداقل وین‌ریت را کم کن.")
         return
-    _st_success(f"{len(opp)} فرصت پیدا شد — مرتب‌شده بر اساس قدرت سیگنال × روند (ADX) × هم‌جهتی FVG/BVG.")
+    _st_success(f"{len(opp)} فرصت با ستاپ اعتبارسنجی‌شده پیدا شد — مرتب‌شده بر اساس انتظار ریاضی تست‌شده روی خود همان نماد.")
     for _, r in opp.iterrows():
         dec = int(r["dec"])
         is_long = "لانگ" in r["dir"]
@@ -715,7 +719,8 @@ def _opps_body(exchange: str, interval: str, top_n: int, min_abs: int, refresh) 
             f"<div style='display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;align-items:center'>"
             f"<span style='font-size:18px;font-weight:800'>{r['symbol']}</span>"
             f"<span style='font-family:ui-monospace,monospace;font-size:14px;color:{tone};font-weight:800'>{r['dir']}</span>"
-            f"<span style='font-family:ui-monospace,monospace;font-size:12px;color:#94a3b8'>قدرت {r['score']:+d} · ADX {r['adx']} · ریسک {r['risk_pct']}% · کندل {r['candle_time']}</span>"
+            f"<span style='font-family:ui-monospace,monospace;font-size:12px;color:#c4b5fd'>ستاپ: {r.get('setup', '')} · TP1 قبل از SL {r.get('win1', 0)}% · انتظار {r.get('exp2', 0):+.2f}R · {r.get('n_test', 0)} تست</span>"
+            f"<span style='font-family:ui-monospace,monospace;font-size:12px;color:#94a3b8'>همگرایی {r['score']:+d} · ADX {r['adx']} · ریسک {r['risk_pct']}% · کندل {r['candle_time']}</span>"
             f"</div>"
             f"<div style='display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-top:12px;text-align:center'>"
             + _cell("قیمت زنده", live_val, live_sub, "rgba(244,63,94,.10)", live_col, "#fda4af")
@@ -749,7 +754,7 @@ def _render_opps_live() -> None:
     with c1:
         opp_n = st.slider("تعداد فرصت‌ها", 5, 20, 12, key="opp_n")
     with c2:
-        opp_min = st.slider("حداقل قدرت سیگنال", 20, 70, 35, step=5, key="opp_min")
+        opp_min = st.slider("حداقل وین‌ریت تست‌شده (TP1 قبل از SL) %", 40, 70, 50, step=5, key="opp_min")
     with c3:
         refresh = st.select_slider("⚡ رفرش خودکار (ثانیه)", options=[3, 5, 10, 20, 30, 60], value=5, key="opp_refresh")
     with c4:

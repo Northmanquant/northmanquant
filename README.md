@@ -1,3 +1,4 @@
+[Uploading README.md…]()
 # 📈 NorthmanQuant — نسخه‌ی رایگان (Lite)
 
 > تحلیل زنده‌ی بازار کریپتو با **داده‌ی واقعی** از APIهای عمومی صرافی‌ها — بدون ثبت‌نام، بدون کلید API، بدون دیتابیس.
@@ -67,11 +68,15 @@ streamlit run app.py
 
 برنامه روی `http://localhost:8501` باز می‌شود.
 
-بررسی سلامت APIها (اختیاری):
+بررسی سلامت APIها و تست موتور گپ‌ها (اختیاری):
 
 ```bash
-python scripts/verify_apis.py     # ۲۱ تست زنده روی همه‌ی صرافی‌ها
+python scripts/verify_apis.py     # تست زنده‌ی همه‌ی صرافی‌ها + پایپ‌لاین تحلیل
+python scripts/test_gaps.py       # تست رگرسیون موتور FVG/BVG/IFVG (بدون نیاز به شبکه)
 ```
+
+> نکته: اگر یک صرافی تحریم/بلاک باشد (مثلاً Binance روی سرورهای آمریکا)،
+> «قیمت زنده» به‌صورت خودکار از صرافی‌های دیگر گرفته می‌شود و نوار LIVE خالی نمی‌ماند.
 
 ---
 
@@ -101,14 +106,23 @@ python scripts/verify_apis.py     # ۲۱ تست زنده روی همه‌ی صر
 
 ```
 northmanquant-lite/
-├── app.py                    # کل اپلیکیشن Streamlit (ورود اصلی)
+├── app.py                    # لایه‌ی پچ/UI روی app_base (ورود اصلی Streamlit)
+├── app_base.py               # موتور اصلی: دیتا، اندیکاتورها، پلن معامله، UI
+├── core/
+│   ├── gaps.py               # موتور FVG / BVG / IFVG (علّی، بدون نگاه به آینده)
+│   └── exchanges/            # کلاینت صرافی‌های اضافه (KCEX)
+├── pages/
+│   ├── 1_Live_Prices.py      # مقایسه‌ی زنده‌ی قیمت بین صرافی‌ها
+│   ├── 2_Live_Trading.py     # ترید با کلید API (Paper/Real)
+│   └── 3_Agents_Duel.py      # دوئل ایجنت‌ها با مدرک
 ├── requirements.txt          # وابستگی‌ها
 ├── README.md
 ├── .gitignore
 ├── .streamlit/
 │   └── config.toml           # تم تاریک + تنظیمات سرور
 └── scripts/
-    └── verify_apis.py        # تست زنده‌ی اندپوینت‌های صرافی‌ها
+    ├── verify_apis.py        # تست زنده‌ی اندپوینت‌های صرافی‌ها
+    └── test_gaps.py          # تست رگرسیون موتور FVG/BVG (بدون شبکه)
 ```
 
 ---

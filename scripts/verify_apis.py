@@ -18,7 +18,13 @@ import traceback
 
 import pandas as pd
 
-import app as nq
+import app as _app
+
+# app.py is a patch layer: it imports app_base as B and monkey-patches the live
+# functions (fetch_tick/_fetch_candles/fetch_top_coins/confluence/...) onto it.
+# The public helpers (normalize_symbol, add_indicators, scan_opportunities, ...)
+# live on app_base, so run the checks against the patched module, not app itself.
+nq = _app.B
 
 ok, fail = 0, 0
 
@@ -128,6 +134,8 @@ def analysis_image():
     png = nq.render_analysis_png(d, plan, lv, score, "BTC-USDT", "OKX", "1hour", dec)
     if not png or len(png) < 5000:
         raise ValueError("PNG too small / empty")
+    if plan.get("entry") is None:
+        return f"PNG {len(png)} bytes · plan=⏸ wait (no active setup — ok) · {len(lv)} levels"
     return f"PNG {len(png)} bytes · entry {plan['entry']:,.{dec}f} · stop {plan['stop']:,.{dec}f} · {len(lv)} levels"
 check("render_analysis_png (BTC)", analysis_image)
 

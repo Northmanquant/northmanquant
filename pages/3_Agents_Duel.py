@@ -20,31 +20,41 @@ st.caption("۴ ایجنت روی ۱ ارز با قانون‌های شفاف پ�
            "برنده + پوزیشن اجماعی با SL/TP به 👥 تحلیل‌های کاربران می‌رود.")
 
 EXCHANGES = ["KuCoin", "OKX", "Binance", "Bybit", "Lighter", "XT", "LBank", "KCEX"]
-COMMUNITY_FILE = "community_analyses.json"
 
 try:
     from core import gaps as G
 except Exception:  # noqa: BLE001
     G = None
 
+try:
+    from core import community_store as _cstore
+except Exception:  # noqa: BLE001
+    _cstore = None
+
 
 # ----------------------------------------------------------------------------- storage
 def save_duel(entry: dict) -> None:
-    rows = []
-    if os.path.exists(COMMUNITY_FILE):
+    """ثبت نتیجه دوئل در برد مشترک — Supabase اگر ست باشد، وگرنه JSON محلی."""
+    if _cstore is not None:
         try:
-            with open(COMMUNITY_FILE, "r", encoding="utf-8") as f:
+            _cstore.save_community(entry)
+            return
+        except Exception as e:  # noqa: BLE001
+            st.warning(f"ذخیره در بک‌اند اصلی نشد؛ fallback محلی: {e}")
+    rows = []
+    if os.path.exists("community_analyses.json"):
+        try:
+            with open("community_analyses.json", "r", encoding="utf-8") as f:
                 rows = json.load(f)
         except Exception:  # noqa: BLE001
             rows = []
     rows.insert(0, entry)
     rows = rows[:200]
     try:
-        with open(COMMUNITY_FILE, "w", encoding="utf-8") as f:
+        with open("community_analyses.json", "w", encoding="utf-8") as f:
             json.dump(rows, f, ensure_ascii=False)
     except Exception as e:  # noqa: BLE001
         st.warning(f"ذخیره نشد: {e}")
-
 
 # ----------------------------------------------------------------------------- data
 def _ema(s: pd.Series, n: int) -> pd.Series:

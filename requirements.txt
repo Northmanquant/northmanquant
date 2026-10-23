@@ -6,4 +6,4 @@ requests==2.32.3
 Pillow==11.0.0
 ccxt==4.4.25
 matplotlib==3.9.3
-supabase==2.11.0
+supabase==2.33.0

@@ -1,6 +1,9 @@
 """Live Trading with API Key - NorthmanQuant"""
 import streamlit as st
+from core.i18n import setup_i18n
+
 st.set_page_config(page_title="Live Trading", page_icon="💹", layout="wide")
+setup_i18n(page="p2")   # زبان + منوی ترجمه‌شده + پچ ترجمه‌ی کل صفحه
 st.title("💹 ترید مستقیم — بدون رفتن به صرافی")
 st.caption("کلیدها فقط در حافظه مرورگر شما (session) می‌ماند و در گیت‌هاب ذخیره نمی‌شود.")
 

@@ -2993,9 +2993,9 @@ def extract_candles_from_image(img: Image.Image, max_dim: int = 1400) -> pd.Data
 def main() -> None:
     import plotly.graph_objects as go
     import streamlit.components.v1 as components
-    from plotly.subplots import make_subplots
+        from plotly.subplots import make_subplots
 
-        st.set_page_config(page_title="NorthmanQuant", page_icon="📈", layout="wide")
+    st.set_page_config(page_title="NorthmanQuant", page_icon="📈", layout="wide")
     # انتخاب زبان (فارسی / English) — با تعویض زبان، منو و نوشتارها ترجمه می‌شوند
     setup_i18n(sidebar=True)
     st.markdown(

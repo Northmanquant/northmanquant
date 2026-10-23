@@ -27,6 +27,9 @@ import requests
 import streamlit as st
 from PIL import Image
 
+from core import community_store as _cstore
+from core.community_store import render_backend_banner
+from core.i18n import setup_i18n
 KUCOIN = "https://api.kucoin.com"
 BINANCE = "https://api.binance.com"
 BYBIT = "https://api.bybit.com"

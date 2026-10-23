@@ -2991,7 +2991,7 @@ def extract_candles_from_image(img: Image.Image, max_dim: int = 1400) -> pd.Data
 # ------------------------------------------------------------------ UI
 
 def main() -> None:
-import plotly.graph_objects as go
+    import plotly.graph_objects as go
     import streamlit.components.v1 as components
     from plotly.subplots import make_subplots
 

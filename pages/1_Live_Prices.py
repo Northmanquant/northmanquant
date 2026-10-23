@@ -1,11 +1,4 @@
-"""Live Prices v3 - انتخاب صرافی + سرچ ارز + مقایسه همه صرافی‌ها
-
-Bug-fix release:
-  • رفرش خودکار دیگر با time.sleep + st.rerun کل صفحه را قفل نمی‌کند (st.fragment).
-  • قیمت‌ها برای همه‌ی صرافی‌ها «هم‌زمان» گرفته می‌شود (قبلاً تا ۳۰ درخواست پشت‌سرهم).
-  • پاسخ غیر JSON (مثل صفحه‌ی HTML مسدودسازی Bybit) دیگر خطا پرتاب نمی‌کند؛ آن صرافی «—» می‌شود.
-  • لیست Lighter یک‌بار برای همه‌ی ارزها گرفته می‌شود (کش ۲ ثانیه).
-"""
+"""Live Prices v3 - انتخاب صرافی + سرچ ارز + مقایسه همه صرافی‌ها"""
 from __future__ import annotations
 
 import time
@@ -13,8 +6,10 @@ from concurrent.futures import ThreadPoolExecutor
 
 import requests
 import streamlit as st
+from core.i18n import setup_i18n
 
 st.set_page_config(page_title="Live Prices", page_icon="📊", layout="wide")
+setup_i18n(page="p1")   # زبان + منوی ترجمه‌شده + پچ ترجمه‌ی کل صفحه
 st.title("📊 قیمت‌های زنده بازار")
 st.caption("اول صرافی رو انتخاب کن، بعد ارز رو سرچ کن — مقایسه KCEX + KuCoin + Binance + Bybit + OKX + Lighter")
 

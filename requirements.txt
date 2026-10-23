@@ -1,8 +1,12 @@
-streamlit>=1.37
-pandas
-numpy
-requests
-Pillow
-plotly
-ccxt
-matplotlib
+# requirements.txt — نسخه پین‌شده
+# هشدار: اگر در requirements قبلی کتابخانه دیگری داشتید (ccxt، yfinance و...)
+# همان خط را با نسخه پین‌شده به این فایل اضافه کنید.
+
+# ---- هسته اپ ----
+streamlit==1.41.1
+pandas==2.2.3
+numpy==2.1.3
+plotly==5.24.1
+
+# ---- بک‌اند برد مشترک (جدید) ----
+supabase==2.11.0

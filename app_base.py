@@ -280,35 +280,18 @@ def floating_share(title: str, text: str, app_url: str = "") -> str:
 
 
 # ------------------------------------------------------------------ community board
-
-COMMUNITY_FILE = "community_analyses.json"
-
+# برد تحلیل‌های اجتماعی از core/community_store.py سرو می‌شود:
+# اگر SUPABASE_URL و SUPABASE_KEY ست شده باشد → Supabase (پایدار روی کلود)؛
+# وگرنه به‌صورت خودکار همان فایل JSON محلی (رفتار قدیمی).
 
 def load_community() -> list[dict]:
-    """Read the shared analysis board (JSON file on the running instance)."""
-    import json
-    import os
-    if not os.path.exists(COMMUNITY_FILE):
-        return []
-    try:
-        with open(COMMUNITY_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, list) else []
-    except Exception:
-        return []
+    """خواندن برد مشترک — delegate به CommunityStore (Supabase یا JSON محلی)."""
+    return _cstore.load_community()
 
 
 def save_community(entry: dict) -> None:
-    """Append one analysis to the shared board (newest first, cap 200)."""
-    import json
-    rows = load_community()
-    rows.insert(0, entry)
-    rows = rows[:200]
-    try:
-        with open(COMMUNITY_FILE, "w", encoding="utf-8") as f:
-            json.dump(rows, f, ensure_ascii=False)
-    except Exception:
-        pass
+    """ثبت یک تحلیل در برد مشترک — delegate به CommunityStore."""
+    _cstore.save_community(entry)
 
 
 def _fetch_tick_one(exchange: str, symbol: str) -> dict | None:
@@ -3012,7 +2995,9 @@ def main() -> None:
     import streamlit.components.v1 as components
     from plotly.subplots import make_subplots
 
-    st.set_page_config(page_title="NorthmanQuant", page_icon="📈", layout="wide")
+        st.set_page_config(page_title="NorthmanQuant", page_icon="📈", layout="wide")
+    # انتخاب زبان (فارسی / English) — با تعویض زبان، منو و نوشتارها ترجمه می‌شوند
+    setup_i18n(sidebar=True)
     st.markdown(
         "<div dir='rtl'><h1 style='margin:0'>📈 NorthmanQuant</h1></div>",
         unsafe_allow_html=True,
@@ -3026,6 +3011,7 @@ def main() -> None:
     with st.sidebar:
         st.header("⚙️ تنظیمات")
         st.caption(f"نسخه: {APP_VERSION}")
+        render_backend_banner()   # وضعیت بک‌اند برد مشترک: Supabase یا فایل محلی
 
         # --- section navigation (moved here from the main page) --------------
         section = st.radio("بخش‌ها", SECTIONS, index=0, key="nav_section")

@@ -1330,6 +1330,14 @@ _FRAG += [
     ('٪', '%'),
 ]
 
+# --- پچ واژه‌نامه v7 (پنل‌های SVG) ---
+_EXACT += [
+    ('ماتریس لبه', 'Edge Matrix'),
+    (' نمونه', ' samples'),
+    ('امتیاز همگرایی', 'Confluence score'),
+    ('بازده کندل بعدی', 'next-candle return'),
+]
+
 # نهایی: همه‌ی جفت‌ها — طولانی‌ترین اول + نرمال‌سازی ویرگول فارسی
 _PAIRS: list[tuple[str, str]] = sorted(
     list(dict.fromkeys(_EXACT + _FRAG)), key=lambda p: -len(p[0])
@@ -1390,6 +1398,11 @@ def deep_fig(fig):
             for ann in (getattr(lay, "annotations", None) or []):
                 if getattr(ann, "text", None):
                     ann.text = deep_en(ann.text)
+            for _axn in ("xaxis", "xaxis2", "xaxis3", "yaxis", "yaxis2", "yaxis3", "coloraxis"):
+                _axo = getattr(lay, _axn, None)
+                _tt = getattr(getattr(_axo, "title", None), "text", None)
+                if _tt:
+                    _axo.title.text = deep_en(_tt)
         for tr_ in getattr(fig, "data", []) or []:
             if getattr(tr_, "name", None):
                 tr_.name = deep_en(tr_.name)
@@ -1415,7 +1428,7 @@ def deep_fig(fig):
 # ===========================================================================
 # پچ ویجت‌های Streamlit — «نمایش» ترجمه می‌شود؛ مقادیر و منطق دست‌نخورده
 # ===========================================================================
-_PATCHED_FLAG = "_nq_i18n_patched_v5"
+_PATCHED_FLAG = "_nq_i18n_patched_v7"
 
 
 def _patch_display_widgets() -> None:
@@ -1730,6 +1743,22 @@ def _patch_display_widgets() -> None:
 
     st.columns = lambda *a, **k: [_ColProxy(c) for c in o_columns(*a, **k)]
     st.sidebar = _ColProxy(o_sidebar)
+    # --- components.html — پنل‌های SVG (ایجنت‌ها، Neural Shell، Edge Matrix) ---
+    try:
+        import streamlit.components.v1 as _comp
+        if not getattr(_comp, "_nq_i18n_html_patched", False):
+            _o_html = _comp.html
+
+            def _html(body="", *a, **k):
+                if isinstance(body, str):
+                    body = deep_en(body)
+                return _o_html(body, *a, **k)
+
+            _comp.html = _html
+            setattr(_comp, "_nq_i18n_html_patched", True)
+    except Exception:  # noqa: BLE001
+        pass
+
     setattr(st, _PATCHED_FLAG, True)
 
 

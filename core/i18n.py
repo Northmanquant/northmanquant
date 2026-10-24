@@ -1338,6 +1338,20 @@ _EXACT += [
     ('بازده کندل بعدی', 'next-candle return'),
 ]
 
+# --- پچ واژه‌نامه v8 (موتور FVG/BVG و وضعیت بک‌اند) ---
+_FRAG += [
+    ('FVG (Fair Value Gap): ناترازی سه‌کندلی؛ سایه‌ی کندل ۱ و ۳ همپوشانی ندارند. زون صعودی زیر قیمت = حمایت/ناحیه‌ی ورود لانگ، زون نزولی بالای قیمت = مقاومت/ناحیه‌ی ورود شورت. عبور با کلوز از زون، آن را به IFVG (معکوس) تبدیل می‌کند.', 'FVG (Fair Value Gap): three-candle imbalance — the wicks of candles 1 and 3 don’t overlap. A bullish zone below price = support / long entry area; a bearish zone above price = resistance / short entry area. A close through the zone flips it into IFVG (inverted).'),
+    ('BVG (Body-Volume Gap): ناترازی سه‌کندلی روی بدنه‌ی کندل‌ها که کندل وسط حجمی ≥۱.۲ برابر میانگین ۲۰ کندل دارد؛ یعنی جابه‌جایی قیمت با پولِ واقعی انجام شده است.', 'BVG (Body-Volume Gap): three-candle imbalance on candle bodies — the middle candle’s volume is ≥1.2× the 20-candle average, meaning the price move was backed by real money flow.'),
+    ('کلیدهای Supabase تنظیم نشده‌اند', 'Supabase keys not configured'),
+    ('پکیج supabase نصب نیست (pip install supabase==2.11.0)', 'supabase package not installed (pip install supabase==2.11.0)'),
+    ('خواندن از Supabase ناموفق بود، به فایل محلی برمی‌گردیم: ', 'Supabase read failed — falling back to local file: '),
+    ('نوشتن در Supabase ناموفق بود، به فایل محلی برمی‌گردیم: ', 'Supabase write failed — falling back to local file: '),
+    ('ساخت کلاینت Supabase ناموفق بود: ', 'Failed to create Supabase client: '),
+    ('خواندن فایل محلی ناموفق بود: ', 'Local file read failed: '),
+    ('نوشتن فایل محلی ناموفق بود: ', 'Local file write failed: '),
+    ('برد مشترک:', 'Community board:'),
+]
+
 # نهایی: همه‌ی جفت‌ها — طولانی‌ترین اول + نرمال‌سازی ویرگول فارسی
 _PAIRS: list[tuple[str, str]] = sorted(
     list(dict.fromkeys(_EXACT + _FRAG)), key=lambda p: -len(p[0])

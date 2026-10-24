@@ -348,9 +348,12 @@ def render_backend_banner() -> None:
         render_backend_banner()
     """
     try:
-        if st.session_state.get(_BANNER_KEY):
+        from core.i18n import get_lang
+        # کلید پر-هر-زبان: با تغییر زبان، بنر دوباره رندر می‌شود (نه فقط یک‌بار در session)
+        _bkey = f"{_BANNER_KEY}_{get_lang()}"
+        if st.session_state.get(_bkey):
             return
-        st.session_state[_BANNER_KEY] = True
+        st.session_state[_bkey] = True
     except Exception:
         return
     store = get_store()

@@ -381,13 +381,21 @@ def scan_coin(exchange: str, symbol: str, interval: str, balance: float = START_
     fd = S_["final_dir"]
     fpos = S_["final_pos"]
     n_agree = sum(1 for n, r in S_["results"].items() if fd != 0 and r["sig"] == fd)
+    n_against = sum(1 for n, r in S_["results"].items() if fd != 0 and r["sig"] == -fd)
+    n_neutral = sum(1 for n, r in S_["results"].items() if r["sig"] == 0)
+    if fd != 0:
+        _split = (f" · {n_against} مخالف" if n_against
+                  else f" · {n_neutral} خنثی" if n_neutral else " · اجماع کامل")
+        c_ev = f"اجماع {n_agree}/4 ایجنت{_split}"
+    else:
+        c_ev = "بدون اجماع جهت‌دار — کمیسیون می‌ایستد"
     c_ok = (fd != 0 and abs(S_["final_s"]) >= 0.15 and n_agree >= 3
             and v_ok and (appetite == "hunter" or v_dir == fd)
             and fpos["direction"] != 0 and float(fpos.get("rr") or 0) >= 1.0)
     out["committee"] = {
         "dir": int(fd), "score": float(S_["final_s"]), "ok": bool(c_ok), "pos": fpos,
         "confidence": int(S_["confidence"]), "n_agree": int(n_agree),
-        "evidence": f"{n_agree}/4 ایجنت موافق · اطمینان {S_['confidence']}٪",
+        "evidence": c_ev,
     }
     return out
 

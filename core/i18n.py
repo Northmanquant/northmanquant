@@ -1376,6 +1376,11 @@ _FRAG += [
     ('خواندن فایل محلی ناموفق بود: ', 'Local file read failed: '),
     ('نوشتن فایل محلی ناموفق بود: ', 'Local file write failed: '),
     ('برد مشترک:', 'Community board:'),
+    # --- میدان ایجنت‌ها: مدرک کمیسیون ---
+    ('اجماع کامل', 'full consensus'),
+    ('بدون اجماع جهت‌دار — کمیسیون می‌ایستد', 'No directional consensus — committee stands down'),
+    ('اجماع', 'consensus'),
+    ('مخالف', 'against'),
 ]
 
 # نهایی: همه‌ی جفت‌ها — طولانی‌ترین اول + نرمال‌سازی ویرگول فارسی

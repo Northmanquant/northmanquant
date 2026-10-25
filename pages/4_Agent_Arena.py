@@ -165,22 +165,34 @@ def _unrealized_r(t: dict, live_price: float | None) -> float | None:
 # تب ۱ — اسکن
 with tab_scan:
     st.caption(L(
-        "هر شرکت‌کننده با وزن‌های خودش همه‌ی ارزهای اسکن‌شده را ارزیابی می‌کند؛ فقط جایی معامله باز می‌کند که: "
+        "هر شرکت‌کننده با وزن‌های خودش برگزیدگان را ارزیابی می‌کند؛ فقط جایی معامله باز می‌کند که: "
         "۱) امتیاز خودش از آستانه‌اش رد شده، ۲) بک‌تست خودش روی همان ارز سودده بوده (PF>1)، "
-        "۳) موتور ستاپ walk-forward هم‌جهت تأیید کرده، ۴) R:R ≥ ۱. کمیسیون هم با اجماع ۳/۴ ایجنت وارد می‌شود.",
-        "Each participant evaluates every scanned coin with its own weights and only trades when: "
+        "۳) ستاپ تازه هم‌جهت باشد (به تناسب سطح فیلتر ورود)، ۴) R:R ≥ ۱. کمیسیون هم با اجماع ۳/۴ ایجنت وارد می‌شود.",
+        "Each participant evaluates every finalist with its own weights and only trades when: "
         "1) its own score passes its threshold, 2) its own backtest on that coin is profitable (PF>1), "
-        "3) the walk-forward validated setup agrees, 4) R:R ≥ 1. The Committee enters on 3/4 consensus."))
+        "3) a fresh setup agrees (per the entry-filter level), 4) R:R ≥ 1. The Committee enters on 3/4 consensus."))
 
-    c1, c2, c3 = st.columns([1.4, 1, 1.1])
+    c1, c2, c3, c4 = st.columns([1.2, 0.9, 1.3, 1.1])
     with c1:
         exchange = st.selectbox(L("صرافی", "Exchange"), EXCHANGES, index=0, key="arena_exch")
     with c2:
         interval = st.selectbox(L("تایم‌فریم (برای همه)", "Timeframe (for all)"),
                                 ["15min", "1hour", "4hour", "1day"], index=1, key="arena_tf")
     with c3:
+        appetite = st.select_slider(
+            L("قدرت فیلتر ورود", "Entry filter strength"),
+            options=list(A.APPETITES),
+            format_func=lambda k: A.APPETITES[k]["fa"] if LANG != "en" else A.APPETITES[k]["en"],
+            value=A.DEFAULT_APPETITE, key="arena_appetite")
+    with c4:
         st.write("")
         go = st.button("🔎 " + L("اسکن کل بازار", "Scan whole market"), type="primary", use_container_width=True, key="arena_go")
+
+    st.caption(L(
+        "سخت‌گیر: فقط ستاپ تازه + لبه‌ی walk-forward اثبات‌شده (کم‌معامله ولی بی‌رحم) · "
+        "متعادل: ستاپ تازه در ۶ کندل اخیر کافی است · شکارچی: فیلتر ستاپ خاموش — ایجنت‌ها با امتیاز و بک‌تست خودشان تصمیم می‌گیرند.",
+        "Strict: fresh setup + proven walk-forward edge only (rare but ruthless) · "
+        "Balanced: a fresh setup in the last 6 candles is enough · Hunter: setup filter off — agents decide with their own score & backtest."))
 
     if exchange == "Lighter":
         st.info(L("Lighter پرپ است — نمادها بدون USDT هستند.", "Lighter is perp — symbols without USDT."))
@@ -190,7 +202,7 @@ with tab_scan:
         try:
             with st.spinner(L(f"اول کل بازار {exchange} غربال می‌شود، بعد برگزیدگان تحلیل عمیق می‌شوند · {interval} … (۳۰–۹۰ ثانیه)",
                               f"Screening the whole {exchange} market first, then deep-analyzing the best ones · {interval} … (30–90s)")):
-                scans, errors, meta = A.run_scan(exchange, interval)
+                scans, errors, meta = A.run_scan(exchange, interval, appetite=appetite)
                 opened, blocked = A.open_trades_from_scan(scans, exchange, interval, _store)
             st.session_state["arena_scan"] = {
                 "scans": scans, "errors": errors, "opened": opened, "blocked": blocked, "meta": meta,
@@ -217,9 +229,9 @@ with tab_scan:
         if meta.get("fallback"):
             st.warning(L("تیکر صرافی در دسترس نبود — اسکن با ۱۲ ارز اصلی انجام شد.",
                          "Exchange ticker unavailable — scanned the 12 major coins instead."))
-        st.caption(L(f"{H['exchange']} · {H['interval']} · کل بازار: {meta.get('total', '—')} ارز → تحلیل عمیق: {meta.get('finalists', '—')} برگزیده در {H['took']:.0f} ثانیه · {H['ts']}"
+        st.caption(L(f"{H['exchange']} · {H['interval']} · {A.APPETITES.get(meta.get('appetite', 'balanced'), {}).get('fa', '') if LANG != 'en' else A.APPETITES.get(meta.get('appetite', 'balanced'), {}).get('en', '')} · کل بازار: {meta.get('total', '—')} ارز → تحلیل عمیق: {meta.get('finalists', '—')} برگزیده در {H['took']:.0f} ثانیه · {H['ts']}"
                      + (f" · {len(H['errors'])} ارز خطا داد" if H["errors"] else ""),
-                     f"{H['exchange']} · {H['interval']} · whole market: {meta.get('total', '—')} coins → deep analysis: {meta.get('finalists', '—')} finalists in {H['took']:.0f}s · {H['ts']}"
+                     f"{H['exchange']} · {H['interval']} · {A.APPETITES.get(meta.get('appetite', 'balanced'), {}).get('en', '')} · whole market: {meta.get('total', '—')} coins → deep analysis: {meta.get('finalists', '—')} finalists in {H['took']:.0f}s · {H['ts']}"
                      + (f" · {len(H['errors'])} errors" if H["errors"] else "")))
 
         if opened:
@@ -227,14 +239,22 @@ with tab_scan:
             for t in opened:
                 _trade_card(t, _live.get(t.get("symbol")), _unrealized_r(t, _live.get(t.get("symbol"))))
         else:
+            _app = meta.get("appetite", "balanced")
             v_pass = sum(1 for s in ok_scans if s.get("v_ok"))
-            st.warning(L(
-                f"هیچ معامله‌ی تازه‌ای باز نشد — از {len(ok_scans)} برگزیده، فقط {v_pass} تا ستاپ اعتبارسنجی‌شده داشتند و "
-                f"هیچ شرکت‌کننده‌ای (یا سهمیه‌ی خالی‌ای) هم‌جهتش نبود. یعنی الان لبه‌ی واضحی نیست — سیگنال الکی بهتر از بی‌معامله‌ای نیست.",
-                f"No new trades — of {len(ok_scans)} finalists only {v_pass} had a validated setup and no participant "
-                f"(or free slot) matched direction. No clear edge right now — better no trade than a random one."))
+            if _app == "hunter":
+                st.warning(L(
+                    f"هیچ معامله‌ی تازه‌ای باز نشد — از {len(ok_scans)} برگزیده، هیچ شرکت‌کننده‌ای امتیاز کافی + بک‌تست سودده (PF>1) + R:R≥۱ هم‌جهت نداشت "
+                    "(یا سهمیه‌اش پر بود). یعنی ایجنت‌ها الان لبه‌ی واضحی نمی‌بینند — سیگنال الکی بهتر از بی‌معامله‌ای نیست.",
+                    f"No new trades — of {len(ok_scans)} finalists, no participant had enough score + profitable backtest (PF>1) + R:R≥1 "
+                    "aligned (or its slots were full). The agents see no clear edge right now — better no trade than a random one."))
+            else:
+                st.warning(L(
+                    f"هیچ معامله‌ی تازه‌ای باز نشد — از {len(ok_scans)} برگزیده، فقط {v_pass} تا ستاپ تازه داشتند و "
+                    f"هیچ شرکت‌کننده‌ای (یا سهمیه‌ی خالی‌ای) هم‌جهتش نبود. یعنی الان لبه‌ی واضحی نیست — سیگنال الکی بهتر از بی‌معامله‌ای نیست.",
+                    f"No new trades — of {len(ok_scans)} finalists only {v_pass} had a fresh setup and no participant "
+                    f"(or free slot) matched direction. No clear edge right now — better no trade than a random one."))
 
-        with st.expander(L("📋 ریز اسکن (همه‌ی ارزها)", "📋 Scan details (all coins)"), expanded=False):
+        with st.expander(L("📋 ریز اسکن (همه‌ی برگزیدگان)", "📋 Scan details (all finalists)"), expanded=False):
             rows = []
             for s in sorted(ok_scans, key=lambda s: -abs(float((s.get("committee") or {}).get("score", 0)))):
                 com = s.get("committee") or {}
@@ -243,7 +263,8 @@ with tab_scan:
                     L("نماد", "Symbol"): s.get("symbol"),
                     L("کمیسیون", "Committee"): f"{com.get('score', 0):+.2f}",
                     L("موافق", "Agree"): f"{com.get('n_agree', 0)}/4",
-                    L("ستاپ معتبر", "Valid setup"): "✅" if s.get("v_ok") else "—",
+                    L("ستاپ", "Setup"): "✅" if s.get("v_ok") else "—",
+                    L("چرا رد شد", "Why not"): (str(s.get("v_txt", ""))[:44] if not (com.get("ok") or any(a["ok"] for a in s.get("agents", {}).values())) else "—"),
                     L("بهترین ایجنت", "Best agent"): (f"{best['score']:+.2f}" if best else "—"),
                     L("واجد", "Qualified"): ("✅" if (com.get("ok") or any(a["ok"] for a in s.get("agents", {}).values())) else "—"),
                 })
@@ -253,6 +274,10 @@ with tab_scan:
 
     with st.expander("⚖️ " + L("قواعد انصاف و امتیازدهی", "Fairness & scoring rules"), expanded=False):
         st.markdown(L(
+            "**قدرت فیلتر ورود (سه سطح):** «سخت‌گیر» فقط ستاپ تازه + لبه‌ی walk-forward اثبات‌شده روی همان نماد — بی‌رحم ولی کم‌معامله. "
+            "«متعادل» (پیش‌فرض) ستاپ تازه در ۶ کندل اخیر را کافی می‌داند و لبه‌ی اندازه‌گیری‌شده را لازم ندارد. "
+            "«شکارچی» فیلتر ستاپ را کلاً خاموش می‌کند — ایجنت‌ها فقط با امتیاز و بک‌تست خودشان تصمیم می‌گیرند. "
+            "بقیه‌ی دروازه‌ها (آستانه‌ی امتیاز، بک‌تست PF>1، R:R≥۱) در هر سه سطح فعال‌اند.\n\n"
             "**غربالگری دومرحله‌ای (بدون سقف تعداد):** هر اسکن اول کل بازار صرافی را در یک فراخوانی می‌گیرد — نه یک عدد دست‌ساز. "
             "ارزهای مرده (گردش < ۰٫۵ میلیون دلار) و استیبل‌کوین‌ها حذف می‌شوند؛ قدرت هر ارز = "
             "۵۵٪ مومنتوم ۲۴ ساعته (قدرمطلق — پامپ و دامپ هر دو، چون شورت هم داریم) + ۳۰٪ نقدینگی + ۱۵٪ دامنه‌ی نوسان. "
@@ -267,6 +292,10 @@ with tab_scan:
             "در هر کندل اول استاپ چک می‌شود (محافظه‌کارانه)، بعد تارگت‌ها — یعنی نتایج به واقعیت بدبینانه‌تر نزدیک است.\n\n"
             "**خروج نردبانی:** TP1 → استاپ به ورود · TP2 → استاپ به TP1 · TP3 → بستن کامل. "
             "معامله‌ی سرگردان بعد از ۱۰۰ کندل با قیمت بازار بسته می‌شود.",
+            "**Entry filter strength (three levels):** 'Strict' requires a fresh setup + proven walk-forward edge on that exact coin — ruthless but rare. "
+            "'Balanced' (default) accepts any setup formed in the last 6 candles, without requiring a measured edge. "
+            "'Hunter' turns the setup filter off entirely — agents decide purely with their own score and backtest. "
+            "All other gates (score threshold, backtest PF>1, R:R≥1) stay active on every level.\n\n"
             "**Two-stage screening (no fixed count):** every scan first pulls the WHOLE exchange market in a single call — no hand-picked number. "
             "Dead coins (< $0.5M daily turnover) and stablecoins are removed; strength = "
             "55% 24h momentum (absolute — pumps and dumps both count, shorts exist) + 30% liquidity + 15% daily range. "

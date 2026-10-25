@@ -56,6 +56,17 @@ MIN_TURNOVER_M = 0.5     # حداقل گردش مالی ۲۴ ساعته (میل�
 STRENGTH_TOP_PCT = 85.0  # برگزیدگان = صدک ۸۵ قدرت (دینامیک؛ عدد ثابت نیست)
 DEEP_CAP = 60            # فقط ترمز فنی سهمیه‌بندی API — به‌ندرت فعال می‌شود
 
+# اشتهاي ریسک فیلتر ستاپ (دروازه‌ی اعتبارسنجی)
+#   strict   = فقط ستاپ تازه + لبه‌ی walk-forward اثبات‌شده (همان رفتار قدیمی — به‌ندرت معامله)
+#   balanced = ستاپ تازه در ۶ کندل اخیر کافی است (لبه‌ی اندازه‌گیری‌شده لازم نیست)
+#   hunter   = فیلتر ستاپ خاموش — فقط ایجنت‌ها تصمیم می‌گیرند
+APPETITES = {
+    "strict":   {"fa": "سخت‌گیر — فقط ستاپ اثبات‌شده", "en": "Strict — proven setups only"},
+    "balanced": {"fa": "متعادل — ستاپ تازه کافی است", "en": "Balanced — fresh setup is enough"},
+    "hunter":   {"fa": "شکارچی — فقط ایجنت‌ها", "en": "Hunter — agents only"},
+}
+DEFAULT_APPETITE = "hunter"
+
 _STABLE_QUOTES = ("USDC", "USDT", "DAI", "TUSD", "FDUSD", "BUSD", "USDP")
 
 
@@ -306,10 +317,25 @@ def market_screen(exchange: str) -> tuple[list[dict], int, bool]:
                   "strength": 0.0} for s in POOL_FALLBACK], len(POOL_FALLBACK), True)
 
 
-def _setup_dir(d: pd.DataFrame) -> tuple[bool, int, str]:
-    """موتور ستاپ اعتبارسنجی‌شده (walk-forward) — جهتش باید با ایجنت یکی باشد."""
+def _setup_dir(d: pd.DataFrame, appetite: str = DEFAULT_APPETITE) -> tuple[bool, int, str]:
+    """دروازه‌ی ستاپ بر اساس اشتهاي ریسک:
+      strict   → موتور کامل walk-forward (ستاپ تازه + لبه‌ی اثبات‌شده روی همان نماد)
+      balanced → ستاپ تازه در ۶ کندل اخیر (حتی بدون لبه‌ی اندازه‌گیری‌شده)
+      hunter   → همیشه باز؛ جهت محدودکننده نیست
+    خروجی: (عبور؟, جهتِ ستاپ (+1/-1/0), توضیح)"""
     try:
         import app_base as B
+        if appetite == "hunter":
+            return True, 0, "فیلتر ستاپ خاموش — ایجنت‌ها تصمیم می‌گیرند"
+        if appetite == "balanced":
+            bs = B.best_setup(d, recent_bars=6)
+            dr = int(bs.get("dir") or 0)
+            if dr != 0:
+                why = ("ستاپ تازه + لبه‌ی اثبات‌شده" if bs.get("active")
+                       else "ستاپ تازه (لبه‌ی این نماد هنوز اندازه‌گیری نشده)")
+                return True, dr, why
+            return False, 0, "ستاپ تازه‌ای در ۶ کندل اخیر نیست"
+        # strict — همان موتور اعتبارسنجی کامل
         vp = B.setup_plan(d)
         ok = vp.get("status") == "active"
         dr = 1 if str(vp.get("direction", "")).startswith("لانگ") else -1 if str(vp.get("direction", "")).startswith("شورت") else 0
@@ -319,15 +345,15 @@ def _setup_dir(d: pd.DataFrame) -> tuple[bool, int, str]:
 
 
 def scan_coin(exchange: str, symbol: str, interval: str, balance: float = START_EQUITY,
-              fee_pct: float = FEE_PCT) -> dict:
-    """یک ارز را از موتور مشترک دوئل رد می‌کند و برای هر شرکت‌کننده تکلیف را روشن می‌کند."""
+              fee_pct: float = FEE_PCT, appetite: str = DEFAULT_APPETITE) -> dict:
+    """یک ارز را از موتور مشترک ایجنت‌ها رد می‌کند و برای هر شرکت‌کننده تکلیف را روشن می‌کند."""
     try:
         S_ = calculate_duel(exchange, symbol, interval, 300, balance, fee_pct)
     except Exception as exc:  # noqa: BLE001
         return {"symbol": symbol, "error": f"{type(exc).__name__}: {exc}"}
 
     d_ = S_["d"]
-    v_ok, v_dir, v_txt = _setup_dir(d_)
+    v_ok, v_dir, v_txt = _setup_dir(d_, appetite)
     dt_col = d_["dt"] if "dt" in d_.columns else None
     out = {
         "symbol": S_["sym"], "error": None, "price": float(d_["close"].iloc[-1]), "dec": S_["dec"],
@@ -342,7 +368,7 @@ def scan_coin(exchange: str, symbol: str, interval: str, balance: float = START_
         pos, bt, sc, sig = r["position"], r["bt"], r["score"], r["sig"]
         ok = (sig != 0 and np.sign(sc) == sig and abs(sc) >= spec["thr"]
               and bt["pf"] > 1.0 and bt["total"] > 0
-              and v_ok and v_dir == sig
+              and v_ok and (appetite == "hunter" or v_dir == sig)
               and pos["direction"] != 0 and float(pos.get("rr") or 0) >= 1.0)
         top_rows = sorted(r["rows"], key=lambda x: -abs(float(x["سهم در تصمیم"])))[:2]
         evidence = " · ".join(f"{row['فاکتور']}: {row['مدرک (مشاهده‌ی واقعی)']}" for row in top_rows)
@@ -356,7 +382,7 @@ def scan_coin(exchange: str, symbol: str, interval: str, balance: float = START_
     fpos = S_["final_pos"]
     n_agree = sum(1 for n, r in S_["results"].items() if fd != 0 and r["sig"] == fd)
     c_ok = (fd != 0 and abs(S_["final_s"]) >= 0.15 and n_agree >= 3
-            and v_ok and v_dir == fd
+            and v_ok and (appetite == "hunter" or v_dir == fd)
             and fpos["direction"] != 0 and float(fpos.get("rr") or 0) >= 1.0)
     out["committee"] = {
         "dir": int(fd), "score": float(S_["final_s"]), "ok": bool(c_ok), "pos": fpos,
@@ -367,13 +393,15 @@ def scan_coin(exchange: str, symbol: str, interval: str, balance: float = START_
 
 
 def run_scan(exchange: str, interval: str, balance: float = START_EQUITY,
-             fee_pct: float = FEE_PCT, workers: int = 6) -> tuple[list[dict], list[str], dict]:
+             fee_pct: float = FEE_PCT, workers: int = 6,
+             appetite: str = DEFAULT_APPETITE) -> tuple[list[dict], list[str], dict]:
     """اسکن دومرحله‌ای: غربالگری کل بازار → تحلیل عمیق برگزیدگان (موازی).
-    خروجی: (نتایج تحلیل, خطاها, متادیتا {total/finalists/fallback/min_strength})"""
+    خروجی: (نتایج تحلیل, خطاها, متادیتا {total/finalists/fallback/min_strength/appetite})"""
     finalists, total, fallback = market_screen(exchange)
     pool = [f["symbol"] for f in finalists] or list(POOL_FALLBACK)
     meta = {"total": int(total), "finalists": len(pool), "fallback": bool(fallback),
-            "min_strength": float(finalists[-1]["strength"]) if finalists else 0.0}
+            "min_strength": float(finalists[-1]["strength"]) if finalists else 0.0,
+            "appetite": appetite}
     init = None
     try:
         from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ctx
@@ -384,7 +412,7 @@ def run_scan(exchange: str, interval: str, balance: float = START_EQUITY,
     except Exception:  # noqa: BLE001
         init = None
     with ThreadPoolExecutor(max_workers=max(1, min(workers, len(pool))), initializer=init) as ex:
-        scans = list(ex.map(lambda s: scan_coin(exchange, s, interval, balance, fee_pct), pool))
+        scans = list(ex.map(lambda s: scan_coin(exchange, s, interval, balance, fee_pct, appetite), pool))
     errors = [f"{o['symbol']} — {o['error']}" for o in scans if o.get("error")]
     return scans, errors, meta
 

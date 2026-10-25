@@ -31,3 +31,6 @@ Thumbs.db
 .ruff_cache/
 .ipynb_checkpoints/
 community_analyses.json
+
+# local paper-league fallback store
+arena_trades.json

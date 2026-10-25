@@ -89,14 +89,40 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
 }
 
 
+def _query_lang() -> Optional[str]:
+    """خواندن زبان از پارامتر URL (?lang=en) — تا با F5/تب جدید زبان حفظ شود."""
+    try:
+        v = st.query_params.get("lang")
+        if isinstance(v, str) and v in TRANSLATIONS:
+            return v
+    except Exception:
+        pass
+    try:  # نسخه‌های قدیمی Streamlit
+        qp = st.experimental_get_query_params()
+        v = (qp.get("lang") or [None])[0]
+        return v if v in TRANSLATIONS else None
+    except Exception:
+        return None
+
+
 def get_lang() -> str:
-    lang = st.session_state.get(LANG_KEY, DEFAULT_LANG)
-    return lang if lang in TRANSLATIONS else DEFAULT_LANG
+    lang = st.session_state.get(LANG_KEY)
+    if lang not in TRANSLATIONS:
+        lang = _query_lang() or DEFAULT_LANG
+        st.session_state[LANG_KEY] = lang
+    return lang
 
 
 def set_lang(lang: str) -> None:
     if lang in TRANSLATIONS:
         st.session_state[LANG_KEY] = lang
+        try:
+            st.query_params["lang"] = lang  # در URL ذخیره می‌شود → با F5 ریست نمی‌شود
+        except Exception:
+            try:
+                st.experimental_set_query_params(lang=lang)
+            except Exception:
+                pass
 
 
 def is_rtl() -> bool:
@@ -1827,23 +1853,27 @@ def language_switcher(sidebar: bool = True) -> str:
 
 
 def apply_direction() -> None:
-    """با فارسی راست‌به‌چپ، با انگلیسی چپ‌به‌راست — روی کل اپ."""
+    """فارسی: متن‌ها راست‌چین · انگلیسی: چپ‌چین.
+    چیدمان کلی همیشه LTR می‌ماند تا سایدبار در هر دو زبان سمت چپ بماند."""
     rtl = is_rtl()
     direction = "rtl" if rtl else "ltr"
     align = "right" if rtl else "left"
     st.markdown(
         f"""
         <style>
-            .stApp, [data-testid="stSidebar"] {{
-                direction: {direction};
-                text-align: {align};
+            /* چیدمان و موقعیت: همیشه LTR → سایدبار سمت چپ می‌ماند */
+            .stApp, [data-testid="stSidebar"],
+            [data-testid="stSidebarCollapsedControl"] {{
+                direction: ltr;
             }}
+            /* متن محتوا: در فارسی راست‌چین، در انگلیسی چپ‌چین */
             .stApp p, .stApp h1, .stApp h2, .stApp h3, .stApp h4,
             .stMarkdown, [data-testid="stMarkdownContainer"], label {{
                 direction: {direction};
                 text-align: {align};
             }}
             [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] {{
+                direction: {direction};
                 text-align: {align};
             }}
             [data-testid="stMetric"], [data-testid="stMetricLabel"],

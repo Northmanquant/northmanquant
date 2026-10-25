@@ -85,11 +85,42 @@ if _just_closed:
                  f"{_res_badge(str(_t.get('result')))} ({float(_t.get('realized_r') or 0):+.2f}R · {pts:+.0f} امتیاز)")
 
 _hc = _store.healthcheck()
-if _hc.get("backend") != "supabase":
+if _hc.get("reason") == "table_error":
+    _err = str(_hc.get("error") or "")
+    if "does not exist" in _err.lower() or "42p01" in _err.lower():
+        st.warning(L(
+            "اتصال به Supabase ✅ برقرار است اما جدول arena_trades هنوز ساخته نشده — "
+            "فایل sql/arena_setup.sql را یک‌بار در Supabase → SQL Editor اجرا کن و صفحه را رفرش کن.",
+            "Supabase ✅ connected but the arena_trades table doesn't exist yet — "
+            "run sql/arena_setup.sql once in Supabase → SQL Editor, then refresh."))
+    else:
+        st.warning(L(
+            f"اتصال به Supabase برقرار است اما خواندن جدول خطا داد: {_err[:140]}",
+            f"Supabase connected but table read failed: {_err[:140]}"))
+elif _hc.get("reason") == "client_error":
     st.warning(L(
-        "داده‌ی میدان الان روی فایل محلی ذخیره می‌شود (با redeploy پاک می‌شود). برای ذخیره‌ی همیشگی، "
-        "فایل sql/arena_setup.sql را یک‌بار در Supabase → SQL Editor اجرا کن.",
-        "Arena data is stored in a local file (lost on redeploy). Run sql/arena_setup.sql once in Supabase → SQL Editor for persistent storage."))
+        f"SUPABASE_URL و SUPABASE_KEY خوانده شدند اما ساخت کلاینت شکست خورد: {str(_hc.get('error') or '')[:120]} — "
+        "چک کن URL دقیقاً شبیه https://xxxx.supabase.co باشد (بدون / آخر).",
+        f"SUPABASE_URL/SUPABASE_KEY read but client creation failed: {str(_hc.get('error') or '')[:120]} — "
+        "URL must look exactly like https://xxxx.supabase.co (no trailing slash)."))
+elif _hc.get("reason") == "no_secrets":
+    _miss = " و ".join(_hc.get("missing") or ["SUPABASE_URL", "SUPABASE_KEY"])
+    _toml = 'SUPABASE_URL = "https://xxxx.supabase.co"\nSUPABASE_KEY = "eyJhbGci...anon-key"'
+    st.warning(L(
+        f"داده‌ی میدان الان روی فایل محلی ذخیره می‌شود (با redeploy پاک می‌شود). دو قدم تا اتصال دائمی:\n\n"
+        f"۱️⃣ **اجرای SQL**: فایل `sql/arena_setup.sql` را در Supabase → SQL Editor یک‌بار اجرا کن.\n\n"
+        f"۲️⃣ **افزودن Secrets**: در Streamlit Cloud → Manage app → Settings → Secrets این دو خط را اضافه کن "
+        f"(الان {_miss} پیدا نمی‌شود):\n\n"
+        f"```toml\n{_toml}\n```\n\n"
+        f"URL را از Supabase → Settings → API → Project URL بگیر و KEY همان **anon public** است (نه service_role). "
+        f"بعد از Save، اپ خودش ری‌استارت می‌شود و این هشدار محو می‌شود.",
+        f"Arena data is stored in a local file (lost on redeploy). Two steps to connect:\n\n"
+        f"1️⃣ **Run SQL**: run `sql/arena_setup.sql` once in Supabase → SQL Editor.\n\n"
+        f"2️⃣ **Add Secrets**: in Streamlit Cloud → Manage app → Settings → Secrets add these two lines "
+        f"(currently {_miss} is missing):\n\n"
+        f"```toml\n{_toml}\n```\n\n"
+        f"Get the URL from Supabase → Settings → API → Project URL; KEY is the **anon public** key (not service_role). "
+        f"After Save the app restarts and this warning disappears."))
 
 _m1, _m2, _m3, _m4 = st.columns(4)
 _m1.metric(L("پوزیشن‌های باز", "Open positions"), len(_open_trades))
@@ -404,5 +435,6 @@ with tab_board:
                            data=hdf.to_csv(index=False).encode("utf-8"),
                            file_name="arena_history.csv", mime="text/csv", key="arena_csv")
 
-    st.caption(L(f"بک‌اند: {_hc.get('backend')} · جدول: arena_trades",
-                 f"Backend: {_hc.get('backend')} · table: arena_trades"))
+    _st_icon = "🟢" if _hc.get("reason") == "ok" else "🟡"
+    st.caption(_st_icon + " " + L(f"بک‌اند: {_hc.get('backend')} · جدول: arena_trades",
+                                  f"Backend: {_hc.get('backend')} · table: arena_trades"))

@@ -25,16 +25,41 @@ def _utcnow_iso() -> str:
 
 
 def _secrets_get(key: str) -> Optional[str]:
+    """خواندن Secret — هوشمند: مستقیم، بی‌حساس به بزرگی حروف، حتی داخل بخش‌های تودرتو مثل [supabase]."""
+    def _scan(obj: Any, depth: int = 0) -> Optional[str]:
+        if depth > 3:
+            return None
+        try:
+            items = list(obj.items()) if hasattr(obj, "items") else []
+        except Exception:  # noqa: BLE001
+            items = []
+        for k, v in items:  # اول سطح فعلی
+            if not hasattr(v, "items") and str(k).strip().lower() == key.lower():
+                s = str(v).strip()
+                if s:
+                    return s
+        for _, v in items:  # بعد بخش‌های داخلی
+            if hasattr(v, "items"):
+                f = _scan(v, depth + 1)
+                if f:
+                    return f
+        return None
+
     try:
         import streamlit as st
         try:
-            if key in st.secrets:  # type: ignore[operator]
-                return str(st.secrets[key])
+            f = _scan(st.secrets)  # type: ignore[attr-defined]
+            if f:
+                return f
         except Exception:  # noqa: BLE001
             pass
     except Exception:  # noqa: BLE001
         pass
-    return os.environ.get(key)
+    for k in (key, key.upper(), key.lower()):
+        v = os.environ.get(k)
+        if v:
+            return v
+    return None
 
 
 def _json_safe(value: Any) -> Any:
@@ -71,6 +96,7 @@ class ArenaStore:
     def __init__(self) -> None:
         self._client = None
         self._client_tried = False
+        self._client_err = ""
 
     # ----- client ---------------------------------------------------------------
     def _get_client(self):
@@ -82,8 +108,9 @@ class ArenaStore:
                 try:
                     from supabase import create_client  # type: ignore
                     self._client = create_client(url, key)
-                except Exception:  # noqa: BLE001
+                except Exception as e:  # noqa: BLE001
                     self._client = None
+                    self._client_err = str(e)
         return self._client
 
     @property
@@ -179,17 +206,27 @@ class ArenaStore:
             return hit
 
     def healthcheck(self) -> Dict[str, Any]:
-        info: Dict[str, Any] = {"backend": self.backend, "table": TABLE}
+        """تشخیص دقیق وضعیت اتصال — reason یکی از:
+        ok | no_secrets | client_error | table_error"""
+        url = _secrets_get("SUPABASE_URL")
+        key = _secrets_get("SUPABASE_KEY") or _secrets_get("SUPABASE_ANON_KEY")
+        info: Dict[str, Any] = {"backend": self.backend, "table": TABLE,
+                                "has_url": bool(url), "has_key": bool(key)}
         client = self._get_client()
         if client is not None:
             try:
                 res = client.table(TABLE).select("id", count="exact").limit(1).execute()
-                info["ok"] = True
-                info["rows"] = getattr(res, "count", None)
+                info.update(ok=True, rows=getattr(res, "count", None), reason="ok")
             except Exception as e:  # noqa: BLE001
-                info.update(ok=False, backend="supabase(خطا، fallback محلی)", error=str(e))
+                info.update(ok=False, backend="supabase(خطا، fallback محلی)",
+                            error=str(e), reason="table_error")
         else:
             info.update(ok=os.path.exists(LOCAL_FILE), rows=len(self._load_local()))
+            if url and key:
+                info.update(reason="client_error", error=self._client_err)
+            else:
+                missing = [n for n, v in (("SUPABASE_URL", url), ("SUPABASE_KEY", key)) if not v]
+                info.update(reason="no_secrets", missing=missing)
         return info
 
 

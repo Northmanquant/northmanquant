@@ -114,7 +114,7 @@ northmanquant-lite/
 ├── pages/
 │   ├── 1_Live_Prices.py      # مقایسه‌ی زنده‌ی قیمت بین صرافی‌ها
 │   ├── 2_Live_Trading.py     # ترید با کلید API (Paper/Real)
-│   └── 3_Agents_Duel.py      # دوئل ایجنت‌ها با مدرک
+│   └── 4_Agent_Arena.py      # میدان ایجنت‌ها — لیگ معاملاتی کاغذی با اسکن کل بازار
 ├── requirements.txt          # وابستگی‌ها
 ├── README.md
 ├── .gitignore

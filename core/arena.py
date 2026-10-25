@@ -1,8 +1,14 @@
 """core/arena.py — موتور «میدان ایجنت‌ها» (Agent Arena)
 ========================================================
-لیگ معاملاتی کاغذی: هر ایجنت (۴ ایجنت + کمیسیون) مستقلاً صرافی را اسکن می‌کند،
-با وزن‌های خودش ارز انتخاب می‌کند، معامله‌ی کاغذی باز می‌کند و تا TP/SL/تایم‌اوت
-مدیریتش می‌کنیم. خروجی: وین‌ریت، امتیاز R-based، ایکوییتی و لیدربورد.
+لیگ معاملاتی کاغذی با اسکن دومرحله‌ای کل بازار:
+  مرحله ۱ — غربالگری: کل بازار صرافی (بدون سقف تعداد) در یک فراخوانی گرفته می‌شود؛
+           ارزهای مرده و استیبل‌کوین حذف و «قدرت» هر ارز سنجیده می‌شود
+           (مومنتوم ۲۴ ساعته + نقدینگی + دامنه‌ی نوسان). فقط بهترین‌ها از صدک
+           قدرت رد می‌شوند — تعداد برگزیدگان دینامیک است، عدد ثابت نیست.
+  مرحله ۲ — تحلیل عمیق: برگزیدگان از موتور مشترک ۴ ایجنت (بک‌تست + ستاپ
+           walk-forward + R:R) رد می‌شوند و هر بازیکن با وزن‌های خودش تصمیم
+           می‌گیرد. معامله‌ی کاغذی تا TP/SL/تایم‌اوت مدیریت می‌شود.
+خروجی: وین‌ریت، امتیاز R-based، ایکوییتی و لیدربورد.
 
 قواعد انصاف:
   • همه با همان universe ارز، تایم‌فریم، کارمزد و ریسک ثابت ۱٪ در هر معامله.
@@ -44,6 +50,13 @@ COMMITTEE = {"name": "Committee 🤝", "fa": "کمیسیون 🤝", "color": "#9
 
 POOL_FALLBACK = ["BTC-USDT", "ETH-USDT", "SOL-USDT", "XRP-USDT", "BNB-USDT", "DOGE-USDT",
                  "ADA-USDT", "AVAX-USDT", "LINK-USDT", "TRX-USDT", "LTC-USDT", "DOT-USDT"]
+
+# غربالگری کل بازار — مرحله ۱
+MIN_TURNOVER_M = 0.5     # حداقل گردش مالی ۲۴ ساعته (میلیون دلار) — حذف ارزهای مرده
+STRENGTH_TOP_PCT = 85.0  # برگزیدگان = صدک ۸۵ قدرت (دینامیک؛ عدد ثابت نیست)
+DEEP_CAP = 60            # فقط ترمز فنی سهمیه‌بندی API — به‌ندرت فعال می‌شود
+
+_STABLE_QUOTES = ("USDC", "USDT", "DAI", "TUSD", "FDUSD", "BUSD", "USDP")
 
 
 def participants() -> list[dict]:
@@ -244,18 +257,53 @@ def make_trade_record(agent_name: str, coin: dict, pick: dict, exchange: str, in
     }
 
 
-# ----------------------------------------------------------------------------- scanning
-def arena_pool(exchange: str, n: int) -> list[str]:
-    """Universe اسکن: پرحجم‌ترین‌ها + برترین‌های رشد/ریزش صرافی (با fallback امن)."""
+# ----------------------------------------------------------------------------- screening (مرحله ۱)
+def market_screen(exchange: str) -> tuple[list[dict], int, bool]:
+    """غربالگری کل بازار بدون سقف تعداد.
+
+    کل جفت‌ارزهای صرافی در یک فراخوانی گرفته می‌شود (همان تیکر ۲۴ ساعته که
+    داشبورد استفاده می‌کند)، ارزهای مرده و استیبل‌کوین حذف می‌شوند و برای هر
+    ارز «قدرت» محاسبه می‌شود:
+        ۵۵٪ مومنتوم ۲۴ ساعته (قدرمطلق — هم پامپ هم دامپ، چون شورت هم داریم)
+      + ۳۰٪ نقدینگی (لگاریتم گردش مالی)
+      + ۱۵٪ دامنه‌ی نوسان روز (تفاضل سقف/کف به قیمت)
+    هر چیزی که از صدک ۸۵ این امتیاز رد شود وارد تحلیل عمیق می‌شود — یعنی
+    تعداد برگزیدگان بسته به حال بازار دینامیک است، نه یک عدد ثابت. فقط سقف
+    فنی DEEP_CAP (محافظت از سهمیه‌ی API صرافی) روی تعداد اعمال می‌شود.
+
+    خروجی: (برگزیدگان مرتب‌شده بر اساس قدرت, تعداد کل بازار, fallback فعال بود؟)
+    """
     try:
         import app_base as B
-        tops = B.fetch_top_coins(exchange, 1_000_000, 40)
-        pool = pd.concat([tops["volume"], tops["gainers"], tops["losers"]]).drop_duplicates("symbol")
-        syms = [s for s in pool["symbol"].tolist()
-                if not str(s).upper().startswith(("USDC", "USDT", "DAI", "TUSD", "FDUSD"))]
-        return syms[:n] or POOL_FALLBACK[:n]
-    except Exception:  # noqa: BLE001
-        return POOL_FALLBACK[:n]
+        tops = B.fetch_top_coins(exchange, MIN_TURNOVER_M * 1e6, 10_000)
+        full = (pd.concat([tops["volume"], tops["gainers"], tops["losers"]])
+                .drop_duplicates("symbol").reset_index(drop=True))
+        full = full[pd.to_numeric(full["price"], errors="coerce").fillna(0) > 0]
+        full = full[full["turnoverM$"] >= MIN_TURNOVER_M]
+        full = full[~full["symbol"].astype(str).str.upper().str.startswith(_STABLE_QUOTES)]
+        if full.empty:
+            raise ValueError("بعد از فیلترها بازار خالی بود")
+
+        mom = pd.to_numeric(full["change%"], errors="coerce").abs().fillna(0.0)
+        liq = np.log1p(pd.to_numeric(full["turnoverM$"], errors="coerce").clip(lower=0))
+        rng = (pd.to_numeric(full["high"], errors="coerce") - pd.to_numeric(full["low"], errors="coerce")) \
+            / pd.to_numeric(full["price"], errors="coerce").replace(0, np.nan) * 100.0
+        rng = rng.clip(lower=0, upper=100).fillna(0.0)  # دامنه‌های مسخره‌ی تیکر خراب را خنثی کن
+
+        strength = (0.55 * mom.rank(pct=True)
+                    + 0.30 * liq.rank(pct=True)
+                    + 0.15 * rng.rank(pct=True))
+        full = full.assign(strength=strength).sort_values("strength", ascending=False)
+
+        cut = float(np.percentile(strength, STRENGTH_TOP_PCT))
+        top = full[full["strength"] >= cut].head(DEEP_CAP)
+        finalists = [{"symbol": str(r["symbol"]), "price": float(r["price"]),
+                      "change24": float(r["change%"]), "turnover": float(r["turnoverM$"]),
+                      "strength": float(r["strength"])} for _, r in top.iterrows()]
+        return finalists, int(len(full)), False
+    except Exception:  # noqa: BLE001 — صرافی در دسترس نبود: ۱۲.major امن
+        return ([{"symbol": s, "price": 0.0, "change24": 0.0, "turnover": 0.0,
+                  "strength": 0.0} for s in POOL_FALLBACK], len(POOL_FALLBACK), True)
 
 
 def _setup_dir(d: pd.DataFrame) -> tuple[bool, int, str]:
@@ -318,10 +366,14 @@ def scan_coin(exchange: str, symbol: str, interval: str, balance: float = START_
     return out
 
 
-def run_scan(exchange: str, interval: str, n_pool: int, balance: float = START_EQUITY,
-             fee_pct: float = FEE_PCT, workers: int = 6) -> tuple[list[dict], list[str]]:
-    """اسکن موازی Universe با ThreadPoolExecutor (همان الگوی شکار بازار)."""
-    pool = arena_pool(exchange, int(n_pool))
+def run_scan(exchange: str, interval: str, balance: float = START_EQUITY,
+             fee_pct: float = FEE_PCT, workers: int = 6) -> tuple[list[dict], list[str], dict]:
+    """اسکن دومرحله‌ای: غربالگری کل بازار → تحلیل عمیق برگزیدگان (موازی).
+    خروجی: (نتایج تحلیل, خطاها, متادیتا {total/finalists/fallback/min_strength})"""
+    finalists, total, fallback = market_screen(exchange)
+    pool = [f["symbol"] for f in finalists] or list(POOL_FALLBACK)
+    meta = {"total": int(total), "finalists": len(pool), "fallback": bool(fallback),
+            "min_strength": float(finalists[-1]["strength"]) if finalists else 0.0}
     init = None
     try:
         from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ctx
@@ -334,7 +386,7 @@ def run_scan(exchange: str, interval: str, n_pool: int, balance: float = START_E
     with ThreadPoolExecutor(max_workers=max(1, min(workers, len(pool))), initializer=init) as ex:
         scans = list(ex.map(lambda s: scan_coin(exchange, s, interval, balance, fee_pct), pool))
     errors = [f"{o['symbol']} — {o['error']}" for o in scans if o.get("error")]
-    return scans, errors
+    return scans, errors, meta
 
 
 def threading_current():

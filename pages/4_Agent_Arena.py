@@ -23,10 +23,12 @@ def L(fa: str, en: str) -> str:
 
 st.title("🏟️ " + L("میدان ایجنت‌ها — لیگ معاملاتی", "Agent Arena — Trading League"))
 st.caption(L(
-    "۵ شرکت‌کننده (۴ ایجنت + کمیسیون) روی صرافی انتخابی تو، خودشان ارزهای پرقدرت را پیدا می‌کنند، "
-    "تحلیل می‌کنند و معامله‌ی کاغذی باز می‌کنند. معامله‌ها بین بازدیدها زنده می‌مانند و تا TP/SL/تایم‌اوت مدیریت می‌شوند. "
+    "۵ شرکت‌کننده (۴ ایجنت + کمیسیون) اول کل بازار صرافی را غربال می‌کنند تا قوی‌ترین ارزها را پیدا کنند، "
+    "بعد همان‌ها را با موتور تحلیل و بک‌تست خودشان عمیق بررسی و معامله‌ی کاغذی باز می‌کنند. "
+    "معامله‌ها بین بازدیدها زنده می‌مانند و تا TP/SL/تایم‌اوت مدیریت می‌شوند. "
     "در پایان: کدوم ایجنت بهترین وین‌ریت و امتیاز را می‌گیرد؟",
-    "5 participants (4 agents + Committee) hunt strong coins on your exchange, analyze them and open paper trades. "
+    "5 participants (4 agents + Committee) first screen the WHOLE exchange market to find the strongest coins, "
+    "then deep-analyze those with their own engine and open paper trades. "
     "Trades persist between visits and are managed until TP/SL/timeout. Who ends up with the best winrate and score?"))
 
 from core import arena as A  # noqa: E402
@@ -170,17 +172,15 @@ with tab_scan:
         "1) its own score passes its threshold, 2) its own backtest on that coin is profitable (PF>1), "
         "3) the walk-forward validated setup agrees, 4) R:R ≥ 1. The Committee enters on 3/4 consensus."))
 
-    c1, c2, c3, c4 = st.columns([1.3, 1, 1, 1.1])
+    c1, c2, c3 = st.columns([1.4, 1, 1.1])
     with c1:
         exchange = st.selectbox(L("صرافی", "Exchange"), EXCHANGES, index=0, key="arena_exch")
     with c2:
         interval = st.selectbox(L("تایم‌فریم (برای همه)", "Timeframe (for all)"),
                                 ["15min", "1hour", "4hour", "1day"], index=1, key="arena_tf")
     with c3:
-        n_pool = st.select_slider(L("تعداد ارز اسکن", "Coins to scan"), options=[12, 20, 30], value=20, key="arena_n")
-    with c4:
         st.write("")
-        go = st.button("🔎 " + L("شروع اسکن", "Run scan"), type="primary", use_container_width=True, key="arena_go")
+        go = st.button("🔎 " + L("اسکن کل بازار", "Scan whole market"), type="primary", use_container_width=True, key="arena_go")
 
     if exchange == "Lighter":
         st.info(L("Lighter پرپ است — نمادها بدون USDT هستند.", "Lighter is perp — symbols without USDT."))
@@ -188,13 +188,13 @@ with tab_scan:
     if go:
         t0 = time.time()
         try:
-            with st.spinner(L(f"ایجنت‌ها در حال بررسی {n_pool} ارز روی {exchange} · {interval} … (۳۰–۹۰ ثانیه)",
-                              f"Agents are scanning {n_pool} coins on {exchange} · {interval} … (30–90s)")):
-                scans, errors = A.run_scan(exchange, interval, int(n_pool))
+            with st.spinner(L(f"اول کل بازار {exchange} غربال می‌شود، بعد برگزیدگان تحلیل عمیق می‌شوند · {interval} … (۳۰–۹۰ ثانیه)",
+                              f"Screening the whole {exchange} market first, then deep-analyzing the best ones · {interval} … (30–90s)")):
+                scans, errors, meta = A.run_scan(exchange, interval)
                 opened, blocked = A.open_trades_from_scan(scans, exchange, interval, _store)
             st.session_state["arena_scan"] = {
-                "scans": scans, "errors": errors, "opened": opened, "blocked": blocked,
-                "exchange": exchange, "interval": interval, "n": int(n_pool),
+                "scans": scans, "errors": errors, "opened": opened, "blocked": blocked, "meta": meta,
+                "exchange": exchange, "interval": interval,
                 "took": time.time() - t0, "ts": datetime.now().strftime("%Y-%m-%d %H:%M")}
             st.session_state.pop("_arena_upd", None)
         except Exception as exc:  # noqa: BLE001
@@ -202,21 +202,24 @@ with tab_scan:
 
     H = st.session_state.get("arena_scan")
     if not H:
-        st.info(L("روی «🔎 شروع اسکن» بزن — ایجنت‌ها خودشان می‌گردند و بهترین فرصت‌ها را معامله می‌کنند.",
-                  "Hit 'Run scan' — agents will hunt and trade the best opportunities themselves."))
+        st.info(L("روی «🔎 اسکن کل بازار» بزن — ایجنت‌ها اول کل بازار را غربال می‌کنند تا بهترین‌ها را پیدا کنند، بعد همان‌ها را تحلیل و معامله می‌کنند.",
+                  "Hit 'Scan whole market' — agents first screen the entire market for the strongest coins, then analyze and trade those."))
     else:
-        scans, opened = H["scans"], H["opened"]
+        scans, opened, meta = H["scans"], H["opened"], H.get("meta", {})
         ok_scans = [s for s in scans if not s.get("error")]
         n_agents_ok = sum(1 for s in ok_scans if any(a["ok"] for a in s.get("agents", {}).values()))
         n_com_ok = sum(1 for s in ok_scans if (s.get("committee") or {}).get("ok"))
         k1, k2, k3, k4 = st.columns(4)
-        k1.metric(L("ارز بررسی‌شده", "Coins scanned"), len(scans))
-        k2.metric(L("معامله‌ی باز‌شده", "Trades opened"), len(opened))
-        k3.metric(L("ایجنت‌های واجد شرایط", "Agents qualified"), n_agents_ok)
-        k4.metric(L("کمیسیون واجد شرایط", "Committee qualified"), n_com_ok)
-        st.caption(L(f"{H['exchange']} · {H['interval']} · {H['n']} ارز در {H['took']:.0f} ثانیه · {H['ts']}"
+        k1.metric(L("بازار غربال‌شده", "Market screened"), meta.get("total", len(scans)))
+        k2.metric(L("برگزیدگان تحلیل عمیق", "Deep-analyzed finalists"), meta.get("finalists", len(scans)))
+        k3.metric(L("معامله‌ی باز‌شده", "Trades opened"), len(opened))
+        k4.metric(L("فرصت واجد شرایط", "Qualified setups"), n_agents_ok + n_com_ok)
+        if meta.get("fallback"):
+            st.warning(L("تیکر صرافی در دسترس نبود — اسکن با ۱۲ ارز اصلی انجام شد.",
+                         "Exchange ticker unavailable — scanned the 12 major coins instead."))
+        st.caption(L(f"{H['exchange']} · {H['interval']} · کل بازار: {meta.get('total', '—')} ارز → تحلیل عمیق: {meta.get('finalists', '—')} برگزیده در {H['took']:.0f} ثانیه · {H['ts']}"
                      + (f" · {len(H['errors'])} ارز خطا داد" if H["errors"] else ""),
-                     f"{H['exchange']} · {H['interval']} · {H['n']} coins in {H['took']:.0f}s · {H['ts']}"
+                     f"{H['exchange']} · {H['interval']} · whole market: {meta.get('total', '—')} coins → deep analysis: {meta.get('finalists', '—')} finalists in {H['took']:.0f}s · {H['ts']}"
                      + (f" · {len(H['errors'])} errors" if H["errors"] else "")))
 
         if opened:
@@ -226,9 +229,9 @@ with tab_scan:
         else:
             v_pass = sum(1 for s in ok_scans if s.get("v_ok"))
             st.warning(L(
-                f"هیچ معامله‌ی تازه‌ای باز نشد — از {len(ok_scans)} ارز، فقط {v_pass} تا ستاپ اعتبارسنجی‌شده داشتند و "
+                f"هیچ معامله‌ی تازه‌ای باز نشد — از {len(ok_scans)} برگزیده، فقط {v_pass} تا ستاپ اعتبارسنجی‌شده داشتند و "
                 f"هیچ شرکت‌کننده‌ای (یا سهمیه‌ی خالی‌ای) هم‌جهتش نبود. یعنی الان لبه‌ی واضحی نیست — سیگنال الکی بهتر از بی‌معامله‌ای نیست.",
-                f"No new trades — of {len(ok_scans)} coins only {v_pass} had a validated setup and no participant "
+                f"No new trades — of {len(ok_scans)} finalists only {v_pass} had a validated setup and no participant "
                 f"(or free slot) matched direction. No clear edge right now — better no trade than a random one."))
 
         with st.expander(L("📋 ریز اسکن (همه‌ی ارزها)", "📋 Scan details (all coins)"), expanded=False):
@@ -250,19 +253,29 @@ with tab_scan:
 
     with st.expander("⚖️ " + L("قواعد انصاف و امتیازدهی", "Fairness & scoring rules"), expanded=False):
         st.markdown(L(
+            "**غربالگری دومرحله‌ای (بدون سقف تعداد):** هر اسکن اول کل بازار صرافی را در یک فراخوانی می‌گیرد — نه یک عدد دست‌ساز. "
+            "ارزهای مرده (گردش < ۰٫۵ میلیون دلار) و استیبل‌کوین‌ها حذف می‌شوند؛ قدرت هر ارز = "
+            "۵۵٪ مومنتوم ۲۴ ساعته (قدرمطلق — پامپ و دامپ هر دو، چون شورت هم داریم) + ۳۰٪ نقدینگی + ۱۵٪ دامنه‌ی نوسان. "
+            "هر چه از صدک ۸۵ قدرت رد شود وارد تحلیل عمیق می‌شود — یعنی تعداد برگزیدگان بسته به حال بازار بالا و پایین می‌شود "
+            "(فقط سقف فنی ۶۰ تایی برای محافظت از سهمیه‌ی API صرافی وجود دارد).\n\n"
             "**امتیاز هر معامله:** TP3 کامل = **+۵** · TP2 = **+۲** · TP1 و خروج با تریل = **+۱** · سر‌به‌سر = **۰** · "
             "استاپ (لیکویید ایجنت) = **−۱** · تایم‌اوت = **±۰٫۵** بر اساس علامت سود/زیان.\n\n"
             "**وین‌ریت** = بردها ÷ (بردها + باخت‌ها) — سر‌به‌سر‌ها شمرده نمی‌شوند.\n\n"
-            "**قواعد انصاف:** همه با یک universe ارز، یک تایم‌فریم، کارمزد یکسان، ریسک ثابت **۱٪** در هر معامله، "
+            "**قواعد انصاف:** همه با یک تایم‌فریم، کارمزد یکسان، ریسک ثابت **۱٪** در هر معامله، "
             "حداکثر **۳ پوزیشن** همزمان برای هر شرکت‌کننده و سقف **۱۵** پوزیشن برای کل میدان. "
             "هر ارز فقط یک پوزیشن باز برای هر شرکت‌کننده + cooldown پس از بستن معامله. "
             "در هر کندل اول استاپ چک می‌شود (محافظه‌کارانه)، بعد تارگت‌ها — یعنی نتایج به واقعیت بدبینانه‌تر نزدیک است.\n\n"
             "**خروج نردبانی:** TP1 → استاپ به ورود · TP2 → استاپ به TP1 · TP3 → بستن کامل. "
             "معامله‌ی سرگردان بعد از ۱۰۰ کندل با قیمت بازار بسته می‌شود.",
+            "**Two-stage screening (no fixed count):** every scan first pulls the WHOLE exchange market in a single call — no hand-picked number. "
+            "Dead coins (< $0.5M daily turnover) and stablecoins are removed; strength = "
+            "55% 24h momentum (absolute — pumps and dumps both count, shorts exist) + 30% liquidity + 15% daily range. "
+            "Everything above the 85th percentile of strength enters deep analysis — the number of finalists floats with market conditions "
+            "(only a technical 60-cap exists to protect the exchange API quota).\n\n"
             "**Trade score:** full TP3 = **+5** · TP2 = **+2** · TP1 then trail-out = **+1** · breakeven = **0** · "
             "stop (agent liquidation) = **−1** · timeout = **±0.5** by PnL sign.\n\n"
             "**Winrate** = wins ÷ (wins + losses) — breakevens excluded.\n\n"
-            "**Fairness:** same coin universe, timeframe, fees, fixed **1%** risk per trade, max **3 concurrent** "
+            "**Fairness:** one timeframe, identical fees, fixed **1%** risk per trade, max **3 concurrent** "
             "positions per participant, **15** for the whole arena. One open position per symbol per participant + "
             "cooldown after closing. Stops are checked first each candle (conservative) — results skew realistic/pessimistic.\n\n"
             "**Ladder exit:** TP1 → stop to entry · TP2 → stop to TP1 · TP3 → full close. "

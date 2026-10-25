@@ -1811,6 +1811,7 @@ NAV_PAGES: list[tuple[str, str, str, str, str]] = [
     ("p1", "pages/1_Live_Prices.py", "📊", "قیمت‌های زنده بازار", "Live Prices"),
     ("p2", "pages/2_Live_Trading.py", "💹", "ترید مستقیم", "Live Trading"),
     ("p3", "pages/3_Agents_Duel.py", "🤖", "دوئل ایجنت‌ها", "Agents Duel"),
+    ("p4", "pages/4_Agent_Arena.py", "🏟️", "میدان ایجنت‌ها", "Agent Arena"),
 ]
 
 _HIDE_NAV_CSS = (

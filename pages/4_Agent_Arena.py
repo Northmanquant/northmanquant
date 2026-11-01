@@ -33,6 +33,8 @@ st.caption(L(
     "Trades persist between visits and are managed until TP/SL/timeout. Who ends up with the best winrate and score?"))
 
 from core import arena as A  # noqa: E402
+from core import alerts as AL  # noqa: E402
+from core import news as NW  # noqa: E402
 from core import arena_store  # noqa: E402
 from core.duel_engine import _dec_for  # noqa: E402
 
@@ -69,6 +71,11 @@ try:
         st.session_state["_arena_upd"] = _now
         _live, _just_closed = A.update_all_trades(_store)
         st.session_state["_arena_live"] = _live
+        for _t in _just_closed:          # هشدار بسته‌شدن — دائمی در Supabase/فایل
+            try:
+                AL.get_alerts().insert(AL.close_alert(_t))
+            except Exception:  # noqa: BLE001
+                pass
     else:
         _live = st.session_state.get("_arena_live", {})
 except Exception as _e:  # noqa: BLE001
@@ -129,9 +136,11 @@ _m2.metric(L("معاملات بسته‌شده", "Closed trades"), len(_closed_t
 _m3.metric(L("شرکت‌کننده‌ها", "Participants"), len(A.participants()))
 _m4.metric(L("ریسک هر معامله", "Risk per trade"), f"{A.RISK_PCT:.0f}%")
 
-tab_scan, tab_pos, tab_board = st.tabs([
+tab_scan, tab_pos, tab_alerts, tab_news, tab_board = st.tabs([
     "🔎 " + L("اسکن و معامله‌ی جدید", "Scan & new trades"),
     "📊 " + L("پوزیشن‌های باز", "Open positions"),
+    "🔔 " + L("هشدارها", "Alerts"),
+    "📰 " + L("اخبار بازار", "Market news"),
     "🏆 " + L("لیدربورد و تاریخچه", "Leaderboard & history"),
 ])
 
@@ -236,6 +245,12 @@ with tab_scan:
     # ---- بنر رژیم بازار (کش ۱۰ دقیقه‌ای — یک درخواست BTC ۴ساعته) ----
     _reg = A.market_regime(exchange)
     _rd = int(_reg.get("dir") or 0)
+    if time.time() - st.session_state.get("_arena_reg", 0) >= 60:   # ثبت تغییر رژیم — حداکثر هر ۶۰ث
+        st.session_state["_arena_reg"] = time.time()
+        try:
+            AL.push_regime_change(AL.get_alerts(), _reg)
+        except Exception:  # noqa: BLE001
+            pass
     if _rd > 0:
         _dist = (_reg["price"] / _reg["ma"] - 1.0) * 100.0
         st.info("🌊 " + L(
@@ -261,6 +276,13 @@ with tab_scan:
                               f"Screening the whole {exchange} market first, then deep-analyzing the best ones · {interval} … (30–90s)")):
                 scans, errors, meta = A.run_scan(exchange, interval, appetite=appetite)
                 opened, blocked = A.open_trades_from_scan(scans, exchange, interval, _store)
+                for _t in opened:        # هشدار بازشدن — دائمی در Supabase/فایل
+                    try:
+                        AL.get_alerts().insert(AL.open_alert(_t))
+                    except Exception:  # noqa: BLE001
+                        pass
+                if opened:
+                    st.session_state.pop("_arena_alerts_ts", None)   # کش تب هشدارها تازه شود
             st.session_state["arena_scan"] = {
                 "scans": scans, "errors": errors, "opened": opened, "blocked": blocked, "meta": meta,
                 "exchange": exchange, "interval": interval,
@@ -362,7 +384,9 @@ with tab_scan:
             "اگر دیتای BTC در دسترس نباشد فیلتر موقتاً خاموش است.\n\n"
             "**آمار کلی میدان:** معیارهای واقعی سوددهی — انتظاری (میانگین R خالص هر معامله)، PF، پی‌آف و MaxDD — "
             "از معاملات بسته‌شده با کارمزد و لغزش واقعی حساب می‌شوند. قانون تصمیم: تا ۳۰ معامله هیچ عددی اعتبار آماری ندارد، "
-            "بین ۳۰ تا ۱۰۰ فقط جهت‌گیری است، و فقط با ۱۰۰+ معامله و انتظاری مثبت می‌شود به سیستم اعتماد کرد.",
+            "بین ۳۰ تا ۱۰۰ فقط جهت‌گیری است، و فقط با ۱۰۰+ معامله و انتظاری مثبت می‌شود به سیستم اعتماد کرد.\n\n"
+            "**هشدارها و اخبار:** باز و بسته‌شدن معامله‌ها و تغییر رژیم بازار در تب «🔔 هشدارها» دائمی ثبت می‌شود؛ "
+            "تیترهای تازه‌ی خبری با تگ نماد در تب «📰 اخبار بازار» می‌آید — خبری که نمادِ پوزیشن باز تو را داشته باشد ستاره ⭐ می‌گیرد.",
             "**Entry filter strength (three levels):** 'Strict' requires a fresh setup + proven walk-forward edge on that exact coin — ruthless but rare. "
             "'Balanced' (default) accepts any setup formed in the last 6 candles, without requiring a measured edge. "
             "'Hunter' turns the setup filter off entirely — agents decide purely with their own score and backtest. "
@@ -386,7 +410,9 @@ with tab_scan:
             "If BTC data is unavailable the filter is temporarily off.\n\n"
             "**Arena-wide stats:** the real profitability metrics — expectancy (average net R per trade), PF, payoff and MaxDD — "
             "are computed from closed trades with real fees and slippage. Decision rule: below 30 trades nothing means anything; "
-            "30–100 is directional only; only 100+ trades with positive expectancy earn trust."))
+            "30–100 is directional only; only 100+ trades with positive expectancy earn trust.\n\n"
+            "**Alerts & news:** trade opens/closes and regime flips are logged permanently in the '🔔 Alerts' tab; "
+            "fresh headlines with symbol tags live in the '📰 Market news' tab — a headline mentioning a symbol you hold open gets a ⭐."))
 
 # =============================================================================
 # تب ۲ — پوزیشن‌های باز
@@ -415,7 +441,87 @@ with tab_pos:
             _trade_card(t, _live.get(t.get("symbol")), _unrealized_r(t, _live.get(t.get("symbol"))))
 
 # =============================================================================
-# تب ۳ — لیدربورد و تاریخچه
+# تب ۳ — هشدارها
+with tab_alerts:
+    st.subheader("🔔 " + L("هشدارهای میدان", "Arena alerts"))
+    st.caption(L(
+        "رویدادهای مهم میدان — باز و بسته‌شدن معامله‌ها و تغییر رژیم بازار — دائمی ثبت می‌شوند؛ تازه‌ترین‌ها بالای فهرست. هشدارِ تکراری ساخته نمی‌شود (هر معامله حداکثر یک بازشدن و یک بسته‌شدن دارد).",
+        "Key arena events — trades opening/closing and regime flips — are stored permanently; newest first. No duplicate alerts (each trade yields at most one open and one close alert)."))
+    if time.time() - st.session_state.get("_arena_alerts_ts", 0) >= 15 or "_arena_alerts_val" not in st.session_state:
+        st.session_state["_arena_alerts_ts"] = time.time()
+        try:
+            st.session_state["_arena_alerts_val"] = AL.get_alerts().load_recent(80)
+        except Exception:  # noqa: BLE001
+            st.session_state["_arena_alerts_val"] = st.session_state.get("_arena_alerts_val") or []
+    _alerts = st.session_state.get("_arena_alerts_val") or []
+    if not _alerts:
+        st.info(L("هنوز هشداری ثبت نشده — بعد از اولین اسکن یا اولین معامله‌ی بسته‌شده اینجا پر می‌شود.",
+                  "No alerts yet — the list fills after the first scan or first closed trade."))
+    else:
+        _c1, _c2, _c3, _c4 = st.columns(4)
+        _c1.metric(L("هشدارهای اخیر", "Recent alerts"), len(_alerts))
+        _c2.metric(L("بازشدن", "Opens"), sum(1 for a in _alerts if a.get("kind") == "open"))
+        _c3.metric(L("بسته‌شدن", "Closes"), sum(1 for a in _alerts if a.get("kind") == "close"))
+        _c4.metric(L("تغییر رژیم", "Regime flips"), sum(1 for a in _alerts if a.get("kind") == "regime"))
+        _arows = []
+        _DIR_EN = {1: "LONG 🟢", -1: "SHORT 🔴", 0: "— ⚪"}
+        for a in _alerts:
+            _kind = str(a.get("kind"))
+            _when = str(a.get("created_at") or "")[:16].replace("T", " ")
+            if _kind == "open":
+                _ev = "🟢 " + L("باز شد", "OPENED")
+                _det = (L("ورود", "Entry") + f" {float(a.get('entry') or 0):,.6g} · "
+                        + L("استاپ", "Stop") + f" {float(a.get('stop') or 0):,.6g}"
+                        + (f" · {a.get('interval')}" if a.get("interval") else ""))
+            elif _kind == "close":
+                _ev = "🏁 " + L("بسته شد", "CLOSED") + " — " + _res_badge(str(a.get("result") or ""))
+                _det = f"{float(a.get('r') or 0):+.2f}R · {float(a.get('points') or 0):+.1f} " + L("امتیاز", "pts")
+            else:
+                _d = int(a.get("direction") or 0)
+                _ev = "🌊 " + (L("رژیم صعودی شد", "Turned bullish") if _d > 0 else L("رژیم نزولی شد", "Turned bearish"))
+                _ma, _pr = float(a.get("ma") or 0), float(a.get("price") or 0)
+                _det = (f"BTC {_pr:,.0f} · MA{A.REGIME_MA_N}: {_ma:,.0f} · {_pr / _ma * 100.0 - 100.0:+.1f}%"
+                        if _ma > 0 and _pr > 0 else "BTC/USDT 4h")
+            _arows.append({
+                L("زمان", "Time"): _when, L("رویداد", "Event"): _ev,
+                L("ایجنت", "Agent"): (a.get("agent") or "—"),
+                L("نماد", "Symbol"): a.get("symbol"),
+                L("جهت", "Side"): (DIR_FA if LANG != "en" else _DIR_EN).get(int(a.get("direction") or 0), "—"),
+                L("جزئیات", "Details"): _det,
+            })
+        st.dataframe(pd.DataFrame(_arows), use_container_width=True, hide_index=True)
+    _ab = AL.get_alerts().backend
+    st.caption(("🟢 " if _ab == "supabase" else "🟡 ")
+               + L(f"بک‌اند هشدارها: {_ab} · جدول: arena_alerts",
+                   f"Alerts backend: {_ab} · table: arena_alerts"))
+
+# =============================================================================
+# تب ۴ — اخبار بازار
+with tab_news:
+    st.subheader("📰 " + L("اخبار بازار", "Market news"))
+    st.caption(L(
+        "تیترهای تازه از Decrypt، Cointelegraph و NewsBTC — به انگلیسی می‌مانند چون ترجمه‌ی ماشینی اخبار مالی خطا می‌سازد. "
+        "زمان‌ها UTC · کش ۱۰ دقیقه‌ای · ⭐ = تیتر به نمادی می‌خورد که پوزیشن باز داری.",
+        "Fresh headlines from Decrypt, Cointelegraph and NewsBTC. Times in UTC · 10-min cache · ⭐ = headline mentions a symbol you hold open."))
+    _sym_open = {str(t.get("symbol") or "").split("/")[0].upper() for t in _open_trades}
+    try:
+        _news = NW.fetch_news()
+    except Exception:  # noqa: BLE001
+        _news = {"items": [], "stale": True}
+    if _news.get("stale"):
+        st.warning(L("هیچ فید خبری در دسترس نبود — بعداً دوباره چک کن.",
+                     "No news feed was reachable — try again later."))
+    else:
+        for _it in (_news.get("items") or [])[:18]:
+            _syms = _it.get("symbols") or []
+            _hit = " ⭐" if any(s in _sym_open for s in _syms) else ""
+            _when = (str(_it.get("ts") or "")[:16].replace("T", " ")) or "—"
+            _chips = ("  \n" + " ".join(f"`{s}`" for s in _syms)) if _syms else ""
+            st.markdown(f"{_when} UTC · **{_it.get('source')}**{_hit}  \n"
+                        f"[{_esc(str(_it.get('title')))}]({_esc(str(_it.get('link')))})" + _chips)
+
+# =============================================================================
+# تب ۵ — لیدربورد و تاریخچه
 with tab_board:
     # ---- آمار کلی میدان: آیا این سیستم واقعاً سوده است؟ ----
     _summ = A.arena_summary(_closed_trades)

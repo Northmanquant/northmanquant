@@ -244,8 +244,8 @@ with tab_scan:
     elif _rd < 0:
         _dist = (1.0 - _reg["price"] / _reg["ma"]) * 100.0
         st.info("🌊 " + L(
-            f"رژیم بازار: **نزولی** — BTC/USDT روی ۴ساعته {_dist:+.1f}٪ زیر میانگین متحرک {A.REGIME_MA_N} کندل است → فقط شورت باز می‌شود.",
-            f"Market regime: **BEARISH** — BTC/USDT 4h is {_dist:+.1f}% below its {A.REGIME_MA_N}-candle MA → shorts only."))
+            f"رژیم بازار: **نزولی** — BTC/USDT روی ۴ساعته {_dist:.1f}٪ زیر میانگین متحرک {A.REGIME_MA_N} کندل است → فقط شورت باز می‌شود.",
+            f"Market regime: **BEARISH** — BTC/USDT 4h is {_dist:.1f}% below its {A.REGIME_MA_N}-candle MA → shorts only."))
     else:
         st.warning("🌊 " + L(
             "رژیم بازار نامشخص است (دیتای BTC در دسترس نبود) — فیلتر جهت موقتاً خاموش است و هر دو جهت باز می‌شود.",

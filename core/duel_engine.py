@@ -76,11 +76,11 @@ def get_df(exchange: str, symbol: str, interval: str, limit: int = 300):
         return d, sym, "app_base"
     except Exception as e:  # noqa: BLE001
         st.warning(f"app_base نشد ({e}) — fallback KuCoin")
-        import requests
+        from core.net import get_json
         tfmap = {"15min": "15min", "1hour": "1hour", "4hour": "4hour", "1day": "1day", "1week": "1week"}
-        r = requests.get("https://api.kucoin.com/api/v1/market/candles",
-                         params={"symbol": symbol.replace("/", "-").upper(), "type": tfmap.get(interval, "1hour")},
-                         timeout=20).json()
+        r = get_json("https://api.kucoin.com/api/v1/market/candles",
+                     params={"symbol": symbol.replace("/", "-").upper(), "type": tfmap.get(interval, "1hour")},
+                     timeout=20)
         rows = [{"time": int(x[0]) * 1000, "open": float(x[1]), "close": float(x[2]),
                  "high": float(x[3]), "low": float(x[4]), "volume": float(x[5])} for x in (r.get("data") or [])]
         df = pd.DataFrame(rows).sort_values("time").reset_index(drop=True).tail(limit).reset_index(drop=True)

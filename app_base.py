@@ -31,6 +31,7 @@ from PIL import Image
 from core import community_store as _cstore
 from core.community_store import render_backend_banner
 from core.i18n import setup_i18n
+from core.net import get_json
 KUCOIN = "https://api.kucoin.com"
 BINANCE = "https://api.binance.com"
 BYBIT = "https://api.bybit.com"
@@ -306,29 +307,28 @@ def _fetch_tick_one(exchange: str, symbol: str) -> dict | None:
     """Single-venue tick (no fallback). Called by fetch_tick."""
     try:
         if exchange == "Binance":
-            r = requests.get(f"{BINANCE}/api/v3/ticker/bookTicker", params={"symbol": symbol.replace("-", "")}, headers=HEADERS, timeout=6)
-            j = r.json()
+            j = get_json(f"{BINANCE}/api/v3/ticker/bookTicker", params={"symbol": symbol.replace("-", "")}, headers=HEADERS, timeout=6)
             bid, ask = float(j["bidPrice"]), float(j["askPrice"])
             return {"price": (bid + ask) / 2, "bid": bid, "ask": ask}
         if exchange == "Bybit":
-            r = requests.get(f"{BYBIT}/v5/market/tickers", params={"category": "spot", "symbol": symbol.replace("-", "")}, headers=HEADERS, timeout=6)
-            row = ((r.json().get("result") or {}).get("list") or [{}])[0]
+            j = get_json(f"{BYBIT}/v5/market/tickers", params={"category": "spot", "symbol": symbol.replace("-", "")}, headers=HEADERS, timeout=6)
+            row = ((j.get("result") or {}).get("list") or [{}])[0]
             return {"price": float(row["lastPrice"]), "bid": float(row.get("bid1Price") or 0), "ask": float(row.get("ask1Price") or 0)}
         if exchange == "OKX":
-            r = requests.get(f"{OKX}/api/v5/market/ticker", params={"instId": symbol}, headers=HEADERS, timeout=6)
-            row = (r.json().get("data") or [{}])[0]
+            j = get_json(f"{OKX}/api/v5/market/ticker", params={"instId": symbol}, headers=HEADERS, timeout=6)
+            row = (j.get("data") or [{}])[0]
             return {"price": float(row["last"]), "bid": float(row.get("bidPx") or 0), "ask": float(row.get("askPx") or 0)}
         if exchange == "Lighter":
             mid = lighter_market_id(symbol)
             if mid is None:
                 return None
-            r = requests.get(f"{LIGHTER}/api/v1/orderBookDetails", params={"market_id": mid}, headers=HEADERS, timeout=8)
-            row = ((r.json().get("order_book_details") or [{}])[0]) or {}
+            j = get_json(f"{LIGHTER}/api/v1/orderBookDetails", params={"market_id": mid}, headers=HEADERS, timeout=8)
+            row = ((j.get("order_book_details") or [{}])[0]) or {}
             price = float(row.get("last_trade_price") or 0)
             mark = float(row.get("mark_price") or 0)
             bid = ask = 0.0
             try:
-                ob = requests.get(f"{LIGHTER}/api/v1/orderBookOrders", params={"market_id": mid, "limit": 50}, headers=HEADERS, timeout=8).json()
+                ob = get_json(f"{LIGHTER}/api/v1/orderBookOrders", params={"market_id": mid, "limit": 50}, headers=HEADERS, timeout=8)
                 asks = [float(o["price"]) for o in (ob.get("asks") or []) if o.get("price")]
                 bids = [float(o["price"]) for o in (ob.get("bids") or []) if o.get("price")]
                 if asks:
@@ -338,8 +338,8 @@ def _fetch_tick_one(exchange: str, symbol: str) -> dict | None:
             except Exception:
                 pass
             return {"price": price or mark, "bid": bid, "ask": ask, "mark": mark}
-        r = requests.get(f"{KUCOIN}/api/v1/market/orderbook/level1", params={"symbol": symbol}, headers=HEADERS, timeout=6)
-        data = r.json().get("data") or {}
+        j = get_json(f"{KUCOIN}/api/v1/market/orderbook/level1", params={"symbol": symbol}, headers=HEADERS, timeout=6)
+        data = j.get("data") or {}
         return {"price": float(data["price"]), "bid": float(data.get("bestBid") or 0), "ask": float(data.get("bestAsk") or 0)}
     except Exception:
         return None
@@ -1062,9 +1062,7 @@ def normalize_symbol(raw: str, exchange: str = "KuCoin") -> str:
 @st.cache_data(ttl=300, show_spinner=False)
 def lighter_markets() -> list[dict]:
     """All Lighter markets (public, no key). Docs: apidocs.lighter.xyz/reference/orderBookDetails"""
-    r = requests.get(f"{LIGHTER}/api/v1/orderBookDetails", headers=HEADERS, timeout=25)
-    r.raise_for_status()
-    data = r.json()
+    data = get_json(f"{LIGHTER}/api/v1/orderBookDetails", headers=HEADERS, timeout=25)
     rows = []
     for row in (data.get("order_book_details") or []):
         rows.append(
@@ -1164,13 +1162,12 @@ def _fetch_candles(exchange: str, symbol: str, interval: str, limit: int) -> pd.
         minutes = INTERVAL_MINUTES[interval]
         end = int(datetime.now(timezone.utc).timestamp())
         start = end - minutes * 60 * (limit + 10)
-        r = requests.get(
+        j = get_json(
             f"{KUCOIN}/api/v1/market/candles",
             params={"symbol": symbol, "type": KUCOIN_TF[interval], "startAt": start, "endAt": end},
             headers=HEADERS, timeout=20,
         )
-        r.raise_for_status()
-        data = r.json().get("data") or []
+        data = j.get("data") or []
         # KuCoin order: [time, open, close, high, low, volume, turnover]
         rows = [
             {"time": int(x[0]) * 1000, "open": float(x[1]), "close": float(x[2]),
@@ -1178,25 +1175,23 @@ def _fetch_candles(exchange: str, symbol: str, interval: str, limit: int) -> pd.
             for x in data
         ]
     elif exchange == "Binance":
-        r = requests.get(
+        j = get_json(
             f"{BINANCE}/api/v3/klines",
             params={"symbol": symbol.replace("-", ""), "interval": BINANCE_TF[interval], "limit": min(1000, limit)},
             headers=HEADERS, timeout=20,
         )
-        r.raise_for_status()
         rows = [
             {"time": int(x[0]), "open": float(x[1]), "high": float(x[2]),
              "low": float(x[3]), "close": float(x[4]), "volume": float(x[5])}
-            for x in r.json()
+            for x in j
         ]
     elif exchange == "Bybit":
-        r = requests.get(
+        j = get_json(
             f"{BYBIT}/v5/market/kline",
             params={"category": "spot", "symbol": symbol.replace("-", ""), "interval": BYBIT_TF[interval], "limit": min(1000, limit)},
             headers=HEADERS, timeout=20,
         )
-        r.raise_for_status()
-        data = (r.json().get("result") or {}).get("list") or []
+        data = (j.get("result") or {}).get("list") or []
         rows = [
             {"time": int(x[0]), "open": float(x[1]), "high": float(x[2]),
              "low": float(x[3]), "close": float(x[4]), "volume": float(x[5])}
@@ -1209,7 +1204,7 @@ def _fetch_candles(exchange: str, symbol: str, interval: str, limit: int) -> pd.
         minutes = INTERVAL_MINUTES[interval]
         end = int(datetime.now(timezone.utc).timestamp() * 1000)
         start = end - minutes * 60 * 1000 * (limit + 10)
-        r = requests.get(
+        j = get_json(
             f"{LIGHTER}/api/v1/candles",
             params={
                 "market_id": market_id,
@@ -1221,26 +1216,24 @@ def _fetch_candles(exchange: str, symbol: str, interval: str, limit: int) -> pd.
             },
             headers=HEADERS, timeout=25,
         )
-        r.raise_for_status()
         # Response: {"code":200,"r":"1h","c":[{"t","o","h","l","c","v","V","i"}]}
         # Zero values are omitted by the API -> use .get() with defaults.
         rows = [
             {"time": int(c["t"]), "open": float(c["o"]), "high": float(c["h"]),
              "low": float(c["l"]), "close": float(c["c"]), "volume": float(c.get("v") or 0.0)}
-            for c in (r.json().get("c") or [])
+            for c in (j.get("c") or [])
             if c.get("t") and c.get("c")
         ]
     else:  # OKX
-        r = requests.get(
+        j = get_json(
             f"{OKX}/api/v5/market/candles",
             params={"instId": symbol, "bar": OKX_TF[interval], "limit": 300},
             headers=HEADERS, timeout=20,
         )
-        r.raise_for_status()
         rows = [
             {"time": int(x[0]), "open": float(x[1]), "high": float(x[2]),
              "low": float(x[3]), "close": float(x[4]), "volume": float(x[5])}
-            for x in (r.json().get("data") or [])
+            for x in (j.get("data") or [])
         ]
 
     df = pd.DataFrame(rows)
@@ -1271,9 +1264,8 @@ def fetch_top_coins(exchange: str = "KuCoin", min_turnover: float = 1_000_000, l
                 "turnoverM$": m["turnoverM$"],
             })
     elif exchange == "Binance":
-        r = requests.get(f"{BINANCE}/api/v3/ticker/24hr", headers=HEADERS, timeout=25)
-        r.raise_for_status()
-        for t in r.json():
+        j = get_json(f"{BINANCE}/api/v3/ticker/24hr", headers=HEADERS, timeout=25)
+        for t in j:
             sym = t.get("symbol", "")
             if not sym.endswith("USDT"):
                 continue
@@ -1289,9 +1281,8 @@ def fetch_top_coins(exchange: str = "KuCoin", min_turnover: float = 1_000_000, l
                 "turnoverM$": turnover / 1e6,
             })
     elif exchange == "Bybit":
-        r = requests.get(f"{BYBIT}/v5/market/tickers", params={"category": "spot"}, headers=HEADERS, timeout=25)
-        r.raise_for_status()
-        for t in ((r.json().get("result") or {}).get("list") or []):
+        j = get_json(f"{BYBIT}/v5/market/tickers", params={"category": "spot"}, headers=HEADERS, timeout=25)
+        for t in ((j.get("result") or {}).get("list") or []):
             sym = t.get("symbol", "")
             if not sym.endswith("USDT"):
                 continue
@@ -1309,9 +1300,8 @@ def fetch_top_coins(exchange: str = "KuCoin", min_turnover: float = 1_000_000, l
                 "turnoverM$": turnover / 1e6,
             })
     elif exchange == "OKX":
-        r = requests.get(f"{OKX}/api/v5/market/tickers", params={"instType": "SPOT"}, headers=HEADERS, timeout=25)
-        r.raise_for_status()
-        for t in (r.json().get("data") or []):
+        j = get_json(f"{OKX}/api/v5/market/tickers", params={"instType": "SPOT"}, headers=HEADERS, timeout=25)
+        for t in (j.get("data") or []):
             sym = t.get("instId", "")
             if not sym.endswith("-USDT"):
                 continue
@@ -1329,9 +1319,8 @@ def fetch_top_coins(exchange: str = "KuCoin", min_turnover: float = 1_000_000, l
                 "turnoverM$": turnover / 1e6,
             })
     else:  # KuCoin
-        r = requests.get(f"{KUCOIN}/api/v1/market/allTickers", headers=HEADERS, timeout=25)
-        r.raise_for_status()
-        tickers = (r.json().get("data") or {}).get("ticker") or []
+        j = get_json(f"{KUCOIN}/api/v1/market/allTickers", headers=HEADERS, timeout=25)
+        tickers = (j.get("data") or {}).get("ticker") or []
         for t in tickers:
             sym = t.get("symbol", "")
             if not sym.endswith("-USDT"):
@@ -1446,8 +1435,7 @@ def _fetch_feed_direct(url: str) -> list[dict]:
 
 def _fetch_feed_relay(url: str) -> list[dict]:
     """JSON relay — needed for .ir feeds that servers can't fetch directly."""
-    r = requests.get(RSS2JSON, params={"rss_url": url}, timeout=25, headers=HEADERS)
-    data = r.json()
+    data = get_json(RSS2JSON, params={"rss_url": url}, timeout=25, headers=HEADERS)
     if data.get("status") != "ok":
         return []
     out = []
@@ -1476,29 +1464,26 @@ def translate_to_fa(text: str) -> str:
     snippet = text[:4800]
     # 1) Google's free gtx endpoint (best quality)
     try:
-        r = requests.get(
+        data = get_json(
             "https://translate.googleapis.com/translate_a/single",
             params={"client": "gtx", "sl": "en", "tl": "fa", "dt": "t", "q": snippet},
-            headers={"User-Agent": "Mozilla/5.0"}, timeout=10,
+            headers={"User-Agent": "Mozilla/5.0"}, timeout=10, retries=1,
         )
-        if r.status_code == 200:
-            data = r.json()
-            out = "".join(seg[0] for seg in data[0] if seg and seg[0])
-            if out:
-                return out
+        out = "".join(seg[0] for seg in data[0] if seg and seg[0])
+        if out:
+            return out
     except Exception:
         pass
     # 2) MyMemory fallback (works when gtx is rate-limited)
     try:
-        r = requests.get(
+        j = get_json(
             "https://api.mymemory.translated.net/get",
             params={"q": snippet[:500], "langpair": "en|fa"},
-            headers={"User-Agent": "Mozilla/5.0"}, timeout=10,
+            headers={"User-Agent": "Mozilla/5.0"}, timeout=10, retries=1,
         )
-        if r.status_code == 200:
-            out = (r.json().get("responseData") or {}).get("translatedText") or ""
-            if out and "MYMEMORY WARNING" not in out.upper():
-                return out
+        out = (j.get("responseData") or {}).get("translatedText") or ""
+        if out and "MYMEMORY WARNING" not in out.upper():
+            return out
     except Exception:
         pass
     return text

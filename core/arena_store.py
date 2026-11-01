@@ -10,7 +10,9 @@ created_at, updated_at) — همه‌ی جزئیات معامله داخل data 
 from __future__ import annotations
 
 import json
+import math
 import os
+import re
 import threading
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -18,6 +20,60 @@ from typing import Any, Dict, List, Optional
 TABLE = "arena_trades"
 LOCAL_FILE = "arena_trades.json"
 _LOCK = threading.RLock()
+
+# ------------------------------------------------------------- اعتبارسنجی رکورد
+# جدول arena_trades طبق RLS اجازه‌ی insert ناشناس می‌دهد (کلید اپ عمومی است)،
+# پس هر کسی می‌تواند رکورد دلخواه/خراب تزریق کند. موقعِ خواندن فقط رکوردهای
+# منطقی پذیرفته می‌شوند تا لیدربورد قابل دستکاری نباشد.
+_SYMBOL_RE = re.compile(r"^[A-Z0-9]{2,20}(-[A-Z0-9]{2,10})?$")
+_VALID_STATUS = ("open", "closed")
+
+
+def _price_ok(v: Any) -> bool:
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return False
+    return math.isfinite(x) and 0.0 < x < 1e12
+
+
+def valid_record(d: Any) -> bool:
+    """True فقط برای رکوردهای معاملاتی منطقی — بقیه موقع خواندن دور ریخته می‌شوند."""
+    if not isinstance(d, dict):
+        return False
+    agent = str(d.get("agent") or "").strip()
+    if not agent or len(agent) > 40:
+        return False
+    sym = str(d.get("symbol") or "").strip().upper()
+    if not _SYMBOL_RE.match(sym):
+        return False
+    try:
+        direction = int(d.get("direction"))
+    except (TypeError, ValueError):
+        return False
+    if direction not in (-1, 0, 1):
+        return False
+    if str(d.get("status") or "") not in _VALID_STATUS:
+        return False
+    for k in ("entry", "stop", "tp1", "tp2", "tp3"):
+        if not _price_ok(d.get(k)):
+            return False
+    # عقلانیت ریسک: استاپ ۹۰٪ یا بیشترِ ورود = معامله‌ی مسخره/لیکوییدمحور → رد
+    entry, stop = float(d["entry"]), float(d["stop"])
+    if abs(entry - stop) >= entry * 0.9:
+        return False
+    for k in ("realized_r", "points", "score"):
+        v = d.get(k)
+        if v is not None:
+            try:
+                x = float(v)
+            except (TypeError, ValueError):
+                return False
+            if not math.isfinite(x) or abs(x) > 100:
+                return False
+    if len(str(d.get("evidence") or "")) > 600:
+        return False
+    return True
 
 
 def _utcnow_iso() -> str:
@@ -152,10 +208,12 @@ class ArenaStore:
                     if row.get("status"):
                         d["status"] = row["status"]
                     out.append(d)
-                return out
+                # فقط رکوردهای منطقی — رکورد تزریق‌شده‌ی خراب لیدربورد را نمی‌سوزاند
+                return [d for d in out if valid_record(d)]
             except Exception:  # noqa: BLE001
                 pass
-        return self._load_local()
+        # fallback محلی هم فیلتر می‌شود (همان حمله روی فایل محلی ممکن است)
+        return [d for d in self._load_local() if valid_record(d)]
 
     def insert(self, rec: Dict[str, Any]) -> Dict[str, Any]:
         rec = {**rec,

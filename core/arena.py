@@ -12,6 +12,8 @@
 
 قواعد انصاف:
   • همه با همان universe ارز، تایم‌فریم، کارمزد و ریسک ثابت ۱٪ در هر معامله.
+  • هزینه‌های واقعی لحاظ می‌شود: کارمزد taker هر سمت + لغزش هر سمت — از R خالص کسر می‌شود؛
+    امتیاز نردبان (TP1/TP2/TP3) از R ناخالص حساب می‌شود تا «رسیدن به کدام هدف» معنا بماند.
   • حداکثر ۳ پوزیشن همزمان برای هر شرکت‌کننده، سقف کل ۱۵ پوزیشن باز.
   • هر ارز فقط یک پوزیشن باز برای هر شرکت‌کننده + cooldown بعد از بستن معامله.
   • در هر کندل اول استاپ چک می‌شود (محافظه‌کارانه — SL-first)، بعد تارگت‌ها.
@@ -41,8 +43,17 @@ MAX_POS_PER_AGENT = 3     # حداکثر پوزیشن باز هر شرکت‌ک�
 GLOBAL_CAP = 15           # سقف کل پوزیشن‌های باز میدان
 TIMEOUT_CANDLES = 100     # بستن اجباری معامله‌ی سرگردان بعد از ۱۰۰ کندل
 COOLDOWN_CANDLES = 10     # فاصله‌ی اجباری تا معامله‌ی دوباره روی همان نماد/جهت
-FEE_PCT = 0.06            # کارمزد گرد‌به‌گرد (فقط برای گزارش؛ خروجی‌ها با R حساب می‌شوند)
+FEE_PCT = 0.06            # کارمزد بک‌تست موتور مشترک (calculate_duel)
 START_EQUITY = 10000.0    # ایکوییتی شروع هر شرکت‌کننده (دلار کاغذی)
+
+# ---- هزینه‌های واقعی معامله‌ی زنده (شبیه‌سازی Arena) ----------------------------
+# کارمزد taker هر سمت + لغزش هر سمت → گرد به گرد ≈ ۰٫۳٪ نوشنال.
+# این عدد از R «خالص» کسر می‌شود تا وین‌ریت/ایکوییتی واقع‌بینانه بماند؛
+# با ریسک ۱٪ یعنی هر معامله حدود ۰٫۳R هزینه‌ی ثابت دارد — بردهای کوچک
+# بدون این کسر توهم سود می‌ساختند.
+TAKER_FEE_PCT = 0.10      # ٪ هر سمت (KuCoin/OKX/Binance/Bybit اسپات ≈ ۰٫۰۸–۰٫۱)
+SLIPPAGE_PCT = 0.05       # ٪ هر سمت — محافظه‌کارانه برای ارزهای نقدشونده
+COST_RT_PCT = 2 * (TAKER_FEE_PCT + SLIPPAGE_PCT) / 100.0   # = 0.003
 
 INTERVAL_MIN = {"15min": 15, "1hour": 60, "4hour": 240, "1day": 1440}
 
@@ -150,52 +161,71 @@ def simulate_trade(t: dict, d: pd.DataFrame) -> dict:
     cur_stop = float(t.get("cur_stop") or t.get("stop") or stop0)
     tp1, tp2, tp3 = float(t["tp1"]), float(t["tp2"]), float(t["tp3"])
     frac = 1.0
-    realized = float(t.get("realized_r") or 0.0)
+    gross = float(t.get("gross_r") or 0.0)          # R ناخالص (بدون هزینه) — مبنای امتیاز نردبان
+    realized = float(t.get("realized_r") or 0.0)   # R خالص (بعد از کارمزد+لغزش) — مبنای ایکوییتی
     tp1_done = bool(t.get("tp1_done"))
     tp2_done = bool(t.get("tp2_done"))
     status, exit_reason = "open", None
+    # هزینه‌ی گردبه‌گرد بر حسب R (نسبت به ریسک اولیه‌ی همین معامله)
+    cost_r = COST_RT_PCT * entry / risk0
 
     for _, row in new.iterrows():
         hi, lo = float(row["high"]), float(row["low"])
         if direction > 0:
             if lo <= cur_stop:                      # SL-first — محافظه‌کارانه
-                realized += frac * (cur_stop - entry) / risk0
+                leg = frac * (cur_stop - entry) / risk0
+                gross += leg
+                realized += leg - frac * cost_r
                 frac = 0.0
                 status, exit_reason = "closed", ("sl" if not tp1_done else "trail")
                 break
             if not tp1_done and hi >= tp1:
                 tp1_done = True
-                realized += (1 / 3) * (tp1 - entry) / risk0
+                leg = (1 / 3) * (tp1 - entry) / risk0
+                gross += leg
+                realized += leg - (1 / 3) * cost_r
                 cur_stop = max(cur_stop, entry)
                 frac -= 1 / 3
             if tp1_done and not tp2_done and hi >= tp2:
                 tp2_done = True
-                realized += (1 / 3) * (tp2 - entry) / risk0
+                leg = (1 / 3) * (tp2 - entry) / risk0
+                gross += leg
+                realized += leg - (1 / 3) * cost_r
                 cur_stop = max(cur_stop, tp1)
                 frac -= 1 / 3
             if tp2_done and hi >= tp3:
-                realized += frac * (tp3 - entry) / risk0
+                leg = frac * (tp3 - entry) / risk0
+                gross += leg
+                realized += leg - frac * cost_r
                 frac = 0.0
                 status, exit_reason = "closed", "tp3"
                 break
         else:
             if hi >= cur_stop:
-                realized += frac * (entry - cur_stop) / risk0
+                leg = frac * (entry - cur_stop) / risk0
+                gross += leg
+                realized += leg - frac * cost_r
                 frac = 0.0
                 status, exit_reason = "closed", ("sl" if not tp1_done else "trail")
                 break
             if not tp1_done and lo <= tp1:
                 tp1_done = True
-                realized += (1 / 3) * (entry - tp1) / risk0
+                leg = (1 / 3) * (entry - tp1) / risk0
+                gross += leg
+                realized += leg - (1 / 3) * cost_r
                 cur_stop = min(cur_stop, entry)
                 frac -= 1 / 3
             if tp1_done and not tp2_done and lo <= tp2:
                 tp2_done = True
-                realized += (1 / 3) * (entry - tp2) / risk0
+                leg = (1 / 3) * (entry - tp2) / risk0
+                gross += leg
+                realized += leg - (1 / 3) * cost_r
                 cur_stop = min(cur_stop, tp1)
                 frac -= 1 / 3
             if tp2_done and lo <= tp3:
-                realized += frac * (entry - tp3) / risk0
+                leg = frac * (entry - tp3) / risk0
+                gross += leg
+                realized += leg - frac * cost_r
                 frac = 0.0
                 status, exit_reason = "closed", "tp3"
                 break
@@ -207,14 +237,18 @@ def simulate_trade(t: dict, d: pd.DataFrame) -> dict:
         elapsed = int((d["dt"] > opened_ts).sum())
         if elapsed >= TIMEOUT_CANDLES:
             cl = float(d["close"].iloc[-1])
-            realized += frac * ((cl - entry) if direction > 0 else (entry - cl)) / risk0
+            leg = frac * ((cl - entry) if direction > 0 else (entry - cl)) / risk0
+            gross += leg
+            realized += leg - frac * cost_r
             frac = 0.0
             status, exit_reason = "closed", "timeout"
 
     patch: dict = {"last_candle": str(last_dt), "cur_stop": float(cur_stop),
-                   "tp1_done": tp1_done, "tp2_done": tp2_done, "realized_r": float(realized)}
+                   "tp1_done": tp1_done, "tp2_done": tp2_done,
+                   "realized_r": float(realized), "gross_r": float(gross)}
     if status == "closed":
-        pts = points_for(realized, exit_reason)
+        # امتیاز نردبان از R ناخالص (خوانایی «رسیدن به کدام TP»)؛ تایم‌اوت با علامتِ R خالص
+        pts = points_for(realized if exit_reason == "timeout" else gross, exit_reason)
         patch.update({"status": "closed", "exit_reason": exit_reason, "points": float(pts),
                       "result": result_label(realized, pts, exit_reason),
                       "closed_at": _now_iso(), "closed_price": float(d["close"].iloc[-1])})
@@ -264,6 +298,7 @@ def make_trade_record(agent_name: str, coin: dict, pick: dict, exchange: str, in
         "tp1_done": False,
         "tp2_done": False,
         "realized_r": 0.0,
+        "gross_r": 0.0,
         "created_at": _now_iso(),
     }
 

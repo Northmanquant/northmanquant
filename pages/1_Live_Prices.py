@@ -19,15 +19,11 @@ HEADERS = {"User-Agent": "northmanquant-lite/1.0", "accept": "application/json"}
 
 
 def _get_json(url: str, params: dict | None = None, timeout: float = 6):
-    """GET → JSON یا None. هیچ‌وقت exception نمی‌دهد (پاسخ HTML/خالی/۴۰۳ = None)."""
+    """GET → JSON یا None. هیچ‌وقت exception نمی‌دهد (پاسخ HTML/خالی/۴۰۳ = None).
+    پشت‌صحنه از core/net با تلاش مجدد استفاده می‌کند (retries=1 تا UI کند نشود)."""
+    from core.net import get_json as _retry_json
     try:
-        r = requests.get(url, params=params, headers=HEADERS, timeout=timeout)
-        if r.status_code != 200 or not r.content:
-            return None
-        ctype = (r.headers.get("content-type") or "").lower()
-        if "json" not in ctype and not r.text.lstrip().startswith(("{", "[")):
-            return None
-        return r.json()
+        return _retry_json(url, params=params, headers=HEADERS, timeout=timeout, retries=1)
     except Exception:  # noqa: BLE001
         return None
 

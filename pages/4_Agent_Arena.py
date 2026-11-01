@@ -186,7 +186,7 @@ def _trade_card(t: dict, live_price: float | None, unrealized: float | None) -> 
 
 
 def _unrealized_r(t: dict, live_price: float | None) -> float | None:
-    """R تخمینی الان = رآلیزه‌شده + باقیمانده‌ی پوزیشن با قیمت زنده."""
+    """R تخمینی الان = خالصِ رآلیزه‌شده + باقیمانده‌ی پوزیشن با قیمت زنده − هزینه‌ی باقیمانده."""
     if not live_price:
         return None
     entry = float(t.get("entry"))
@@ -194,8 +194,10 @@ def _unrealized_r(t: dict, live_price: float | None) -> float | None:
     if risk0 <= 0:
         return None
     frac = 1.0 - (1 / 3 if t.get("tp1_done") else 0) - (1 / 3 if t.get("tp2_done") else 0)
+    rem = max(0.0, frac)
     move = (float(live_price) - entry) * (1 if int(t.get("direction") or 0) > 0 else -1)
-    return float(t.get("realized_r") or 0.0) + max(0.0, frac) * move / risk0
+    cost_r = A.COST_RT_PCT * entry / risk0
+    return float(t.get("realized_r") or 0.0) + rem * move / risk0 - rem * cost_r
 
 
 # =============================================================================

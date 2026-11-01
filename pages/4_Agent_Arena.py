@@ -35,6 +35,7 @@ st.caption(L(
 from core import arena as A  # noqa: E402
 from core import alerts as AL  # noqa: E402
 from core import news as NW  # noqa: E402
+from core import replay as RP  # noqa: E402
 from core import arena_store  # noqa: E402
 from core.duel_engine import _dec_for  # noqa: E402
 
@@ -136,12 +137,13 @@ _m2.metric(L("معاملات بسته‌شده", "Closed trades"), len(_closed_t
 _m3.metric(L("شرکت‌کننده‌ها", "Participants"), len(A.participants()))
 _m4.metric(L("ریسک هر معامله", "Risk per trade"), f"{A.RISK_PCT:.0f}%")
 
-tab_scan, tab_pos, tab_alerts, tab_news, tab_board = st.tabs([
+tab_scan, tab_pos, tab_alerts, tab_news, tab_board, tab_replay = st.tabs([
     "🔎 " + L("اسکن و معامله‌ی جدید", "Scan & new trades"),
     "📊 " + L("پوزیشن‌های باز", "Open positions"),
     "🔔 " + L("هشدارها", "Alerts"),
     "📰 " + L("اخبار بازار", "Market news"),
     "🏆 " + L("لیدربورد و تاریخچه", "Leaderboard & history"),
+    "🧪 " + L("بازپخش تاریخی", "Historical replay"),
 ])
 
 # =============================================================================
@@ -382,6 +384,11 @@ with tab_scan:
             f"{A.REGIME_MA_N} کندل سنجیده می‌شود — بالای میانگین فقط لانگ، زیرش فقط شورت. "
             "ستاپِ خلاف رژیم حتی اگر همه‌ی دروازه‌های دیگر را رد کند باز نمی‌شود و تعدادش در خلاصه‌ی اسکن شمرده می‌شود. "
             "اگر دیتای BTC در دسترس نباشد فیلتر موقتاً خاموش است.\n\n"
+            "**بازپخش تاریخی (تب 🧪):** همان دروازه‌ها روی کندل‌های تاریخی پخش می‌شود تا شواهد سوددهی بدون انتظار هفته‌ها به‌دست بیاید: "
+            "در هر کندلِ گذشته، هر شرکت‌کننده با همان آستانه‌ها و همان بک‌تست ۳۰۰تایی سنجیده می‌شود، رژیمِ همان لحظه‌ی BTC (علّی) اعمال می‌شود، "
+            "سهمیه‌ها و cooldown رعایت می‌شود و هر معامله با همان موتور خروج نردبانی (استاپ اول + کارمزد و لغزش واقعی) تا بسته‌شدن پیش می‌رود. "
+            "جهانِ بازپخش نمادهای انتخابی شماست (غربالگریِ لحظه‌ایِ گذشته بازسازی‌شدنی نیست) و دروازه‌ی ستاپ سه‌سطحی در بازپخش اعمال نمی‌شود — "
+            "یعنی رفتار معادل سطح «شکارچی». نتیجه‌ی بازپخش جای معاملات زنده را نمی‌گیرد؛ فقط شاهد آماری است.\n\n"
             "**آمار کلی میدان:** معیارهای واقعی سوددهی — انتظاری (میانگین R خالص هر معامله)، PF، پی‌آف و MaxDD — "
             "از معاملات بسته‌شده با کارمزد و لغزش واقعی حساب می‌شوند. قانون تصمیم: تا ۳۰ معامله هیچ عددی اعتبار آماری ندارد، "
             "بین ۳۰ تا ۱۰۰ فقط جهت‌گیری است، و فقط با ۱۰۰+ معامله و انتظاری مثبت می‌شود به سیستم اعتماد کرد.\n\n"
@@ -408,6 +415,12 @@ with tab_scan:
             f"{A.REGIME_MA_N}-candle moving average — above it only longs, below it only shorts. "
             "A setup against the regime stays closed even if it passes every other gate, and the rejected count is shown in the scan summary. "
             "If BTC data is unavailable the filter is temporarily off.\n\n"
+            "**Historical replay (🧪 tab):** the same gates replayed over past candles so profitability evidence arrives without waiting weeks: "
+            "at every past candle each participant is measured with the same thresholds and the same 300-candle backtest, "
+            "the causal BTC regime of that moment applies, quotas and cooldown are respected, and every trade is walked forward with the "
+            "same ladder-exit engine (stop-first, real fees & slippage). The replay universe is your selected symbols (the live moment-in-time "
+            "screening of the past cannot be reconstructed) and the three-level setup gate is not applied — equivalent to 'Hunter' behavior. "
+            "Replay results never replace live trades; they are statistical evidence only.\n\n"
             "**Arena-wide stats:** the real profitability metrics — expectancy (average net R per trade), PF, payoff and MaxDD — "
             "are computed from closed trades with real fees and slippage. Decision rule: below 30 trades nothing means anything; "
             "30–100 is directional only; only 100+ trades with positive expectancy earn trust.\n\n"
@@ -624,3 +637,165 @@ with tab_board:
     _st_icon = "🟢" if _hc.get("reason") == "ok" else "🟡"
     st.caption(_st_icon + " " + L(f"بک‌اند: {_hc.get('backend')} · جدول: arena_trades",
                                   f"Backend: {_hc.get('backend')} · table: arena_trades"))
+
+# =============================================================================
+# تب ۶ — بازپخش تاریخی
+with tab_replay:
+    st.subheader("🧪 " + L("بازپخش تاریخی میدان", "Historical arena replay"))
+    st.caption(L(
+        "همان موتور و همان دروازه‌های اسکن زنده — امتیاز ایجنت، بک‌تست PF>1 روی پنجره‌ی ۳۰۰تایی، R:R≥۱، فیلتر رژیم BTC، "
+        "سهمیه‌ی ۳ پوزیشن هر شرکت‌کننده، سقف ۱۵ کل میدان، cooldown و کارمزد+لغزش واقعی — روی کندل‌های تاریخی پخش می‌شود "
+        "تا بدون انتظار هفته‌ها ببینی این ترکیب در گذشته سودده بوده یا نه. هیچ چیزی در جدول معاملات ذخیره نمی‌شود.",
+        "The exact live-scan engine and gates — agent score, 300-candle PF>1 backtest, R:R≥1, BTC regime filter, "
+        "3-position quota per participant, arena cap of 15, cooldown and real fees+slippage — replayed over historical candles "
+        "so you can see whether this setup was profitable in the past without waiting weeks. Nothing is saved to the trades table."))
+
+    _rc1, _rc2, _rc3 = st.columns([1.1, 2.3, 1.1])
+    with _rc1:
+        rep_candles = st.selectbox(L("طول تاریخچه (کندل)", "History length (candles)"),
+                                   RP.CANDLE_CHOICES, index=RP.CANDLE_CHOICES.index(RP.DEFAULT_CANDLES),
+                                   key="arena_rep_candles")
+    with _rc2:
+        rep_syms = st.multiselect(L("نمادهای بازپخش (حداکثر ۲۰)", "Replay symbols (max 20)"),
+                                  A.POOL_FALLBACK, default=A.POOL_FALLBACK,
+                                  max_selections=RP.MAX_SYMBOLS, key="arena_rep_syms")
+    with _rc3:
+        st.write("")
+        rep_go = st.button("🧪 " + L("اجرای بازپخش", "Run replay"), type="primary",
+                           use_container_width=True, key="arena_rep_go")
+
+    if rep_go:
+        if not rep_syms:
+            st.warning(L("حداقل یک نماد انتخاب کن.", "Pick at least one symbol."))
+        else:
+            try:
+                with st.spinner(L(
+                    f"{len(rep_syms)} نماد + BTC گرفته می‌شود و بعد {len(rep_syms)}×{rep_candles} کندل کندل‌به‌کندل بازپخش می‌شود … (۱–۳ دقیقه)",
+                    f"Fetching {len(rep_syms)} symbols + BTC, then replaying {len(rep_syms)}×{rep_candles} candles one by one … (1–3 min)")):
+                    _dfs, _btc_d, _ferr = RP.fetch_dfs(exchange, rep_syms, interval, int(rep_candles))
+                    _rres = RP.replay_from_dfs(_dfs, _btc_d, exchange, interval)
+                    _rres["meta"]["fetch_errors"] = _ferr
+                st.session_state["arena_replay"] = _rres
+            except Exception as exc:  # noqa: BLE001
+                st.error(L(f"بازپخش اجرا نشد: {exc}", f"Replay failed: {exc}"))
+
+    _R = st.session_state.get("arena_replay")
+    if not _R:
+        st.info(L(
+            "روی «🧪 اجرای بازپخش» بزن. پیش‌فرض ۱۲ ارز بزرگ با ۷۰۰ کندل چهارساعته (~۱۱۶ روز) است — "
+            "می‌توانی نمادها را عوض کنی یا تاریخچه را تا ۱۰۰۰ کندل بلند کنی.",
+            "Hit 'Run replay'. Default is 12 major coins × 700 4-hour candles (~116 days) — "
+            "you can change the symbols or extend the history up to 1,000 candles."))
+    else:
+        _rs, _rm = _R["summary"], _R["meta"]
+        _q1, _q2, _q3, _q4, _q5, _q6 = st.columns(6)
+        _q1.metric(L("معاملات بسته", "Closed trades"), _rs["n"])
+        _q2.metric(L("انتظاری هر معامله", "Expectancy / trade"), f"{_rs['expectancy']:+.2f}R")
+        _q3.metric("PF", f"{_rs['pf']:.2f}")
+        _q4.metric(L("وین‌ریت", "Winrate"), f"{_rs['winrate']:.0f}%")
+        _q5.metric(L("بیشترین افت", "Max drawdown"), f"{_rs['maxdd']:.1f}%")
+        _q6.metric(L("بازه‌ی زمانی", "Time span"), f"{_rm.get('span_days', 0):.0f} " + L("روز", "days"))
+        _rel = _rs["reliability"]
+        if _rel == "low":
+            st.error(L(
+                f"⚠️ بازپخش فقط {_rs['n']} معامله ساخت — تا ۳۰ معامله هیچ عددی اعتبار آماری ندارد. "
+                "نمادهای بیشتری اضافه کن یا تاریخچه را بلندتر کن.",
+                f"⚠️ Replay produced only {_rs['n']} trades — below 30 nothing is statistically meaningful. "
+                "Add more symbols or extend the history."))
+        elif _rel == "mid":
+            st.warning(L(
+                f"🟠 {_rs['n']} معامله در بازپخش — جهت‌گیری خوب است ولی برای قطعیت به ۱۰۰+ و تأیید زنده نیاز داری.",
+                f"🟠 {_rs['n']} replayed trades — good for direction, but 100+ plus live confirmation needed for certainty."))
+        else:
+            st.success(L(
+                f"🟢 {_rs['n']} معامله در بازپخش — نمونه‌ی معناداری است؛ حالا با انتظاری زنده مقایسه کن.",
+                f"🟢 {_rs['n']} replayed trades — a meaningful sample; now compare against live expectancy."))
+        st.caption(L(
+            f"{_rm['exchange']} · {_rm['interval']} · {len(_rm['symbols'])} نماد · از {_rm.get('from', '—')[:16].replace('T', ' ')} تا {_rm.get('to', '—')[:16].replace('T', ' ')} "
+            f"· {len(_R['opens'])} پوزیشن هنوز باز مانده · {_rm.get('took', 0):.0f} ثانیه",
+            f"{_rm['exchange']} · {_rm['interval']} · {len(_rm['symbols'])} symbols · from {_rm.get('from', '—')[:16].replace('T', ' ')} to {_rm.get('to', '—')[:16].replace('T', ' ')} "
+            f"· {len(_R['opens'])} still open at history end · {_rm.get('took', 0):.0f}s"))
+        _rgc = int(_rm.get("reg_blocked") or 0)
+        _bf, _bc, _bb = int(_rm.get("blocked_full") or 0), int(_rm.get("blocked_cool") or 0), int(_rm.get("blocked_busy") or 0)
+        _gparts = []
+        if _rgc:
+            _gparts.append(L(f"{_rgc} ایجنت-کندل خلاف رژیم", f"{_rgc} agent-candles against regime"))
+        if _bf:
+            _gparts.append(L(f"{_bf} سهمیه پر", f"{_bf} quota-full"))
+        if _bb:
+            _gparts.append(L(f"{_bb} نمادِ تکراری", f"{_bb} duplicate symbol"))
+        if _bc:
+            _gparts.append(L(f"{_bc} cooldown", f"{_bc} cooldown"))
+        if _gparts:
+            st.caption("🚧 " + L("رخدادهای ردشده: ", "Rejected events: ") + " · ".join(_gparts))
+        if _rm.get("fetch_errors") or _rm.get("errors"):
+            st.caption("⚠️ " + L("خطاها: ", "Errors: ") + " | ".join((_rm.get("fetch_errors") or []) + (_rm.get("errors") or []))[:400])
+
+        # ---- جدول شرکت‌کننده‌های بازپخش ----
+        st.subheader("🏆 " + L("نتایج هر شرکت‌کننده در گذشته", "Per-participant results in the past"))
+        _rrows = []
+        for i, r in enumerate(_R["board"]):
+            _rrows.append({
+                L("رتبه", "Rank"): f"{i + 1}",
+                L("شرکت‌کننده", "Participant"): r["agent"],
+                L("ایکوییتی $", "Equity $"): f"{r['equity']:,.0f}",
+                L("معاملات", "Trades"): r["trades"],
+                L("وین‌ریت", "Winrate"): f"{r['winrate']:.0f}%" if r["trades"] else "—",
+                "R کل": f"{r['total_r']:+.2f}" if r["trades"] else "—",
+                L("انتظاری R", "Exp. R"): f"{r['avg_r']:+.2f}" if r["trades"] else "—",
+                "PF": f"{r['pf']:.2f}" if r["trades"] else "—",
+                L("پی‌آف", "Payoff"): f"{r['payoff']:.2f}" if r["trades"] else "—",
+                "MaxDD": f"{r['maxdd']:.1f}%" if r["trades"] else "—",
+                L("برد/باخت", "W/L"): f"{r['wins']}/{r['losses']}" if r["trades"] else "—",
+            })
+        st.dataframe(pd.DataFrame(_rrows), use_container_width=True, hide_index=True)
+
+        # ---- نمودار ایکوییتی: حساب ترکیبی + هر شرکت‌کننده ----
+        import plotly.graph_objects as go  # noqa: E402
+        _rfig = go.Figure()
+        _rfig.add_trace(go.Scatter(y=_R["curve"], mode="lines", name=L("کل میدان", "Whole arena"),
+                                   line=dict(color="#e2e8f0", width=3)))
+        for r in _R["board"]:
+            if r["trades"]:
+                eq = A.equity_curve(r["_history"])
+                _rfig.add_trace(go.Scatter(y=eq, mode="lines", name=f"{r['agent']} ({r['equity']:,.0f}$)",
+                                           line=dict(color=r["color"], width=2)))
+        _rfig.add_hline(y=A.START_EQUITY, line_dash="dot", line_color="#64748b")
+        _rfig.update_layout(template="plotly_dark", height=380,
+                            title=L("ایکوییتی بازپخش (۱۰٬۰۰۰$ کاغذی · ریسک ۱٪ · کارمزد و لغزش واقعی)",
+                                    "Replay equity (paper $10,000 · 1% risk · real fees & slippage)"),
+                            margin=dict(l=20, r=20, t=50, b=20), legend=dict(orientation="h"))
+        st.plotly_chart(_rfig, use_container_width=True)
+
+        # ---- جدول نمادها ----
+        if _R["per_symbol"]:
+            st.subheader("🪙 " + L("به تفکیک نماد", "Per symbol"))
+            st.dataframe(pd.DataFrame(_R["per_symbol"]), use_container_width=True, hide_index=True)
+
+        # ---- تاریخچه‌ی بازپخش ----
+        with st.expander(L("📜 معاملات بسته‌شده‌ی بازپخش", "📜 Replayed closed trades"), expanded=False):
+            if not _R["closed"]:
+                st.info(L("هیچ معامله‌ای بسته نشده.", "No trades closed."))
+            else:
+                _hrows = []
+                for t in sorted(_R["closed"], key=lambda t: str(t.get("closed_at")), reverse=True)[:80]:
+                    dec = int(t.get("dec", 4))
+                    _hrows.append({
+                        L("بسته‌شده", "Closed"): str(t.get("closed_at", ""))[:16].replace("T", " "),
+                        L("شرکت‌کننده", "Participant"): t.get("agent"), L("نماد", "Symbol"): t.get("symbol"),
+                        L("جهت", "Side"): DIR_FA.get(int(t.get("direction") or 0), "—"),
+                        L("ورود", "Entry"): f"{t.get('entry'):,.{dec}f}",
+                        L("خروج", "Exit"): f"{float(t.get('closed_price') or 0):,.{dec}f}",
+                        L("نتیجه", "Result"): _res_badge(str(t.get("result"))),
+                        "R": f"{float(t.get('realized_r') or 0):+.2f}",
+                        L("دلیل", "Reason"): A.EXIT_FA.get(t.get("exit_reason"), t.get("exit_reason") or "—") if LANG != "en" else str(t.get("exit_reason") or "—"),
+                    })
+                st.dataframe(pd.DataFrame(_hrows), use_container_width=True, hide_index=True)
+
+        st.caption(L(
+            "محدودیت‌های صداقت‌آمیز: جهانِ بازپخش نمادهای انتخابی توست (غربالگریِ لحظه‌ایِ گذشته بازسازی‌شدنی نیست) · "
+            "دروازه‌ی ستاپ سه‌سطحی اعمال نمی‌شود (معادل سطح شکارچی) · اندیکاتورها روی کل تاریخچه گرم می‌شوند (کمی بهتر از فریم زنده) · "
+            "معاملات هنوز‌بازِ انتهای دوره در آمار نیستند. بازپخش شاهد آماری است، نه جای معاملات زنده.",
+            "Honest limits: the replay universe is your selected symbols (the past's live screening can't be reconstructed) · "
+            "the three-level setup gate is not applied (equivalent to Hunter) · indicators warm up on the whole history (slightly better than the live frame) · "
+            "trades still open at history end are excluded. Replay is statistical evidence, not a replacement for live trades."))

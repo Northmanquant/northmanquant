@@ -233,6 +233,24 @@ with tab_scan:
         "Strict: fresh setup + proven walk-forward edge only (rare but ruthless) · "
         "Balanced: a fresh setup in the last 6 candles is enough · Hunter: setup filter off — agents decide with their own score & backtest."))
 
+    # ---- بنر رژیم بازار (کش ۱۰ دقیقه‌ای — یک درخواست BTC ۴ساعته) ----
+    _reg = A.market_regime(exchange)
+    _rd = int(_reg.get("dir") or 0)
+    if _rd > 0:
+        _dist = (_reg["price"] / _reg["ma"] - 1.0) * 100.0
+        st.info("🌊 " + L(
+            f"رژیم بازار: **صعودی** — BTC/USDT روی ۴ساعته {_dist:+.1f}٪ بالای میانگین متحرک {A.REGIME_MA_N} کندل است → فقط لانگ باز می‌شود.",
+            f"Market regime: **BULLISH** — BTC/USDT 4h is {_dist:+.1f}% above its {A.REGIME_MA_N}-candle MA → longs only."))
+    elif _rd < 0:
+        _dist = (1.0 - _reg["price"] / _reg["ma"]) * 100.0
+        st.info("🌊 " + L(
+            f"رژیم بازار: **نزولی** — BTC/USDT روی ۴ساعته {_dist:+.1f}٪ زیر میانگین متحرک {A.REGIME_MA_N} کندل است → فقط شورت باز می‌شود.",
+            f"Market regime: **BEARISH** — BTC/USDT 4h is {_dist:+.1f}% below its {A.REGIME_MA_N}-candle MA → shorts only."))
+    else:
+        st.warning("🌊 " + L(
+            "رژیم بازار نامشخص است (دیتای BTC در دسترس نبود) — فیلتر جهت موقتاً خاموش است و هر دو جهت باز می‌شود.",
+            "Market regime unknown (BTC data unavailable) — direction filter temporarily OFF, both directions allowed."))
+
     if exchange == "Lighter":
         st.info(L("Lighter پرپ است — نمادها بدون USDT هستند.", "Lighter is perp — symbols without USDT."))
 
@@ -272,6 +290,13 @@ with tab_scan:
                      + (f" · {len(H['errors'])} ارز خطا داد" if H["errors"] else ""),
                      f"{H['exchange']} · {H['interval']} · {A.APPETITES.get(meta.get('appetite', 'balanced'), {}).get('en', '')} · whole market: {meta.get('total', '—')} coins → deep analysis: {meta.get('finalists', '—')} finalists in {H['took']:.0f}s · {H['ts']}"
                      + (f" · {len(H['errors'])} errors" if H["errors"] else "")))
+        _regm = meta.get("regime") or {}
+        _rlbl = {1: L("صعودی — فقط لانگ", "bullish — longs only"),
+                 -1: L("نزولی — فقط شورت", "bearish — shorts only")}.get(
+            int(_regm.get("dir") or 0), L("نامشخص — فیلتر خاموش", "unknown — filter off"))
+        _rb = int(meta.get("regime_blocked") or 0)
+        st.caption("🌊 " + L(f"رژیم این اسکن: {_rlbl}", f"Regime for this scan: {_rlbl}")
+                   + (" · " + L(f"{_rb} فرصت به‌خاطر خلاف‌رژیم‌بودن رد شد", f"{_rb} setups rejected for going against the regime") if _rb else ""))
 
         if opened:
             st.subheader("🆕 " + L("معامله‌های تازه", "Fresh trades"))
@@ -330,7 +355,14 @@ with tab_scan:
             "هر ارز فقط یک پوزیشن باز برای هر شرکت‌کننده + cooldown پس از بستن معامله. "
             "در هر کندل اول استاپ چک می‌شود (محافظه‌کارانه)، بعد تارگت‌ها — یعنی نتایج به واقعیت بدبینانه‌تر نزدیک است.\n\n"
             "**خروج نردبانی:** TP1 → استاپ به ورود · TP2 → استاپ به TP1 · TP3 → بستن کامل. "
-            "معامله‌ی سرگردان بعد از ۱۰۰ کندل با قیمت بازار بسته می‌شود.",
+            "معامله‌ی سرگردان بعد از ۱۰۰ کندل با قیمت بازار بسته می‌شود.\n\n"
+            "**فیلتر رژیم بازار:** پیش از هر اسکن، جهت BTC/USDT روی تایم‌فریم ۴ساعته نسبت به میانگین متحرک "
+            f"{A.REGIME_MA_N} کندل سنجیده می‌شود — بالای میانگین فقط لانگ، زیرش فقط شورت. "
+            "ستاپِ خلاف رژیم حتی اگر همه‌ی دروازه‌های دیگر را رد کند باز نمی‌شود و تعدادش در خلاصه‌ی اسکن شمرده می‌شود. "
+            "اگر دیتای BTC در دسترس نباشد فیلتر موقتاً خاموش است.\n\n"
+            "**آمار کلی میدان:** معیارهای واقعی سوددهی — انتظاری (میانگین R خالص هر معامله)، PF، پی‌آف و MaxDD — "
+            "از معاملات بسته‌شده با کارمزد و لغزش واقعی حساب می‌شوند. قانون تصمیم: تا ۳۰ معامله هیچ عددی اعتبار آماری ندارد، "
+            "بین ۳۰ تا ۱۰۰ فقط جهت‌گیری است، و فقط با ۱۰۰+ معامله و انتظاری مثبت می‌شود به سیستم اعتماد کرد.",
             "**Entry filter strength (three levels):** 'Strict' requires a fresh setup + proven walk-forward edge on that exact coin — ruthless but rare. "
             "'Balanced' (default) accepts any setup formed in the last 6 candles, without requiring a measured edge. "
             "'Hunter' turns the setup filter off entirely — agents decide purely with their own score and backtest. "
@@ -347,7 +379,14 @@ with tab_scan:
             "positions per participant, **15** for the whole arena. One open position per symbol per participant + "
             "cooldown after closing. Stops are checked first each candle (conservative) — results skew realistic/pessimistic.\n\n"
             "**Ladder exit:** TP1 → stop to entry · TP2 → stop to TP1 · TP3 → full close. "
-            "Stalled trades close at market after 100 candles."))
+            "Stalled trades close at market after 100 candles.\n\n"
+            "**Market regime filter:** before every scan, BTC/USDT on the 4-hour timeframe is measured against its "
+            f"{A.REGIME_MA_N}-candle moving average — above it only longs, below it only shorts. "
+            "A setup against the regime stays closed even if it passes every other gate, and the rejected count is shown in the scan summary. "
+            "If BTC data is unavailable the filter is temporarily off.\n\n"
+            "**Arena-wide stats:** the real profitability metrics — expectancy (average net R per trade), PF, payoff and MaxDD — "
+            "are computed from closed trades with real fees and slippage. Decision rule: below 30 trades nothing means anything; "
+            "30–100 is directional only; only 100+ trades with positive expectancy earn trust."))
 
 # =============================================================================
 # تب ۲ — پوزیشن‌های باز
@@ -378,6 +417,36 @@ with tab_pos:
 # =============================================================================
 # تب ۳ — لیدربورد و تاریخچه
 with tab_board:
+    # ---- آمار کلی میدان: آیا این سیستم واقعاً سوده است؟ ----
+    _summ = A.arena_summary(_closed_trades)
+    st.subheader("📊 " + L("آمار کلی میدان", "Arena-wide stats"))
+    _b1, _b2, _b3, _b4, _b5 = st.columns(5)
+    _b1.metric(L("معاملات بسته", "Closed trades"), _summ["n"])
+    _b2.metric(L("انتظاری هر معامله", "Expectancy / trade"), f"{_summ['expectancy']:+.2f}R")
+    _b3.metric(L("وین‌ریت", "Winrate"), f"{_summ['winrate']:.0f}%")
+    _b4.metric("PF", f"{_summ['pf']:.2f}")
+    _b5.metric(L("بیشترین افت", "Max drawdown"), f"{_summ['maxdd']:.1f}%")
+    _rel = _summ["reliability"]
+    if _rel == "low":
+        st.error(L(
+            f"⚠️ نمونه کوچک است ({_summ['n']} معامله) — تا ۳۰ معامله این اعداد هیچ اعتبار آماری ندارند و تا ۱۰۰ معامله فقط جهت‌گیری‌اند. "
+            "تصمیم پول واقعی فقط با ۱۰۰+ معامله و انتظاری مثبت.",
+            f"⚠️ Small sample ({_summ['n']} trades) — below 30 these numbers carry no statistical weight; 30–100 is directional only. "
+            "Real-money decisions need 100+ trades with positive expectancy."))
+    elif _rel == "mid":
+        st.warning(L(
+            f"🟠 {_summ['n']} معامله — قابل مشاهده ولی نه قطعی؛ تا رسیدن به ۱۰۰ معامله فقط جهت‌گیری در نظر بگیر.",
+            f"🟠 {_summ['n']} trades — observable but not conclusive; treat as directional until 100 trades."))
+    else:
+        st.success(L(
+            f"🟢 {_summ['n']} معامله — نمونه‌ی آماری کافی است؛ حالا می‌شود به انتظاری و PF اعتماد بیشتری کرد.",
+            f"🟢 {_summ['n']} trades — statistically usable sample; expectancy and PF can now be trusted more."))
+    st.caption(L(
+        "انتظاری = میانگین R خالص هر معامله (بعد از کارمزد و لغزش) · PF = مجموع بردها ÷ مجموع باخت‌ها · "
+        "MaxDD = بیشترین افت ایکوییتی ترکیبی با ریسک ۱٪ (انگار یک حساب همه‌ی میدان را می‌گرفت).",
+        "Expectancy = average net R per trade (after fees & slippage) · PF = gross wins ÷ gross losses · "
+        "MaxDD = deepest drop of the combined 1%-risk equity (as if one account took every arena trade)."))
+
     board = A.leaderboard(_closed_trades, _open_trades)
     MEDALS = ["🥇", "🥈", "🥉"]
     rows = []
@@ -392,6 +461,9 @@ with tab_board:
             L("امتیاز", "Points"): f"{r['points']:+.1f}" if r["trades"] else "—",
             "R کل": f"{r['total_r']:+.2f}" if r["trades"] else "—",
             "PF": f"{r['pf']:.2f}" if r["trades"] else "—",
+            L("انتظاری R", "Exp. R"): f"{r['avg_r']:+.2f}" if r["trades"] else "—",
+            L("پی‌آف", "Payoff"): f"{r['payoff']:.2f}" if r["trades"] else "—",
+            "MaxDD": f"{r['maxdd']:.1f}%" if r["trades"] else "—",
             L("برد/باخت", "W/L"): f"{r['wins']}/{r['losses']}" if r["trades"] else "—",
             L("زنجیره", "Streak"): streak_txt if r["trades"] else "—",
             L("باز", "Open"): r["open"],

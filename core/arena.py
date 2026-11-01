@@ -55,6 +55,17 @@ TAKER_FEE_PCT = 0.10      # ٪ هر سمت (KuCoin/OKX/Binance/Bybit اسپات 
 SLIPPAGE_PCT = 0.05       # ٪ هر سمت — محافظه‌کارانه برای ارزهای نقدشونده
 COST_RT_PCT = 2 * (TAKER_FEE_PCT + SLIPPAGE_PCT) / 100.0   # = 0.003
 
+# ---- فیلتر رژیم بازار ----------------------------------------------------------
+# جهت معامله‌ها محدود می‌شود به جهت روندِ کل بازار: BTC/USDT روی تایم‌فریم ۴ساعته
+# با میانگین متحرک ساده. بالای میانگین = بازار صعودی → فقط لانگ؛ زیرش = نزولی →
+# فقط شورت. «باد پشت سر» — شورت‌زدن در پامپ و خرید در سقوطِ بازارِ نزولی از
+# بزرگ‌ترین عامل‌های نابودی حساب‌های کوچک است. اگر دیتای BTC نبود، فیلتر خاموش
+# می‌شود (dir=0) تا اسکن بی‌دلیل از کار نیفتد.
+REGIME_SYMBOL = "BTC/USDT"
+REGIME_TF = "4hour"
+REGIME_MA_N = 50          # ~۸ روز — تعادل بین واکنش‌سرعت و نویز
+REGIME_TTL_S = 600.0      # کش ۱۰ دقیقه‌ای — هر رندر صفحه درخواست شبکه نزند
+
 INTERVAL_MIN = {"15min": 15, "1hour": 60, "4hour": 240, "1day": 1440}
 
 COMMITTEE = {"name": "Committee 🤝", "fa": "کمیسیون 🤝", "color": "#94a3b8"}
@@ -352,6 +363,51 @@ def market_screen(exchange: str) -> tuple[list[dict], int, bool]:
                   "strength": 0.0} for s in POOL_FALLBACK], len(POOL_FALLBACK), True)
 
 
+# ----------------------------------------------------------------------------- regime filter
+def _regime_allows(regime: int, direction: int) -> bool:
+    """آیا این جهت با رژیم فعلی بازار سازگار است؟ (regime=۰ یعنی فیلتر خاموش/نامشخص)"""
+    return regime == 0 or direction == regime
+
+
+def _regime_from_close(close: pd.Series) -> dict:
+    """محاسبه‌ی خالص رژیم از سری قیمت — بدون شبکه، قابل تست.
+    خروجی: {dir: +1/-1/0, ma, price, n} — dir=0 یعنی دیتا ناکافی/نامشخص."""
+    s = pd.to_numeric(pd.Series(close), errors="coerce").dropna()
+    price = float(s.iloc[-1]) if len(s) else 0.0
+    if len(s) < REGIME_MA_N:
+        return {"dir": 0, "ma": 0.0, "price": price, "n": int(len(s))}
+    ma = float(s.rolling(REGIME_MA_N).mean().iloc[-1])
+    d = 1 if price > ma else -1 if price < ma else 0
+    return {"dir": d, "ma": ma, "price": price, "n": int(len(s))}
+
+
+_REGIME_CACHE: dict = {}
+
+
+def market_regime(exchange: str = "KuCoin", max_age_s: float = REGIME_TTL_S) -> dict:
+    """رژیم بازار: BTC/USDT ۴ساعته بالای/زیر میانگین متحرک REGIME_MA_N کندل.
+    کش ۱۰ دقیقه‌ای — هر رندر صفحه درخواست شبکه‌ی تازه نمی‌زند.
+    اگر صرافی انتخابی جواب نداد، KuCoin امتحان می‌شود؛ اگر هیچ‌کدام → dir=0."""
+    key = str(exchange)
+    now = time.time()
+    c = _REGIME_CACHE.get(key)
+    if c and now - c["ts"] <= max_age_s:
+        return c["val"]
+    for ex in (exchange, "KuCoin"):
+        try:
+            sym = "BTC" if ex == "Lighter" else REGIME_SYMBOL
+            d, _s, src = get_df(ex, sym, REGIME_TF, REGIME_MA_N + 120)
+            val = _regime_from_close(d["close"])
+            if val["dir"] == 0 and val["n"] < REGIME_MA_N:
+                continue          # دیتای این صرافی کافی نبود → صرافی بعدی
+            val["exchange"], val["src"] = ex, src
+            _REGIME_CACHE[key] = {"ts": now, "val": val}
+            return val
+        except Exception:  # noqa: BLE001
+            continue
+    return {"dir": 0, "ma": 0.0, "price": 0.0, "n": 0, "exchange": exchange, "src": "none"}
+
+
 def _setup_dir(d: pd.DataFrame, appetite: str = DEFAULT_APPETITE) -> tuple[bool, int, str]:
     """دروازه‌ی ستاپ بر اساس اشتهاي ریسک:
       strict   → موتور کامل walk-forward (ستاپ تازه + لبه‌ی اثبات‌شده روی همان نماد)
@@ -380,8 +436,9 @@ def _setup_dir(d: pd.DataFrame, appetite: str = DEFAULT_APPETITE) -> tuple[bool,
 
 
 def scan_coin(exchange: str, symbol: str, interval: str, balance: float = START_EQUITY,
-              fee_pct: float = FEE_PCT, appetite: str = DEFAULT_APPETITE) -> dict:
-    """یک ارز را از موتور مشترک ایجنت‌ها رد می‌کند و برای هر شرکت‌کننده تکلیف را روشن می‌کند."""
+              fee_pct: float = FEE_PCT, appetite: str = DEFAULT_APPETITE, regime: int = 0) -> dict:
+    """یک ارز را از موتور مشترک ایجنت‌ها رد می‌کند و برای هر شرکت‌کننده تکلیف را روشن می‌کند.
+    regime: +1 فقط لانگ · −1 فقط شورت · 0 فیلتر خاموش — فرصت خلاف رژیم «blocked_by_regime» می‌شود."""
     try:
         S_ = calculate_duel(exchange, symbol, interval, 300, balance, fee_pct)
     except Exception as exc:  # noqa: BLE001
@@ -401,15 +458,17 @@ def scan_coin(exchange: str, symbol: str, interval: str, balance: float = START_
     for name, r in S_["results"].items():
         spec = AGENTS[name]
         pos, bt, sc, sig = r["position"], r["bt"], r["score"], r["sig"]
-        ok = (sig != 0 and np.sign(sc) == sig and abs(sc) >= spec["thr"]
-              and bt["pf"] > 1.0 and bt["total"] > 0
-              and v_ok and (appetite == "hunter" or v_dir == sig)
-              and pos["direction"] != 0 and float(pos.get("rr") or 0) >= 1.0)
+        ok_pre = (sig != 0 and np.sign(sc) == sig and abs(sc) >= spec["thr"]
+                  and bt["pf"] > 1.0 and bt["total"] > 0
+                  and v_ok and (appetite == "hunter" or v_dir == sig)
+                  and pos["direction"] != 0 and float(pos.get("rr") or 0) >= 1.0)
+        reg_ok = _regime_allows(regime, int(sig))
+        ok = ok_pre and reg_ok
         top_rows = sorted(r["rows"], key=lambda x: -abs(float(x["سهم در تصمیم"])))[:2]
         evidence = " · ".join(f"{row['فاکتور']}: {row['مدرک (مشاهده‌ی واقعی)']}" for row in top_rows)
         out["agents"][name] = {
             "dir": int(sig), "score": float(sc), "ok": bool(ok), "pos": pos, "bt": bt,
-            "evidence": evidence,
+            "evidence": evidence, "blocked_by_regime": bool(ok_pre and not reg_ok),
             "quality": abs(sc) * min(2.5, max(float(bt["pf"]), 0.0)) * min(float(pos.get("rr") or 0), 3),
         }
 
@@ -424,13 +483,14 @@ def scan_coin(exchange: str, symbol: str, interval: str, balance: float = START_
         c_ev = f"اجماع {n_agree}/4 ایجنت{_split}"
     else:
         c_ev = "بدون اجماع جهت‌دار — کمیسیون می‌ایستد"
-    c_ok = (fd != 0 and abs(S_["final_s"]) >= 0.15 and n_agree >= 3
-            and v_ok and (appetite == "hunter" or v_dir == fd)
-            and fpos["direction"] != 0 and float(fpos.get("rr") or 0) >= 1.0)
+    c_ok_pre = (fd != 0 and abs(S_["final_s"]) >= 0.15 and n_agree >= 3
+                and v_ok and (appetite == "hunter" or v_dir == fd)
+                and fpos["direction"] != 0 and float(fpos.get("rr") or 0) >= 1.0)
+    c_reg_ok = _regime_allows(regime, int(fd))
     out["committee"] = {
-        "dir": int(fd), "score": float(S_["final_s"]), "ok": bool(c_ok), "pos": fpos,
+        "dir": int(fd), "score": float(S_["final_s"]), "ok": bool(c_ok_pre and c_reg_ok), "pos": fpos,
         "confidence": int(S_["confidence"]), "n_agree": int(n_agree),
-        "evidence": c_ev,
+        "evidence": c_ev, "blocked_by_regime": bool(c_ok_pre and not c_reg_ok),
     }
     return out
 
@@ -442,9 +502,10 @@ def run_scan(exchange: str, interval: str, balance: float = START_EQUITY,
     خروجی: (نتایج تحلیل, خطاها, متادیتا {total/finalists/fallback/min_strength/appetite})"""
     finalists, total, fallback = market_screen(exchange)
     pool = [f["symbol"] for f in finalists] or list(POOL_FALLBACK)
+    reg = market_regime(exchange)          # یک‌بار برای کل اسکن — نه هر ارز
     meta = {"total": int(total), "finalists": len(pool), "fallback": bool(fallback),
             "min_strength": float(finalists[-1]["strength"]) if finalists else 0.0,
-            "appetite": appetite}
+            "appetite": appetite, "regime": reg}
     init = None
     try:
         from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ctx
@@ -455,8 +516,11 @@ def run_scan(exchange: str, interval: str, balance: float = START_EQUITY,
     except Exception:  # noqa: BLE001
         init = None
     with ThreadPoolExecutor(max_workers=max(1, min(workers, len(pool))), initializer=init) as ex:
-        scans = list(ex.map(lambda s: scan_coin(exchange, s, interval, balance, fee_pct, appetite), pool))
+        scans = list(ex.map(lambda s: scan_coin(exchange, s, interval, balance, fee_pct, appetite, int(reg["dir"])), pool))
     errors = [f"{o['symbol']} — {o['error']}" for o in scans if o.get("error")]
+    reg_blocked = sum(1 for o in scans for a in o.get("agents", {}).values() if a.get("blocked_by_regime")) \
+        + sum(1 for o in scans if (o.get("committee") or {}).get("blocked_by_regime"))
+    meta["regime_blocked"] = int(reg_blocked)
     return scans, errors, meta
 
 
@@ -549,6 +613,56 @@ def update_all_trades(store) -> tuple[dict, list[dict]]:
 
 
 # ----------------------------------------------------------------------------- leaderboard
+# ----------------------------------------------------------------------------- stats
+# معیارهای واقعی «آیا این سیستم سوده است؟» — همه از R خالص (بعد از کارمزد+لغزش).
+# قانون تصمیم: تا ۳۰ معامله هیچ عددی اعتبار آماری ندارد؛ ۳۰ تا ۱۰۰ فقط جهت‌گیری؛
+# فقط با ۱۰۰+ معامله و انتظاری مثبت می‌شود به سیستم اعتماد کرد (و حتی آن‌وقت
+# اول روی حساب کوچک).
+SAMPLE_MIN = 30
+SAMPLE_OK = 100
+
+
+def _maxdd_from_rs(rs: list[float]) -> float:
+    """بیشترین افت سرمایه (٪) روی منحنی مرکب با ریسک ثابت ۱٪ — خالص R پشت سر هم."""
+    eq = peak = 1.0
+    mdd = 0.0
+    for r in rs:
+        eq = max(0.0, eq * (1.0 + RISK_PCT / 100.0 * float(r)))
+        peak = max(peak, eq)
+        if peak > 0:
+            mdd = max(mdd, (peak - eq) / peak)
+    return mdd * 100.0
+
+
+def arena_summary(closed: list[dict]) -> dict:
+    """آمار کل میدان از معاملات بسته‌شده — مبنای تصمیم «سوده است یا نه؟».
+      انتظاری = میانگین R خالص هر معامله (بعد از کارمزد و لغزش)
+      PF = مجموع بردها ÷ مجموع باخت‌ها · پی‌آف = میانگین برد ÷ میانگین باخت
+      MaxDD = بیشترین افت ایکوییتی ترکیبی (انگار یک حساب با ۱٪ ریسک همه را گرفته بود)
+    reliability: low (<۳۰) · mid (۳۰–۹۹) · ok (۱۰۰+)"""
+    ts = sorted(closed, key=lambda t: str(t.get("closed_at") or ""))
+    rs = [float(t.get("realized_r") or 0.0) for t in ts]
+    n = len(rs)
+    wins = [r for r in rs if r > 0.0]
+    losses = [r for r in rs if r < 0.0]
+    gross, loss_sum = sum(wins), -sum(losses)
+    pf = (gross / loss_sum) if loss_sum > 0 else (99.0 if gross > 0 else 0.0)
+    avg_win = (gross / len(wins)) if wins else 0.0
+    avg_loss = (loss_sum / len(losses)) if losses else 0.0
+    payoff = (avg_win / avg_loss) if avg_loss > 0 else (99.0 if avg_win > 0 else 0.0)
+    return {
+        "n": n,
+        "expectancy": (sum(rs) / n) if n else 0.0,
+        "total_r": sum(rs),
+        "pf": min(pf, 99.0),
+        "payoff": min(payoff, 99.0),
+        "winrate": len(wins) / max(1, len(wins) + len(losses)) * 100.0,
+        "wins": len(wins), "losses": len(losses),
+        "maxdd": _maxdd_from_rs(rs),
+        "reliability": "low" if n < SAMPLE_MIN else "mid" if n < SAMPLE_OK else "ok",
+    }
+
+
 def _streak(points_hist: list[float]) -> int:
     s = 0
     for p in reversed(points_hist):
@@ -574,6 +688,11 @@ def leaderboard(closed: list[dict], opens: list[dict]) -> list[dict]:
         pts = [float(t.get("points") or 0.0) for t in ts_sorted]
         wins = sum(1 for p in pts if p > 0)
         losses = sum(1 for p in pts if p < 0)
+        wins_list = [r for r in rs if r > 0]
+        losses_list = [r for r in rs if r < 0]
+        avg_win = (sum(wins_list) / len(wins_list)) if wins_list else 0.0
+        avg_loss = (-sum(losses_list) / len(losses_list)) if losses_list else 0.0
+        payoff = (avg_win / avg_loss) if avg_loss > 0 else (99.0 if avg_win > 0 else 0.0)
         eq = START_EQUITY
         for r in rs:
             eq *= (1 + RISK_PCT / 100.0 * r)
@@ -586,8 +705,10 @@ def leaderboard(closed: list[dict], opens: list[dict]) -> list[dict]:
             "agent": name, "color": part["color"], "kind": part["kind"],
             "equity": eq, "trades": len(ts), "open": len(os_),
             "wins": wins, "losses": losses, "winrate": wr,
-            "total_r": sum(rs), "avg_r": (sum(rs) / len(rs)) if rs else 0.0,
+            "total_r": sum(rs),
             "pf": min(pf, 99.0), "points": sum(pts), "streak": _streak(pts),
+            "avg_r": (sum(rs) / len(rs)) if rs else 0.0,
+            "payoff": min(payoff, 99.0), "maxdd": _maxdd_from_rs(rs),
             "best_r": max(rs) if rs else 0.0, "worst_r": min(rs) if rs else 0.0,
             "_history": ts_sorted,
         })

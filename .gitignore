@@ -34,3 +34,10 @@ community_analyses.json
 
 # local paper-league fallback store
 arena_trades.json
+
+# secrets / credentials (never commit)
+.env
+.env.*
+*.key
+*.pem
+auth.json

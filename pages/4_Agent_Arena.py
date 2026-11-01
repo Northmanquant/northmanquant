@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import time
 from datetime import datetime
+from html import escape as _esc
 
 import numpy as np
 import pandas as pd
@@ -156,11 +157,16 @@ def _trade_card(t: dict, live_price: float | None, unrealized: float | None) -> 
     ur_txt = "—" if unrealized is None else f"{unrealized:+.2f}R"
     ur_col = "#16a34a" if (unrealized or 0) > 0 else "#ef4444" if (unrealized or 0) < 0 else "#94a3b8"
     lp_txt = "—" if not live_price else f"{live_price:,.{dec}f}"
+    # امنیت: فیلدهای رشته‌ای که ممکن است از دیتابیس/دیتای صرافی آمده باشند escape می‌شوند
+    _agent = _esc(str(t.get("agent", "")))
+    _sym = _esc(str(t.get("symbol", "")))
+    _interval = _esc(str(t.get("interval", "")))
+    _evidence = _esc(str(t.get("evidence", ""))) if t.get("evidence") else ""
     st.markdown(
         f"<div dir='rtl' style='border:1px solid rgba(148,163,184,.25);border-right:5px solid {color};"
         f"border-radius:14px;padding:12px 14px;margin:8px 0;background:rgba(148,163,184,.05)'>"
         f"<div style='display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:center'>"
-        f"<span>{_chip(t.get('agent',''), color)} <b style='font-size:16px'>{t.get('symbol')}</b> {_dir_badge(int(t.get('direction') or 0))}</span>"
+        f"<span>{_chip(_agent, color)} <b style='font-size:16px'>{_sym}</b> {_dir_badge(int(t.get('direction') or 0))}</span>"
         f"<span style='font-family:ui-monospace,monospace;font-size:14px;color:{ur_col}'>R فعلی: {ur_txt}</span>"
         f"</div>"
         f"<div style='display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:10px;text-align:center;font-size:12px'>"
@@ -171,9 +177,9 @@ def _trade_card(t: dict, live_price: float | None, unrealized: float | None) -> 
         f"<div><div style='color:#94a3b8'>TP3</div><b style='color:#16a34a'>{t.get('tp3'):,.{dec}f}</b></div>"
         f"</div>"
         f"<div style='margin-top:8px;font-size:11px;color:#94a3b8'>"
-        f"قیمت زنده: {lp_txt} · R:R {t.get('rr', 0):.1f} · امتیاز ورود {t.get('score', 0):+.2f} · {t.get('interval')} · {_age_label(t)}"
+        f"قیمت زنده: {lp_txt} · R:R {t.get('rr', 0):.1f} · امتیاز ورود {t.get('score', 0):+.2f} · {_interval} · {_age_label(t)}"
         f"</div>"
-        + (f"<div style='margin-top:6px;font-size:11px;color:#cbd5e1'><b>مدرک:</b> {t.get('evidence','')}</div>" if t.get("evidence") else "")
+        + (f"<div style='margin-top:6px;font-size:11px;color:#cbd5e1'><b>مدرک:</b> {_evidence}</div>" if t.get("evidence") else "")
         + "</div>",
         unsafe_allow_html=True,
     )

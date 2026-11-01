@@ -20,6 +20,7 @@ from __future__ import annotations
 import re
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
+from html import escape as _html_escape
 
 import numpy as np
 import pandas as pd
@@ -110,6 +111,13 @@ THEMES = {
 
 def theme_css(t: dict, bg_image: str = "") -> str:
     """Build a <style> block that re-skins the whole Streamlit app for a theme."""
+    # امنیت: فقط https ساده بدون نقل‌قول/براکت/بک‌اسلش بپذیر تا از داخل url('…') فرار نشود
+    if bg_image:
+        bg_image = str(bg_image).strip()
+        _bad = any(ch in bg_image for ch in ("'", '"', "\\", "<", ">", ")", ";")) \
+            or not bg_image.lower().startswith("https://")
+        if _bad:
+            bg_image = ""
     bg_layer = (
         f"linear-gradient(rgba(0,0,0,0.55),rgba(0,0,0,0.70)), url('{bg_image}')"
         if bg_image else t["grad"]
@@ -3062,7 +3070,7 @@ def main() -> None:
         _strip = pd.concat([_tops["volume"].head(7), _tops["gainers"].head(7)]).drop_duplicates(subset="symbol")
         if not _strip.empty:
             _items = "".join(
-                f"<span class='nq-tick-item'><b>{r['symbol'].replace('-USDT', '')}</b> {r['price']:,.4g} "
+                f"<span class='nq-tick-item'><b>{_html_escape(str(r['symbol']).replace('-USDT', ''))}</b> {r['price']:,.4g} "
                 f"<span style='color:{'#34d399' if r['change%'] >= 0 else '#fb7185'}'>{'▲' if r['change%'] >= 0 else '▼'} {abs(r['change%']):.2f}%</span></span>"
                 for _, r in _strip.iterrows()
             )
@@ -3562,13 +3570,17 @@ def main() -> None:
                     img_uri = ""
                     if ca_image is not None:
                         try:
-                            import base64 as _b64
-                            import io as _io
-                            im = Image.open(ca_image).convert("RGB")
-                            im.thumbnail((1000, 1000))  # cap size so the JSON stays light
-                            buf = _io.BytesIO()
-                            im.save(buf, format="JPEG", quality=80)
-                            img_uri = "data:image/jpeg;base64," + _b64.b64encode(buf.getvalue()).decode()
+                            if ca_image.size > 5 * 1024 * 1024:
+                                st.warning("عکس بزرگ‌تر از ۵ مگابایت است — یک عکس سبک‌تر انتخاب کن.")
+                                img_uri = ""
+                            else:
+                                import base64 as _b64
+                                import io as _io
+                                im = Image.open(ca_image).convert("RGB")
+                                im.thumbnail((1000, 1000))  # cap size so the JSON stays light
+                                buf = _io.BytesIO()
+                                im.save(buf, format="JPEG", quality=80)
+                                img_uri = "data:image/jpeg;base64," + _b64.b64encode(buf.getvalue()).decode()
                         except Exception:
                             img_uri = ""
                     save_community({
@@ -3726,8 +3738,8 @@ def main() -> None:
                     if val in (None, "", 0):
                         return ""
                     return (f"<div style='background:rgba(148,163,184,.1);border-radius:8px;padding:6px 8px;text-align:center'>"
-                            f"<div style='font-size:9px;color:#94a3b8'>{lbl}</div>"
-                            f"<div style='font-family:ui-monospace,monospace;font-weight:800;font-size:13px;color:{color}'>{val}</div></div>")
+                            f"<div style='font-size:9px;color:#94a3b8'>{_html_escape(str(lbl))}</div>"
+                            f"<div style='font-family:ui-monospace,monospace;font-weight:800;font-size:13px;color:{color}'>{_html_escape(str(val))}</div></div>")
 
                 for p in shown:
                     tone = bias_tone.get(p.get("bias", ""), "#94a3b8")
@@ -3745,18 +3757,25 @@ def main() -> None:
                         _chip("R:R", p.get("rr"), "#38bdf8"),
                         _chip("اطمینان", (f"{p.get('confidence')}%" if p.get("confidence") else ""), "#a855f7"),
                     ])
-                    meta = " · ".join(x for x in [p.get("symbol", "—"), p.get("exchange", ""), p.get("tf", ""), p.get("bias", "")] if x)
+                    meta = " · ".join(_html_escape(str(x)) for x in [p.get("symbol", "—"), p.get("exchange", ""), p.get("tf", ""), p.get("bias", "")] if x)
+                    # امنیت: همه‌ی فیلدهای واردشده از سمت کاربر escape می‌شوند (جلوگیری از XSS ذخیره‌شده)
+                    _name = _html_escape(str(p.get("name", "ناشناس")))
+                    _text = _html_escape(str(p.get("text", "")))
+                    _ts = _html_escape(str(p.get("ts", "")))
+                    _img = str(p.get("image") or "")
+                    if _img and not (_img.startswith("data:image/") and "'" not in _img and '"' not in _img and "<" not in _img and ">" not in _img):
+                        _img = ""   # فقط data-URI تصویرِ بازانکدشده توسط PIL بپذیر
                     st.markdown(
                         f"<div dir='rtl' style='border:1px solid rgba(148,163,184,0.2);border-right:5px solid {tone};"
                         f"border-radius:14px;padding:14px 16px;margin:10px 0;background:rgba(148,163,184,0.05)'>"
                         f"<div style='display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:center'>"
-                        f"<b style='font-size:16px'>👤 {p.get('name','ناشناس')}</b>"
+                        f"<b style='font-size:16px'>👤 {_name}</b>"
                         f"<span style='font-family:ui-monospace,monospace;font-size:13px;color:{tone};font-weight:700'>{meta}</span></div>"
                         + (f"<div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(78px,1fr));gap:8px;margin-top:12px'>{chips}</div>" if chips else "")
-                        + f"<div style='margin-top:12px;line-height:2;font-size:14px;white-space:pre-wrap'>{p.get('text','')}</div>"
-                        + (f"<img src='{p.get('image')}' style='margin-top:12px;max-width:100%;border-radius:10px;"
-                           f"border:1px solid rgba(148,163,184,0.2)'/>" if p.get("image") else "")
-                        + f"<div style='margin-top:8px;font-size:11px;color:#94a3b8'>🕒 {p.get('ts','')}</div>"
+                        + f"<div style='margin-top:12px;line-height:2;font-size:14px;white-space:pre-wrap'>{_text}</div>"
+                        + (f"<img src='{_img}' style='margin-top:12px;max-width:100%;border-radius:10px;"
+                           f"border:1px solid rgba(148,163,184,0.2)'/>" if _img else "")
+                        + f"<div style='margin-top:8px;font-size:11px;color:#94a3b8'>🕒 {_ts}</div>"
                         f"</div>",
                         unsafe_allow_html=True,
                     )

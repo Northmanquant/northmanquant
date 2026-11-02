@@ -30,7 +30,7 @@ from PIL import Image
 
 from core import community_store as _cstore
 from core.community_store import render_backend_banner
-from core.i18n import setup_i18n
+from core.i18n import setup_i18n, get_lang
 from core.net import get_json
 KUCOIN = "https://api.kucoin.com"
 BINANCE = "https://api.binance.com"
@@ -83,10 +83,159 @@ LIVE_CSS = """
 .nq-tick-item{font-family:ui-monospace,monospace;font-size:12px;color:#cbd5e1}
 @keyframes nq-glow { 0%,100%{text-shadow:0 0 14px rgba(56,189,248,.35)} 50%{text-shadow:0 0 26px rgba(52,211,153,.55)} }
 .nq-glow{animation:nq-glow 3.2s ease-in-out infinite}
+.nq-sess-title{font-size:12.5px;font-weight:800;color:#94a3b8;margin:10px 0 0}
+.nq-sess-row{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 2px}
+.nq-sess-note{font-size:10.5px;color:#64748b;margin:2px 0 0}
+.nq-sess-chip{flex:1 1 148px;min-width:148px;max-width:230px;border:1px solid rgba(148,163,184,.22);border-radius:12px;background:rgba(2,6,17,.55);padding:8px 10px;direction:rtl;text-align:right}
+.nq-sess-row.en .nq-sess-chip{direction:ltr;text-align:left}
+.nq-sess-chip.on{border-color:rgba(52,211,153,.45);background:rgba(52,211,153,.08)}
+.nq-sess-chip.off{opacity:.8}
+.nq-sess-name{font-size:12px;font-weight:800;color:#e2e8f0;white-space:nowrap}
+.nq-pill{font-size:10px;font-weight:800;border-radius:999px;padding:1px 8px;margin-inline-start:6px;white-space:nowrap}
+.nq-pill.open{background:rgba(52,211,153,.18);color:#34d399}
+.nq-pill.closed{background:rgba(251,113,133,.16);color:#fb7185}
+.nq-sess-hours{font-family:ui-monospace,monospace;font-size:12px;color:#cbd5e1;margin-top:3px}
+.nq-sess-count{font-size:10.5px;color:#94a3b8;margin-top:2px}
 </style>
 """
 
 HEADERS = {"User-Agent": "northmanquant-lite/1.0", "accept": "application/json"}
+
+
+def fmt_price(p, dec: int | None = None, sign: bool = False) -> str:
+    """عددِ خوانا بدون نماد علمی — جداکننده‌ی هزارگان + اعشارِ متناسب با مقیاس.
+    ۷۸۲۲۸٫۹ → «78,228.90» · ۰٫۲۲۱۵ → «0.221500» · دیگر e+04 دیده نمی‌شود."""
+    try:
+        p = float(p)
+    except Exception:  # noqa: BLE001
+        return str(p)
+    if dec is None:
+        a = abs(p)
+        dec = 2 if a >= 1000 else 4 if a >= 1 else 6 if a >= 0.01 else 8
+    s = f"{p:,.{dec}f}"
+    if sign and p > 0:
+        s = "+" + s
+    return s
+
+
+# ------------------------------------------------------------------ سشن‌های بازار جهانی
+# ساعاتِ استانداردِ هر بازار (روزهای کاری با weekday: دوشنبه=0 … یکشنبه=6) —
+# تعطیلات رسمی حساب نمی‌شود؛ در صفحه هم همین گفته می‌شود. بورس تهران شنبه تا چهارشنبه.
+MARKET_SESSIONS = [
+    {"key": "tehran", "flag": "🇮🇷", "fa": "بورس تهران", "en": "Tehran TSE", "tz": "Asia/Tehran",
+     "open": (9, 0), "close": (15, 0), "days": {5, 6, 0, 1, 2}},
+    {"key": "dubai", "flag": "🇦🇪", "fa": "بورس دبی", "en": "Dubai DFM", "tz": "Asia/Dubai",
+     "open": (10, 0), "close": (14, 50), "days": {6, 0, 1, 2, 3}},
+    {"key": "london", "flag": "🇬🇧", "fa": "لندن LSE", "en": "London LSE", "tz": "Europe/London",
+     "open": (8, 0), "close": (16, 30), "days": {0, 1, 2, 3, 4}},
+    {"key": "newyork", "flag": "🇺🇸", "fa": "آمریکا NYSE", "en": "US NYSE", "tz": "America/New_York",
+     "open": (9, 30), "close": (16, 0), "days": {0, 1, 2, 3, 4}},
+    {"key": "tokyo", "flag": "🇯🇵", "fa": "توکیو TSE", "en": "Tokyo TSE", "tz": "Asia/Tokyo",
+     "open": (9, 0), "close": (15, 0), "days": {0, 1, 2, 3, 4}},
+    {"key": "crypto", "flag": "🪙", "fa": "کریپتو", "en": "Crypto", "tz": None,
+     "open": (0, 0), "close": (23, 59), "days": {0, 1, 2, 3, 4, 5, 6}, "always": True},
+]
+
+
+def market_sessions_status(now_utc: datetime | None = None) -> list[dict]:
+    """وضعیت باز/بسته‌ی بازارهای جهانی + ساعات سشن به وقت تهران + شمارش معکوس.
+    خالص و قابل‌تست — now_utc را می‌شود ثابت داد. خروجی: لیست dict با کلیدهای
+    open_now / hours{o_teh,c_teh} / countdown_min / countdown_kind(open|close)."""
+    from datetime import time as dtime, timedelta  # noqa: PLC0415
+    from zoneinfo import ZoneInfo  # noqa: PLC0415
+
+    now_utc = now_utc or datetime.now(timezone.utc)
+    teh = ZoneInfo("Asia/Tehran")
+    out: list[dict] = []
+    for m in MARKET_SESSIONS:
+        row = dict(m)
+        if m.get("always"):
+            row.update({"open_now": True, "hours": {"o_teh": "24/7", "c_teh": ""},
+                        "countdown_min": None, "countdown_kind": None})
+            out.append(row)
+            continue
+        tz = ZoneInfo(m["tz"])
+        loc = now_utc.astimezone(tz)
+        o_m = m["open"][0] * 60 + m["open"][1]
+        c_m = m["close"][0] * 60 + m["close"][1]
+        t_m = loc.hour * 60 + loc.minute
+        days = m["days"]
+
+        def _at(day_off: int, hm: tuple[int, int]) -> datetime:
+            d = (loc + timedelta(days=day_off)).date()
+            return datetime.combine(d, dtime(*hm), tzinfo=tz)
+
+        def _next_open(off: int) -> datetime:
+            for k in range(off, off + 9):
+                cand = _at(k, m["open"])
+                if cand.weekday() in days:
+                    return cand
+            return _at(off, m["open"])
+
+        wd = loc.weekday()
+        if wd in days and o_m <= t_m < c_m:
+            open_now, until, kind = True, _at(0, m["close"]), "close"
+            sess_o = _at(0, m["open"])
+        else:
+            open_now, kind = False, "open"
+            until = _next_open(0 if (wd in days and t_m < o_m) else 1)
+            sess_o = until
+        sess_c = _at((sess_o.date() - loc.date()).days, m["close"])
+        row.update({
+            "open_now": open_now,
+            "hours": {"o_teh": sess_o.astimezone(teh).strftime("%H:%M"),
+                      "c_teh": sess_c.astimezone(teh).strftime("%H:%M")},
+            "countdown_min": max(0, int((until - now_utc).total_seconds() // 60)),
+            "countdown_kind": kind,
+        })
+        out.append(row)
+    return out
+
+
+def _sess_hm(mins: int, fa: bool) -> str:
+    h, mm = divmod(int(max(0, mins)), 60)
+    if fa:
+        return f"{h}س {mm}د" if h else f"{mm}د"
+    return f"{h}h {mm}m" if h else f"{mm}m"
+
+
+def market_sessions_html(lang: str = "fa") -> str:
+    """نوار چیپ‌های «ساعت بازارهای جهانی» — HTML آماده برای st.markdown(unsafe).
+    هر چیپ: نام بازار + 🟢/🔴 وضعیت + ساعت باز/بسته به وقت تهران + شمارش معکوس."""
+    fa = lang != "en"
+    chips: list[str] = []
+    try:
+        rows = market_sessions_status()
+    except Exception:  # noqa: BLE001 — بدون tzdata هم صفحه نباید بشکند
+        return ""
+    for r in rows:
+        name = r["fa"] if fa else r["en"]
+        if r.get("always"):
+            pill = "<span class='nq-pill open'>🟢 " + ("باز" if fa else "Open") + "</span>"
+            body = f"<div class='nq-sess-hours'>🕒 <bdi>24/7</bdi></div>"
+            count = "همیشه باز" if fa else "Always open"
+        else:
+            h = r["hours"]
+            if r["open_now"]:
+                pill = "<span class='nq-pill open'>🟢 " + ("باز" if fa else "Open") + "</span>"
+                count = ("تا بسته‌شدن " if fa else "closes in ") + _sess_hm(r["countdown_min"] or 0, fa)
+            else:
+                pill = "<span class='nq-pill closed'>🔴 " + ("بسته" if fa else "Closed") + "</span>"
+                count = ("تا بازشدن " if fa else "opens in ") + _sess_hm(r["countdown_min"] or 0, fa)
+            body = (f"<div class='nq-sess-hours'>🕒 <bdi>{h['o_teh']} → {h['c_teh']}</bdi> "
+                    f"<span style='color:#64748b'>" + ("تهران" if fa else "Tehran") + "</span></div>")
+        cls = "nq-sess-chip " + ("on" if r["open_now"] else "off")
+        chips.append(
+            f"<div class='{cls}'><div class='nq-sess-name'>{r['flag']} <b>{name}</b>{pill}</div>"
+            f"{body}<div class='nq-sess-count'>{count}</div></div>"
+        )
+    title = "🌍 ساعات بازارهای جهانی" if fa else "🌍 Global market hours"
+    note = ("ساعاتِ استاندارد است — تعطیلات رسمی حساب نمی‌شود · همه‌ی ساعت‌ها به وقت تهران (+۳:۳۰)"
+            if fa else "Standard local hours — official holidays not counted · all times in Tehran time (+3:30)")
+    row_cls = "nq-sess-row en" if not fa else "nq-sess-row fa"
+    return (f"<div class='nq-sess-title'>{title}</div>"
+            f"<div class='{row_cls}'>{''.join(chips)}</div>"
+            f"<div class='nq-sess-note'>⚠️ {note}</div>")
 
 # ------------------------------------------------------------------ themes
 
@@ -2079,7 +2228,7 @@ def market_evidence(d: pd.DataFrame) -> tuple[list[dict], dict]:
     rsi = float(last["rsi"])
     add("مومنتوم", "RSI 14", f"{rsi:.1f}", "مومنتوم صعودی" if rsi > 55 else "مومنتوم نزولی" if rsi < 45 else "مومنتوم خنثی", (rsi - 50) / 25, min(1, abs(rsi - 50) / 25 + 0.2))
     mh = d["macd_hist"].to_numpy(dtype=float)
-    add("مومنتوم", "هیستوگرام MACD", f"{mh[-1]:+.4g} ({'رو به افزایش' if mh[-1] > mh[-2] else 'رو به کاهش'})",
+    add("مومنتوم", "هیستوگرام MACD", f"{fmt_price(mh[-1], sign=True)} ({'رو به افزایش' if mh[-1] > mh[-2] else 'رو به کاهش'})",
         "مومنتوم مثبت و در حال تقویت" if mh[-1] > 0 and mh[-1] > mh[-2] else "مومنتوم مثبت ولی ضعیف‌شونده" if mh[-1] > 0 else
         "مومنتوم منفی و در حال تقویت" if mh[-1] < mh[-2] else "مومنتوم منفی ولی ضعیف‌شونده",
         (1 if mh[-1] > 0 else -1) * (1 if (mh[-1] > mh[-2]) == (mh[-1] > 0) else 0.5), 0.8)
@@ -3128,7 +3277,7 @@ def main() -> None:
         _strip = pd.concat([_tops["volume"].head(7), _tops["gainers"].head(7)]).drop_duplicates(subset="symbol")
         if not _strip.empty:
             _items = "".join(
-                f"<span class='nq-tick-item'><b>{_html_escape(str(r['symbol']).replace('-USDT', ''))}</b> {r['price']:,.4g} "
+                f"<span class='nq-tick-item'><b>{_html_escape(str(r['symbol']).replace('-USDT', ''))}</b> {fmt_price(r['price'])} "
                 f"<span style='color:{'#34d399' if r['change%'] >= 0 else '#fb7185'}'>{'▲' if r['change%'] >= 0 else '▼'} {abs(r['change%']):.2f}%</span></span>"
                 for _, r in _strip.iterrows()
             )
@@ -3136,6 +3285,14 @@ def main() -> None:
                 f"<div class='nq-marquee'><div class='nq-marquee-track'>{_items}{_items}</div></div>",
                 unsafe_allow_html=True,
             )
+    except Exception:
+        pass
+
+    # سشن‌های بازارهای جهانی — باز/بسته + ساعت باز/بسته به وقت تهران + شمارش معکوس
+    try:
+        _sess = market_sessions_html(get_lang())
+        if _sess:
+            st.markdown(_sess, unsafe_allow_html=True)
     except Exception:
         pass
 
@@ -3156,8 +3313,17 @@ def main() -> None:
             label = "خرید قوی" if score > 40 else "خرید" if score > 12 else "خنثی" if score > -12 else "فروش" if score > -40 else "فروش قوی"
             c2.metric("همگرایی اندیکاتورها", f"{score:+.0f} · {label}")
             c3.metric("ATR", f"{plan['atr']:,.{dec}f}")
-            state_txt = "خارج از بازار" if state["status"] == "flat" else f"{'لانگ 🟢' if state['status'] == 'long' else 'شورت 🔴'} از {state['entry']:,.{dec}f} · PnL {state['live_pnl']}%"
-            c4.metric("سیگنال همگرایی", state_txt)
+            _lang = get_lang()
+            if state["status"] == "flat":
+                c4.metric("سیگنال همگرایی" if _lang != "en" else "Confluence signal",
+                          "خارج از بازار ⚪" if _lang != "en" else "Flat ⚪")
+            else:
+                _long = state["status"] == "long"
+                _side = ("لانگ 🟢" if _long else "شورت 🔴") if _lang != "en" else ("Long 🟢" if _long else "Short 🔴")
+                _ent_lbl = "ورود " if _lang != "en" else "entry "
+                c4.metric("سیگنال همگرایی" if _lang != "en" else "Confluence signal",
+                          f"{_side} · {_ent_lbl}{fmt_price(state.get('entry'))}",
+                          delta=None if state.get("live_pnl") is None else f"PnL {state['live_pnl']:+.2f}%")
 
             # Lighter-only extras (real fields from orderBookDetails)
             lighter_extra = None

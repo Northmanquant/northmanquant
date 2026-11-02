@@ -1116,7 +1116,24 @@ def _fetch_candles_ccxt(exchange: str, symbol: str, interval: str, limit: int) -
                 sym = f"{sym[:-len(q)]}/{q}"
                 break
     tf = CCXT_TF.get(interval, "1h")
-    ohlcv = client.fetch_ohlcv(sym, timeframe=tf, limit=min(1000, limit))
+    want = min(int(limit), 5000)   # سقف منطقی برای بار شبکه
+    if want <= 1000:
+        ohlcv = client.fetch_ohlcv(sym, timeframe=tf, limit=want) or []
+    else:
+        # صفحه‌بندی رو به جلو — برخی صرافی‌های ccxt بیش از ۱۰۰۰ کندل در هر درخواست نمی‌دهند
+        tf_ms = int(INTERVAL_MINUTES.get(interval, 60)) * 60 * 1000
+        ohlcv = []
+        since = client.milliseconds() - want * tf_ms
+        for _ in range(8):
+            batch = client.fetch_ohlcv(sym, timeframe=tf, since=since,
+                                       limit=min(1000, want - len(ohlcv))) or []
+            if not batch:
+                break
+            ohlcv.extend(batch)
+            nxt = int(batch[-1][0]) + tf_ms
+            if len(ohlcv) >= want or nxt <= since:
+                break
+            since = nxt
     rows = [{"time": int(x[0]), "open": float(x[1]), "high": float(x[2]),
              "low": float(x[3]), "close": float(x[4]), "volume": float(x[5] or 0)}
             for x in ohlcv if x and x[4]]
@@ -1131,12 +1148,13 @@ def _fetch_candles_ccxt(exchange: str, symbol: str, interval: str, limit: int) -
 
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_candles(exchange: str, symbol: str, interval: str, limit: int = 500) -> pd.DataFrame:
-    """OHLCV from public exchange APIs. Built-in exchanges use native clients;
-    anything else is fetched through CCXT. Falls back to other venues on error."""
+    """OHLCV from public exchange APIs — با صفحه‌بندی خودکار تا سقف تاریخچه‌ی صرافی.
+    Built-in exchanges use native clients; anything else is fetched through CCXT.
+    Falls back to other venues on error."""
     builtin = exchange in EXCHANGES
     try:
         if builtin:
-            return _fetch_candles(exchange, symbol, interval, limit)
+            return _fetch_candles_paginated(exchange, symbol, interval, limit)
         return _fetch_candles_ccxt(exchange, symbol, interval, limit)
     except Exception:
         # try CCXT for a built-in name too, then the other built-ins
@@ -1146,7 +1164,7 @@ def fetch_candles(exchange: str, symbol: str, interval: str, limit: int = 500) -
         for alt in EXCHANGES:
             if alt == exchange:
                 continue
-            attempts.append(lambda alt=alt: _fetch_candles(alt, symbol, interval, limit))
+            attempts.append(lambda alt=alt: _fetch_candles_paginated(alt, symbol, interval, limit))
         for fn in attempts:
             try:
                 return fn()
@@ -1155,12 +1173,18 @@ def fetch_candles(exchange: str, symbol: str, interval: str, limit: int = 500) -
         raise
 
 
-def _fetch_candles(exchange: str, symbol: str, interval: str, limit: int) -> pd.DataFrame:
+# سقف کندلِ هر درخواست برای هر صرافی (محدودیت واقعی API — صفحه‌بندی بالای این انجام می‌شود)
+_PAGE_CAP = {"KuCoin": 1400, "Binance": 1000, "Bybit": 1000, "Lighter": 500, "OKX": 300}
+
+
+def _fetch_candles(exchange: str, symbol: str, interval: str, limit: int, end_ms: int | None = None) -> pd.DataFrame:
+    """یک صفحه کندل — حداکثر `_PAGE_CAP[exchange]` ردیف. end_ms انتهای پنجره (میلی‌ثانیه)
+    برای صفحه‌بندی به عقب است؛ None یعنی «الان» (همان رفتار قدیمی)."""
     rows: list[dict] = []
 
     if exchange == "KuCoin":
         minutes = INTERVAL_MINUTES[interval]
-        end = int(datetime.now(timezone.utc).timestamp())
+        end = (end_ms // 1000) if end_ms else int(datetime.now(timezone.utc).timestamp())
         start = end - minutes * 60 * (limit + 10)
         j = get_json(
             f"{KUCOIN}/api/v1/market/candles",
@@ -1175,9 +1199,12 @@ def _fetch_candles(exchange: str, symbol: str, interval: str, limit: int) -> pd.
             for x in data
         ]
     elif exchange == "Binance":
+        _params = {"symbol": symbol.replace("-", ""), "interval": BINANCE_TF[interval], "limit": min(1000, limit)}
+        if end_ms:
+            _params["endTime"] = end_ms
         j = get_json(
             f"{BINANCE}/api/v3/klines",
-            params={"symbol": symbol.replace("-", ""), "interval": BINANCE_TF[interval], "limit": min(1000, limit)},
+            params=_params,
             headers=HEADERS, timeout=20,
         )
         rows = [
@@ -1186,9 +1213,12 @@ def _fetch_candles(exchange: str, symbol: str, interval: str, limit: int) -> pd.
             for x in j
         ]
     elif exchange == "Bybit":
+        _params = {"category": "spot", "symbol": symbol.replace("-", ""), "interval": BYBIT_TF[interval], "limit": min(1000, limit)}
+        if end_ms:
+            _params["end"] = end_ms
         j = get_json(
             f"{BYBIT}/v5/market/kline",
-            params={"category": "spot", "symbol": symbol.replace("-", ""), "interval": BYBIT_TF[interval], "limit": min(1000, limit)},
+            params=_params,
             headers=HEADERS, timeout=20,
         )
         data = (j.get("result") or {}).get("list") or []
@@ -1202,7 +1232,7 @@ def _fetch_candles(exchange: str, symbol: str, interval: str, limit: int) -> pd.
         if market_id is None:
             raise ValueError(f"مارکت {symbol} روی Lighter پیدا نشد.")
         minutes = INTERVAL_MINUTES[interval]
-        end = int(datetime.now(timezone.utc).timestamp() * 1000)
+        end = end_ms if end_ms else int(datetime.now(timezone.utc).timestamp() * 1000)
         start = end - minutes * 60 * 1000 * (limit + 10)
         j = get_json(
             f"{LIGHTER}/api/v1/candles",
@@ -1225,9 +1255,12 @@ def _fetch_candles(exchange: str, symbol: str, interval: str, limit: int) -> pd.
             if c.get("t") and c.get("c")
         ]
     else:  # OKX
+        _params = {"instId": symbol, "bar": OKX_TF[interval], "limit": min(300, limit)}
+        if end_ms:
+            _params["after"] = end_ms  # رکوردهای قدیمی‌تر از این ts
         j = get_json(
             f"{OKX}/api/v5/market/candles",
-            params={"instId": symbol, "bar": OKX_TF[interval], "limit": 300},
+            params=_params,
             headers=HEADERS, timeout=20,
         )
         rows = [
@@ -1243,6 +1276,46 @@ def _fetch_candles(exchange: str, symbol: str, interval: str, limit: int) -> pd.
     df = df[df["close"] > 0].tail(limit).reset_index(drop=True)
     df["dt"] = pd.to_datetime(df["time"], unit="ms", utc=True)
     return df
+
+
+def _fetch_candles_paginated(exchange: str, symbol: str, interval: str, limit: int) -> pd.DataFrame:
+    """دریافت `limit` کندل با صفحه‌بندی به عقب (نشانِ صفحه = end_ms) — سقف هر درخواست
+    از _PAGE_CAP[exchange] می‌آید؛ زیرِ سقف عیناً یک درخواست مثل قبل. اگر تاریخچه‌ی
+    نماد تمام شود، هرچقدر هست برمی‌گردد و حلقه بی‌درنگ می‌ایستد."""
+    limit = int(max(1, limit))
+    cap = int(_PAGE_CAP.get(exchange, 1000))
+    if limit <= cap:
+        return _fetch_candles(exchange, symbol, interval, limit)
+    frames: list[pd.DataFrame] = []
+    end_ms: int | None = None
+    remaining = limit + 5          # حاشیه‌ی کم — تا tail(limit) کم نیاورد
+    oldest_seen: int | None = None
+    for page_i in range(10):       # ترمز اطمینان — بیش از ۱۰ صفحه هرگز
+        page = int(min(cap, remaining))
+        try:
+            df = _fetch_candles(exchange, symbol, interval, page, end_ms=end_ms)
+        except Exception:
+            if page_i == 0:
+                raise              # صفحه‌ی اول خالی = واقعاً داده نیست
+            break                  # صفحات بعدی ممکن است به ته تاریخچه خورده باشند
+        if df is None or df.empty:
+            break
+        frames.append(df)
+        oldest = int(df["time"].iloc[0])
+        if oldest_seen is not None and oldest >= oldest_seen:
+            break                  # هیچ پیشرفتی نشد — نچرخ
+        oldest_seen = oldest
+        remaining -= len(df)
+        if remaining <= 0 or len(df) < page:
+            break                  # به اندازه‌ی کافی گرفتیم یا ته تاریخچه
+        end_ms = oldest - 1
+    out = pd.concat(frames, ignore_index=True)
+    out = out.drop_duplicates(subset="time").sort_values("time").reset_index(drop=True)
+    out = out[out["close"] > 0].tail(limit).reset_index(drop=True)
+    out["dt"] = pd.to_datetime(out["time"], unit="ms", utc=True)
+    if out.empty or len(out) < 40:
+        raise ValueError("کندل کافی برای این نماد/صرافی برنگشت.")
+    return out
 
 
 @st.cache_data(ttl=300, show_spinner=False)

@@ -8,6 +8,8 @@ name: Arena Autopilot
 # توقف موقت: تب Actions → Arena Autopilot → ⋯ → Disable workflow
 # فاز ۷ — اگر هر اجرایی شکست بخورد، خودکار یک Issue هشدار باز می‌شود
 # (Issue تکراری ساخته نمی‌شود تا وقتی Issue باز قبلی بسته شود)
+# فاز ۱۱ — نوتیفیکیشن ریل‌تایم تلگرام: بازشدن/بسته‌شدن پوزیشن و تغییر رژیم
+#   دو Secret تازه: TELEGRAM_BOT_TOKEN ، TELEGRAM_CHAT_ID (اگر ست نباشد فقط پیام نمی‌رود، اجرا سالم است)
 
 on:
   schedule:
@@ -40,6 +42,8 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           ARENA_EXCHANGE: KuCoin
           ARENA_INTERVAL: 1hour
           ARENA_APPETITE: hunter
@@ -47,6 +51,21 @@ jobs:
           # حالت سبک (فقط مدیریت پوزیشن‌ها، بدون اسکن): ARENA_SCAN را ۰ کنید
           ARENA_SCAN: "1"
         run: python -m core.autopilot
+
+      - name: هشدار شکست — پیام تلگرام
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
+            curl -s --max-time 15 -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -H "Content-Type: application/json" \
+              -d "{\"chat_id\":${TELEGRAM_CHAT_ID},\"parse_mode\":\"HTML\",\"text\":\"🔴 <b>اتوپایلوت شکست خورد!</b>\\n\\n📍 اجرای #${GITHUB_RUN_NUMBER} با خطا تمام شد.\\n🕐 $(date -u '+%H:%M') UTC\\n📄 لاگ: تب Actions گیت‌هاب\"}" \
+              && echo "پیام تلگرام ارسال شد" || echo "ارسال تلگرام ناموفق (غیربحرانی)"
+          else
+            echo "تلگرام پیکربندی نشده — رد شد"
+          fi
 
       - name: هشدار شکست — بازکردن Issue
         if: failure()

@@ -67,11 +67,14 @@ def phase_update(store) -> dict:
     """پیش‌بردن پوزیشن‌های باز + هشدار بسته‌شدن — خروجی: خلاصه‌ی مرحله."""
     from core import arena as A
     from core import alerts as AL
+    from core import telegram as TG
     live, just_closed = A.update_all_trades(store)
     closed_rows = []
     for t in just_closed:
         try:
-            AL.get_alerts().insert(AL.close_alert(t))
+            fresh = AL.get_alerts().insert(AL.close_alert(t))
+            if fresh:
+                TG.notify_close(t)       # تلگرام — فقط برای هشدار تازه (ضدتکرار)
         except Exception as e:  # noqa: BLE001
             _log(f"⚠️ هشدار بسته‌شدن ثبت نشد ({t.get('symbol')}): {e}")
         closed_rows.append({
@@ -89,10 +92,13 @@ def phase_regime() -> dict:
     """چک رژیم بازار + هشدار تغییر رژیم (ضدتکرار — فقط جهش جهت ثبت می‌شود)."""
     from core import arena as A
     from core import alerts as AL
+    from core import telegram as TG
     reg = A.market_regime(EXCHANGE)
     pushed = False
     try:
         pushed = bool(AL.push_regime_change(AL.get_alerts(), reg))
+        if pushed:
+            TG.notify_regime(AL.regime_alert(reg))   # تلگرام — فقط جهش واقعی
     except Exception as e:  # noqa: BLE001
         _log(f"⚠️ هشدار رژیم ثبت نشد: {e}")
     d = int(reg.get("dir") or 0)
@@ -106,6 +112,7 @@ def phase_scan(store) -> dict:
     from core import arena as A
     from core import alerts as AL
     from core import edge as EG
+    from core import telegram as TG
     verdicts = None
     try:
         verdicts = (EG.load_edge(EG.EDGE_TTL_S) or {}).get("verdicts")  # گیت لبه فقط با حکم تازه مسلح می‌شود
@@ -117,7 +124,9 @@ def phase_scan(store) -> dict:
     opened_rows = []
     for t in opened:
         try:
-            AL.get_alerts().insert(AL.open_alert(t))
+            fresh = AL.get_alerts().insert(AL.open_alert(t))
+            if fresh:
+                TG.notify_open(t)        # تلگرام — فقط برای هشدار تازه (ضدتکرار)
         except Exception as e:  # noqa: BLE001
             _log(f"⚠️ هشدار بازشدن ثبت نشد ({t.get('symbol')}): {e}")
         opened_rows.append({
@@ -149,6 +158,8 @@ def main() -> int:
         return 2
 
     from core import arena_store
+    from core import telegram as TG
+    _log(f"🔔 تلگرام: {TG.status_line()}")
     store = arena_store.get_store()
     STORE = store
     backend = getattr(store, "backend", None) or (
@@ -170,17 +181,20 @@ def main() -> int:
         ok = False
         summary["update_error"] = str(e)[:300]
         _log(f"❌ مرحله‌ی پیش‌بردن معاملات شکست خورد: {e}\n{traceback.format_exc(limit=2)}")
+        TG.notify_failure("پیش‌بردن معاملات", str(e))
     try:
         summary["regime"] = phase_regime()
     except Exception as e:  # noqa: BLE001
         summary["regime_error"] = str(e)[:300]
         _log(f"⚠️ مرحله‌ی رژیم بازار شکست خورد (ادامه می‌دهیم): {e}")
+        TG.notify_failure("رژیم بازار", str(e))
     if SCAN_ON:
         try:
             summary["scan"] = phase_scan(store)
         except Exception as e:  # noqa: BLE001
             summary["scan_error"] = str(e)[:300]
             _log(f"⚠️ مرحله‌ی اسکن شکست خورد: {e}")
+            TG.notify_failure("اسکن بازار", str(e))
     try:
         n_open = sum(1 for t in store.load_all() if t.get("status") == "open")
         summary["open_after"] = n_open

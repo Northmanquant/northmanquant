@@ -113,7 +113,7 @@ def phase_scan(store) -> dict:
         verdicts = None
     scans, errors, meta = A.run_scan(EXCHANGE, INTERVAL, appetite=APPETITE,
                                      verdicts=verdicts, edge_mode=EDGE_MODE)
-    opened, blocked = A.open_trades_from_scan(scans, EXCHANGE, INTERVAL, store)
+    opened, blocked = A.open_trades_from_scan(scans, EXCHANGE, INTERVAL, store, source="autopilot")
     opened_rows = []
     for t in opened:
         try:

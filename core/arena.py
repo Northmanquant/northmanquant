@@ -543,8 +543,11 @@ def threading_current():
 
 
 # ----------------------------------------------------------------------------- opening
-def open_trades_from_scan(scans: list[dict], exchange: str, interval: str, store) -> tuple[list[dict], int]:
-    """از نتایج اسکن، بهترین برگزیده‌ها را برای هر شرکت‌کننده (با سهمیه و cooldown) باز می‌کند."""
+def open_trades_from_scan(scans: list[dict], exchange: str, interval: str, store,
+                          source: str = "manual") -> tuple[list[dict], int]:
+    """از نتایج اسکن، بهترین برگزیده‌ها را برای هر شرکت‌کننده (با سهمیه و cooldown) باز می‌کند.
+    source: برچسب منبع بازکردن («autopilot» از اتوپایلوت / «manual» از اپ)
+    — فاز ۹: برای تفکیک دوره‌ها در گزارش روزانه و تحلیل سوددهی."""
     existing = store.load_all()
     opens = [t for t in existing if t.get("status") == "open"]
     counts = Counter(t["agent"] for t in opens)
@@ -584,6 +587,7 @@ def open_trades_from_scan(scans: list[dict], exchange: str, interval: str, store
             blocked_cool += 1
             continue
         rec = make_trade_record(name, coin, a, exchange, interval)
+        rec["source"] = source
         store.insert(rec)
         opens.append(rec)
         counts[name] += 1

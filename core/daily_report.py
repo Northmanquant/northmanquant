@@ -86,6 +86,12 @@ def _bucket(t: Dict[str, Any]) -> str:
     return "be"
 
 
+def _src_key(t: Dict[str, Any]) -> str:
+    """منبع معامله — autopilot / manual / بدون برچسب (قدیمی)."""
+    s = str(t.get("source") or "")
+    return s if s in ("autopilot", "manual") else "legacy"
+
+
 # ------------------------------------------------------------------ تجمیع
 def aggregate(trades: List[Dict[str, Any]], now: datetime) -> Dict[str, Any]:
     """تجمیع گزارش از رکوردهای معامله — خالص و بدون I/O تا تست‌پذیر بماند."""
@@ -111,6 +117,14 @@ def aggregate(trades: List[Dict[str, Any]], now: datetime) -> Dict[str, Any]:
 
     aw = sum(1 for t in closed_all if _bucket(t) == "win")
     al = sum(1 for t in closed_all if _bucket(t) == "loss")
+    by_source: Dict[str, Dict[str, float]] = {}
+    for t in closed_all:
+        k = _src_key(t)
+        slot = by_source.setdefault(k, {"n": 0, "r": 0.0})
+        slot["n"] += 1
+        slot["r"] += float(t.get("realized_r") or 0.0)
+    for v in by_source.values():
+        v["r"] = round(v["r"], 2)
     return {
         "closed_24": closed_24, "opened_24": opened_24,
         "wins": wins, "losses": losses, "bes": bes,
@@ -121,6 +135,7 @@ def aggregate(trades: List[Dict[str, Any]], now: datetime) -> Dict[str, Any]:
         "total_closed": len(closed_all),
         "total_winrate": round(100.0 * aw / (aw + al), 1) if (aw + al) else None,
         "total_r": round(sum(float(t.get("realized_r") or 0.0) for t in closed_all), 2),
+        "by_source": by_source,
     }
 
 
@@ -203,6 +218,12 @@ def fmt_report(agg: Dict[str, Any], open_trades: List[Dict[str, Any]],
     L.append("")
     twr = f"{agg['total_winrate']}%" if agg["total_winrate"] is not None else "—"
     L.append(f"- بسته‌شده: {agg['total_closed']} · وین‌ریت {twr} · جمع R: {agg['total_r']:+.2f}R")
+    if agg.get("by_source"):
+        labels = (("autopilot", "🤖 اتوپایلوت"), ("manual", "👤 دستی"), ("legacy", "قدیمی (بدون برچسب)"))
+        parts = [f"{lab} {agg['by_source'][k]['n']} معامله ({agg['by_source'][k]['r']:+.2f}R)"
+                 for k, lab in labels if k in agg["by_source"]]
+        if parts:
+            L.append(f"- تفکیک منبع: " + " · ".join(parts))
     L.append("")
     L.append("<sub>گزارش خودکار — هر روز ساعت ۰۹:۰۰ تهران · NorthmanQuant</sub>")
     return "\n".join(L)

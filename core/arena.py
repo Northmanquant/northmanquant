@@ -436,9 +436,14 @@ def _setup_dir(d: pd.DataFrame, appetite: str = DEFAULT_APPETITE) -> tuple[bool,
 
 
 def scan_coin(exchange: str, symbol: str, interval: str, balance: float = START_EQUITY,
-              fee_pct: float = FEE_PCT, appetite: str = DEFAULT_APPETITE, regime: int = 0) -> dict:
+              fee_pct: float = FEE_PCT, appetite: str = DEFAULT_APPETITE, regime: int = 0,
+              verdicts: dict | None = None, edge_mode: str = "off") -> dict:
     """یک ارز را از موتور مشترک ایجنت‌ها رد می‌کند و برای هر شرکت‌کننده تکلیف را روشن می‌کند.
-    regime: +1 فقط لانگ · −1 فقط شورت · 0 فیلتر خاموش — فرصت خلاف رژیم «blocked_by_regime» می‌شود."""
+    regime: +1 فقط لانگ · −1 فقط شورت · 0 فیلتر خاموش — فرصت خلاف رژیم «blocked_by_regime» می‌شود.
+    verdicts/edge_mode (فاز ۵): حکم لبه‌ی هر ایجنت از بازپخش چندپنجره‌ای + حالت گیت —
+    ایجنت بنچ‌شده اجازه‌ی باز کردن معامله ندارد («edge_blocked») و اجماع کمیسیون وزنی می‌شود
+    (بدون دیتا همه وزن‌ها ۱ — رفتار عیناً مثل قبل)."""
+    from core import edge as E   # ایمپورت تنبل — چرخه‌ی ایمپورت arena↔edge نمی‌سازد
     try:
         S_ = calculate_duel(exchange, symbol, interval, 300, balance, fee_pct)
     except Exception as exc:  # noqa: BLE001
@@ -463,12 +468,15 @@ def scan_coin(exchange: str, symbol: str, interval: str, balance: float = START_
                   and v_ok and (appetite == "hunter" or v_dir == sig)
                   and pos["direction"] != 0 and float(pos.get("rr") or 0) >= 1.0)
         reg_ok = _regime_allows(regime, int(sig))
-        ok = ok_pre and reg_ok
+        edge_ok = E.allows(verdicts, name, edge_mode)
+        ok = ok_pre and reg_ok and edge_ok
         top_rows = sorted(r["rows"], key=lambda x: -abs(float(x["سهم در تصمیم"])))[:2]
         evidence = " · ".join(f"{row['فاکتور']}: {row['مدرک (مشاهده‌ی واقعی)']}" for row in top_rows)
         out["agents"][name] = {
             "dir": int(sig), "score": float(sc), "ok": bool(ok), "pos": pos, "bt": bt,
             "evidence": evidence, "blocked_by_regime": bool(ok_pre and not reg_ok),
+            "edge_blocked": bool(ok_pre and reg_ok and not edge_ok),
+            "edge": (verdicts or {}).get(name),
             "quality": abs(sc) * min(2.5, max(float(bt["pf"]), 0.0)) * min(float(pos.get("rr") or 0), 3),
         }
 
@@ -483,13 +491,14 @@ def scan_coin(exchange: str, symbol: str, interval: str, balance: float = START_
         c_ev = f"اجماع {n_agree}/4 ایجنت{_split}"
     else:
         c_ev = "بدون اجماع جهت‌دار — کمیسیون می‌ایستد"
-    c_ok_pre = (fd != 0 and abs(S_["final_s"]) >= 0.15 and n_agree >= 3
+    w_ok, w_agree = E.committee_weighted_ok(verdicts, {n: r["sig"] for n, r in S_["results"].items()}, int(fd))
+    c_ok_pre = (fd != 0 and abs(S_["final_s"]) >= 0.15 and w_ok
                 and v_ok and (appetite == "hunter" or v_dir == fd)
                 and fpos["direction"] != 0 and float(fpos.get("rr") or 0) >= 1.0)
     c_reg_ok = _regime_allows(regime, int(fd))
     out["committee"] = {
         "dir": int(fd), "score": float(S_["final_s"]), "ok": bool(c_ok_pre and c_reg_ok), "pos": fpos,
-        "confidence": int(S_["confidence"]), "n_agree": int(n_agree),
+        "confidence": int(S_["confidence"]), "n_agree": int(n_agree), "w_agree": round(w_agree, 2),
         "evidence": c_ev, "blocked_by_regime": bool(c_ok_pre and not c_reg_ok),
     }
     return out
@@ -497,8 +506,10 @@ def scan_coin(exchange: str, symbol: str, interval: str, balance: float = START_
 
 def run_scan(exchange: str, interval: str, balance: float = START_EQUITY,
              fee_pct: float = FEE_PCT, workers: int = 6,
-             appetite: str = DEFAULT_APPETITE) -> tuple[list[dict], list[str], dict]:
+             appetite: str = DEFAULT_APPETITE,
+             verdicts: dict | None = None, edge_mode: str = "off") -> tuple[list[dict], list[str], dict]:
     """اسکن دومرحله‌ای: غربالگری کل بازار → تحلیل عمیق برگزیدگان (موازی).
+    verdicts/edge_mode به scan_coin پاس داده می‌شود (گیت لبه — فاز ۵).
     خروجی: (نتایج تحلیل, خطاها, متادیتا {total/finalists/fallback/min_strength/appetite})"""
     finalists, total, fallback = market_screen(exchange)
     pool = [f["symbol"] for f in finalists] or list(POOL_FALLBACK)
@@ -516,11 +527,13 @@ def run_scan(exchange: str, interval: str, balance: float = START_EQUITY,
     except Exception:  # noqa: BLE001
         init = None
     with ThreadPoolExecutor(max_workers=max(1, min(workers, len(pool))), initializer=init) as ex:
-        scans = list(ex.map(lambda s: scan_coin(exchange, s, interval, balance, fee_pct, appetite, int(reg["dir"])), pool))
+        scans = list(ex.map(lambda s: scan_coin(exchange, s, interval, balance, fee_pct, appetite,
+                                                int(reg["dir"]), verdicts, edge_mode), pool))
     errors = [f"{o['symbol']} — {o['error']}" for o in scans if o.get("error")]
     reg_blocked = sum(1 for o in scans for a in o.get("agents", {}).values() if a.get("blocked_by_regime")) \
         + sum(1 for o in scans if (o.get("committee") or {}).get("blocked_by_regime"))
     meta["regime_blocked"] = int(reg_blocked)
+    meta["edge_blocked"] = sum(1 for o in scans for a in o.get("agents", {}).values() if a.get("edge_blocked"))
     return scans, errors, meta
 
 

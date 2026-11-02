@@ -36,11 +36,18 @@ from core import arena as A  # noqa: E402
 from core import alerts as AL  # noqa: E402
 from core import news as NW  # noqa: E402
 from core import replay as RP  # noqa: E402
+from core import edge as EG  # noqa: E402
 from core import arena_store  # noqa: E402
 from core.duel_engine import _dec_for  # noqa: E402
 
 EXCHANGES = ["KuCoin", "OKX", "Binance", "Bybit", "Lighter", "XT", "LBank", "KCEX"]
 _store = arena_store.get_store()
+
+# فاز ۵ — حکم‌های لبه از بازپخش چندپنجره‌ای: فقط حکمِ تازه گیت می‌شود، کهنه فقط نمایش داده می‌شود
+_edge_state_any = EG.load_edge()
+_edge_fresh = EG.load_edge(EG.EDGE_TTL_S)
+_verdicts = (_edge_fresh or {}).get("verdicts")
+_edge_mode = st.session_state.get("edge_mode", EG.DEFAULT_MODE)
 
 DIR_FA = {1: "لانگ 🟢", -1: "شورت 🔴", 0: "خنثی ⚪"}
 RESULT_FA = {"win": " برد ✅", "loss": "باخت 💀", "be": "سر‌به‌سر ➖",
@@ -137,13 +144,14 @@ _m2.metric(L("معاملات بسته‌شده", "Closed trades"), len(_closed_t
 _m3.metric(L("شرکت‌کننده‌ها", "Participants"), len(A.participants()))
 _m4.metric(L("ریسک هر معامله", "Risk per trade"), f"{A.RISK_PCT:.0f}%")
 
-tab_scan, tab_pos, tab_alerts, tab_news, tab_board, tab_replay = st.tabs([
+tab_scan, tab_pos, tab_alerts, tab_news, tab_board, tab_replay, tab_edge = st.tabs([
     "🔎 " + L("اسکن و معامله‌ی جدید", "Scan & new trades"),
     "📊 " + L("پوزیشن‌های باز", "Open positions"),
     "🔔 " + L("هشدارها", "Alerts"),
     "📰 " + L("اخبار بازار", "Market news"),
     "🏆 " + L("لیدربورد و تاریخچه", "Leaderboard & history"),
     "🧪 " + L("بازپخش تاریخی", "Historical replay"),
+    "⚖️ " + L("اعتبار لبه", "Edge credibility"),
 ])
 
 # =============================================================================
@@ -268,6 +276,24 @@ with tab_scan:
             "رژیم بازار نامشخص است (دیتای BTC در دسترس نبود) — فیلتر جهت موقتاً خاموش است و هر دو جهت باز می‌شود.",
             "Market regime unknown (BTC data unavailable) — direction filter temporarily OFF, both directions allowed."))
 
+    # ---- بنر گیت لبه (فاز ۵) ----
+    if _verdicts:
+        _benched = [p["name"] for p in A.participants()
+                    if p["kind"] == "agent" and not EG.allows(_verdicts, p["name"], _edge_mode)]
+        _mlbl = (EG.MODE_FA if LANG != "en" else EG.MODE_EN).get(_edge_mode, _edge_mode)
+        if _benched:
+            st.info("⚖️ " + L(
+                f"گیت لبه فعال ({_mlbl}) — بنچ: {'، '.join(_benched)} · رأی کمیسیون وزن‌دار است.",
+                f"Edge gate active ({_mlbl}) — benched: {', '.join(_benched)} · committee votes are edge-weighted."))
+        else:
+            st.caption("⚖️ " + L(
+                f"حکم‌های لبه فعال ({_mlbl}) — هیچ ایجنتی بنچ نیست؛ کمیسیون وزن‌دار است.",
+                f"Edge verdicts active ({_mlbl}) — nobody benched; committee is edge-weighted."))
+    elif _edge_state_any:
+        st.caption("⚖️ " + L(
+            "حکم‌های لبه کهنه‌اند (بیش از یک هفته) — در تب «اعتبار لبه» دوباره بازپخش بگیر تا گیت مسلح شود.",
+            "Edge verdicts are stale (over a week) — rerun the replay in the 'Edge credibility' tab to re-arm the gate."))
+
     if exchange == "Lighter":
         st.info(L("Lighter پرپ است — نمادها بدون USDT هستند.", "Lighter is perp — symbols without USDT."))
 
@@ -276,7 +302,8 @@ with tab_scan:
         try:
             with st.spinner(L(f"اول کل بازار {exchange} غربال می‌شود، بعد برگزیدگان تحلیل عمیق می‌شوند · {interval} … (۳۰–۹۰ ثانیه)",
                               f"Screening the whole {exchange} market first, then deep-analyzing the best ones · {interval} … (30–90s)")):
-                scans, errors, meta = A.run_scan(exchange, interval, appetite=appetite)
+                scans, errors, meta = A.run_scan(exchange, interval, appetite=appetite,
+                                                 verdicts=_verdicts, edge_mode=_edge_mode)
                 opened, blocked = A.open_trades_from_scan(scans, exchange, interval, _store)
                 for _t in opened:        # هشدار بازشدن — دائمی در Supabase/فایل
                     try:
@@ -321,6 +348,10 @@ with tab_scan:
         _rb = int(meta.get("regime_blocked") or 0)
         st.caption("🌊 " + L(f"رژیم این اسکن: {_rlbl}", f"Regime for this scan: {_rlbl}")
                    + (" · " + L(f"{_rb} فرصت به‌خاطر خلاف‌رژیم‌بودن رد شد", f"{_rb} setups rejected for going against the regime") if _rb else ""))
+        _eb = int(meta.get("edge_blocked") or 0)
+        if _eb:
+            st.caption("⚖️ " + L(f"{_eb} فرصت به‌خاطر بنچ‌بودن ایجنت (گیت لبه) رد شد",
+                                 f"{_eb} setups rejected because the agent is benched (edge gate)"))
 
         if opened:
             st.subheader("🆕 " + L("معامله‌های تازه", "Fresh trades"))
@@ -351,6 +382,7 @@ with tab_scan:
                     L("نماد", "Symbol"): s.get("symbol"),
                     L("کمیسیون", "Committee"): f"{com.get('score', 0):+.2f}",
                     L("موافق", "Agree"): f"{com.get('n_agree', 0)}/4",
+                    L("⚖️ وزنی", "⚖️ Weighted"): f"{float(com.get('w_agree', com.get('n_agree', 0)) or 0):.1f}",
                     L("ستاپ", "Setup"): "✅" if s.get("v_ok") else "—",
                     L("چرا رد شد", "Why not"): (str(s.get("v_txt", ""))[:44] if not (com.get("ok") or any(a["ok"] for a in s.get("agents", {}).values())) else "—"),
                     L("بهترین ایجنت", "Best agent"): (f"{best['score']:+.2f}" if best else "—"),
@@ -389,6 +421,10 @@ with tab_scan:
             "سهمیه‌ها و cooldown رعایت می‌شود و هر معامله با همان موتور خروج نردبانی (استاپ اول + کارمزد و لغزش واقعی) تا بسته‌شدن پیش می‌رود. "
             "جهانِ بازپخش نمادهای انتخابی شماست (غربالگریِ لحظه‌ایِ گذشته بازسازی‌شدنی نیست) و دروازه‌ی ستاپ سه‌سطحی در بازپخش اعمال نمی‌شود — "
             "یعنی رفتار معادل سطح «شکارچی». نتیجه‌ی بازپخش جای معاملات زنده را نمی‌گیرد؛ فقط شاهد آماری است.\n\n"
+            "**موتور لبه (تب ⚖️):** دروازه‌های عادی فقط می‌پرسند «این ایجنت روی این ارز الان بک‌تست سودده دارد؟» — هیچ‌کدام نمی‌پرسند "
+            "«خودِ این ایجنت تاریحاً سودده بوده؟». تب اعتبار لبه با بازپخش چندپنجره‌ای (تفکیک معامله‌ها بر اساس کندل ورود) حکم ✅/⚠️/❌ می‌دهد و در اسکن زنده اعمال می‌شود: "
+            "ایجنت بنچ‌شده معامله باز نمی‌کند و رأی کمیسیون وزن می‌گیرد (سودده ۱٫۲ · خنثی ۱٫۰ · زیان‌ده ۰٫۸ — بدون دیتا همه ۱). "
+            "گیت فقط با حکم تازه (زیر یک هفته) مسلح می‌شود و جهانش نمادهای انتخابی توست — شاهد آماری، نه تضمین.\n\n"
             "**آمار کلی میدان:** معیارهای واقعی سوددهی — انتظاری (میانگین R خالص هر معامله)، PF، پی‌آف و MaxDD — "
             "از معاملات بسته‌شده با کارمزد و لغزش واقعی حساب می‌شوند. قانون تصمیم: تا ۳۰ معامله هیچ عددی اعتبار آماری ندارد، "
             "بین ۳۰ تا ۱۰۰ فقط جهت‌گیری است، و فقط با ۱۰۰+ معامله و انتظاری مثبت می‌شود به سیستم اعتماد کرد.\n\n"
@@ -421,6 +457,11 @@ with tab_scan:
             "same ladder-exit engine (stop-first, real fees & slippage). The replay universe is your selected symbols (the live moment-in-time "
             "screening of the past cannot be reconstructed) and the three-level setup gate is not applied — equivalent to 'Hunter' behavior. "
             "Replay results never replace live trades; they are statistical evidence only.\n\n"
+            "**Edge engine (⚖️ tab):** the regular gates only ask 'does this agent have a profitable backtest on this coin right now?' — "
+            "none asks 'has the agent itself been profitable historically?'. The edge tab runs a multi-window replay (trades split by entry candle), "
+            "issues a ✅/⚠️/❌ verdict and enforces it in the live scan: benched agents cannot open trades and committee votes become edge-weighted "
+            "(profitable 1.2 · neutral 1.0 · losing 0.8 — all 1.0 without data). Only fresh verdicts (under a week) arm the gate; "
+            "the universe is your selected symbols — statistical evidence, not a guarantee.\n\n"
             "**Arena-wide stats:** the real profitability metrics — expectancy (average net R per trade), PF, payoff and MaxDD — "
             "are computed from closed trades with real fees and slippage. Decision rule: below 30 trades nothing means anything; "
             "30–100 is directional only; only 100+ trades with positive expectancy earn trust.\n\n"
@@ -575,6 +616,7 @@ with tab_board:
         rows.append({
             L("رتبه", "Rank"): MEDALS[i] if i < 3 and r["trades"] else f"{i + 1}",
             L("شرکت‌کننده", "Participant"): r["agent"],
+            L("⚖️ حکم", "⚖️ Edge"): (EG.VERDICT_FA if LANG != "en" else EG.VERDICT_EN).get((_verdicts or {}).get(r["agent"]), "—"),
             L("ایکوییتی $", "Equity $"): f"{r['equity']:,.0f}",
             L("وین‌ریت", "Winrate"): f"{r['winrate']:.0f}%" if r["trades"] else "—",
             L("امتیاز", "Points"): f"{r['points']:+.1f}" if r["trades"] else "—",
@@ -799,3 +841,117 @@ with tab_replay:
             "Honest limits: the replay universe is your selected symbols (the past's live screening can't be reconstructed) · "
             "the three-level setup gate is not applied (equivalent to Hunter) · indicators warm up on the whole history (slightly better than the live frame) · "
             "trades still open at history end are excluded. Replay is statistical evidence, not a replacement for live trades."))
+
+# =============================================================================
+# تب ۷ — اعتبار لبه (فاز ۵)
+with tab_edge:
+    st.subheader("⚖️ " + L("اعتبار لبه ایجنت‌ها", "Agent edge credibility"))
+    st.caption(L(
+        "پاسخِ سؤالی که هیچ دروازه‌ی فعلی نمی‌پرسد: «خودِ این ایجنت تاریحاً سودده بوده؟» — یک بازپخش کامل روی کل تاریخچه اجرا می‌شود "
+        "و معامله‌های هر ایجنت به پنجره‌های زمانیِ جدا (بر اساس کندل ورود) تفکیک می‌شود: ایجنتی که فقط در یک دوره خوب بوده شانسی است؛ "
+        "حکم فقط با ثبات بین پنجره‌ها صادر می‌شود. حکم‌ها روی اسکن زنده اثر می‌گذارند (بنچ + وزن رأی کمیسیون).",
+        "Answers the question no current gate asks: 'has this agent itself been profitable historically?' — one full replay over the whole "
+        "history with each agent's trades split into separate time windows (by entry candle): an agent good in only one period is luck; "
+        "verdicts require consistency across windows. Verdicts affect the live scan (bench + committee vote weights)."))
+
+    _E = st.session_state.get("edge_state") or _edge_state_any
+
+    _ec1, _ec2, _ec3, _ec4 = st.columns([0.8, 0.9, 2.2, 1.1])
+    with _ec1:
+        edge_wins = st.select_slider(L("تعداد پنجره", "Windows"), options=[2, 3, 4], value=3, key="edge_wins")
+    with _ec2:
+        edge_cpw = st.selectbox(L("کندل هر پنجره", "Candles / window"),
+                                [150, 200, 250, 300, 350, 400], index=3, key="edge_cpw")
+    with _ec3:
+        edge_syms = st.multiselect(L("نمادها (حداکثر ۲۰)", "Symbols (max 20)"),
+                                   A.POOL_FALLBACK, default=A.POOL_FALLBACK,
+                                   max_selections=RP.MAX_SYMBOLS, key="edge_syms")
+    with _ec4:
+        st.write("")
+        edge_go = st.button("⚖️ " + L("بازپخش چندپنجره‌ای", "Multi-window replay"), type="primary",
+                            use_container_width=True, key="edge_go")
+
+    if edge_go:
+        if not edge_syms:
+            st.warning(L("حداقل یک نماد انتخاب کن.", "Pick at least one symbol."))
+        else:
+            try:
+                with st.spinner(L(
+                    f"{len(edge_syms)} نماد × {EG.REPLAY_WARMUP + edge_wins * edge_cpw + EG.RESOLVE_TAIL} کندل گرفته می‌شود، "
+                    f"بعد بازپخش کامل + تفکیک {edge_wins} پنجره‌ای … (۱–۳ دقیقه)",
+                    f"Fetching {len(edge_syms)} symbols × {EG.REPLAY_WARMUP + edge_wins * edge_cpw + EG.RESOLVE_TAIL} candles, "
+                    f"then full replay + {edge_wins}-window split … (1–3 min)")):
+                    _eres = EG.run_multi_window(exchange, interval, edge_syms,
+                                                windows=int(edge_wins), candles_per_window=int(edge_cpw))
+                if _eres.get("error"):
+                    st.error(L(f"بازپخش چندپنجره‌ای انجام نشد: {_eres['error']}",
+                               f"Multi-window replay failed: {_eres['error']}"))
+                else:
+                    EG.save_edge(_eres)
+                    st.session_state["edge_state"] = _eres
+                    _E = _eres
+            except Exception as exc:  # noqa: BLE001
+                st.error(L(f"بازپخش چندپنجره‌ای اجرا نشد: {exc}", f"Multi-window replay failed: {exc}"))
+
+    if not _E:
+        st.info(L(
+            "هنوز حکمی وجود ندارد — روی «⚖️ بازپخش چندپنجره‌ای» بزن. پیش‌فرض ۱۲ ارز بزرگ × ۳ پنجره‌ی ۳۰۰کندلی است "
+            "(هر پنجره ~۵۰ روز چهارساعته). تا حکم صادر نشود گیت لبه بی‌اثر است و رفتار میدان عیناً مثل قبل است.",
+            "No verdicts yet — hit '⚖️ Multi-window replay'. Default: 12 major coins × 3 windows of 300 candles "
+            "(~50 days each on 4h). Until verdicts exist the edge gate is inert and arena behavior is exactly as before."))
+    else:
+        _em = _E.get("meta") or {}
+        _age = int(_em.get("age_s") or 0)
+        if _age >= EG.EDGE_TTL_S:
+            st.warning(L(
+                "این حکم‌ها کهنه‌اند (بیش از یک هفته) — گیت فقط با حکم تازه مسلح می‌شود؛ دوباره بازپخش بگیر.",
+                "These verdicts are stale (over a week) — the gate only arms with fresh verdicts; rerun the replay."))
+        _es = _E.get("summary") or {}
+        _f1, _f2, _f3, _f4 = st.columns(4)
+        _f1.metric(L("پنجره‌ها", "Windows"), _em.get("windows", "—"))
+        _f2.metric(L("معاملات بسته‌ی بازپخش", "Replayed closed trades"), _es.get("n", 0))
+        _f3.metric(L("انتظاری کل بازپخش", "Replay expectancy"), f"{_es.get('expectancy', 0):+.2f}R")
+        _f4.metric(L("بازه‌ی تاریخچه", "History span"), f"{_em.get('span_days', 0):.0f} " + L("روز", "days"))
+
+        _vrows = []
+        for _nm in [p["name"] for p in A.participants() if p["kind"] == "agent"]:
+            _d = (_E.get("detail") or {}).get(_nm) or {}
+            _row = {L("ایجنت", "Agent"): _nm}
+            for _wi, _wst in enumerate(_d.get("windows") or []):
+                _row[L(f"پنجره {_wi + 1}", f"Window {_wi + 1}")] = f"{_wst.get('exp', 0):+.2f}R · n={_wst.get('n', 0)}"
+            _tot = _d.get("total") or {}
+            _row[L("کل", "Total")] = f"{_tot.get('exp', 0):+.2f}R"
+            _row["PF"] = f"{_tot.get('pf', 0):.2f}"
+            _row[L("حکم", "Verdict")] = (EG.VERDICT_FA if LANG != "en" else EG.VERDICT_EN).get(_d.get("verdict"), "—")
+            _row[L("وزن رأی", "Vote weight")] = f"{EG.weight_for(_E.get('verdicts'), _nm):.1f}×"
+            _vrows.append(_row)
+        st.dataframe(pd.DataFrame(_vrows), use_container_width=True, hide_index=True)
+        st.caption(L(
+            "قواعد حکم (ثابت و شفاف): ❌ زیان‌ده = حداقل ۱۲ معامله + انتظاری کل زیر −۰٫۱۰R + زیان در بیشتر از نیمِ پنجره‌های فعال · "
+            "✅ سودده = حداقل ۱۲ معامله + انتظاری کل بالای +۰٫۰۵R + PF کل > ۱ + هیچ پنجره‌ای بدتر از −۰٫۲۵R + زیان در حداکثر نیمِ پنجره‌ها · "
+            "⚠️ بقیه (نمونه‌ی کم یا مخلوط). معامله به پنجره‌ی «ورودش» تعلق دارد؛ دُمِ آخر (فرصت بستن) هم به پنجره‌ی آخر می‌رود.",
+            "Verdict rules (fixed & transparent): ❌ losing = 12+ trades + total expectancy < −0.10R + losses in more than half the active windows · "
+            "✅ profitable = 12+ trades + total expectancy > +0.05R + total PF > 1 + no window worse than −0.25R + losses in at most half the windows · "
+            "⚠️ otherwise (small or mixed sample). A trade belongs to the window of its entry; the closing tail belongs to the last window."))
+
+    st.subheader("🎛️ " + L("گیت لبه در اسکن زنده", "Edge gate in live scan"))
+    st.radio(L("حالت گیت", "Gate mode"), EG.MODES,
+             format_func=lambda m: (EG.MODE_FA if LANG != "en" else EG.MODE_EN).get(m, m),
+             key="edge_mode", horizontal=True)
+    st.caption(L(
+        "بنچ یعنی «معامله‌ی تازه باز نمی‌کند» — پوزیشن‌های بازِ او طبق قواعد معمول (TP/SL/تایم‌اوت) مدیریت می‌شوند. "
+        "بدون حکم تازه، هر سه حالت عملاً یک‌اند و رفتار میدان مثل قبل است.",
+        "Benching means 'no new trades' — their open positions are still managed by the normal rules (TP/SL/timeout). "
+        "Without fresh verdicts all three modes are equivalent and arena behavior is unchanged."))
+    if _verdicts:
+        _benched2 = [p["name"] for p in A.participants()
+                     if p["kind"] == "agent" and not EG.allows(_verdicts, p["name"], _edge_mode)]
+        if _benched2:
+            st.info("⚖️ " + L(f"الان بنچ: {'، '.join(_benched2)}",
+                              f"Currently benched: {', '.join(_benched2)}"))
+        else:
+            st.success("⚖️ " + L("هیچ ایجنتی بنچ نیست — همه با لبه‌ی تأییدشده یا بی‌حکم معامله می‌کنند.",
+                                 "Nobody is benched — everyone trades with a verified edge or without a verdict."))
+    else:
+        st.info("⚖️ " + L("گیت بی‌سلاح است (حکم تازه‌ای نیست) — با بازپخش چندپنجره‌ای مسلحش کن.",
+                          "The gate is unarmed (no fresh verdicts) — arm it with a multi-window replay."))

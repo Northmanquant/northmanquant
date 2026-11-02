@@ -43,3 +43,8 @@ arena_edge.json
 *.key
 *.pem
 auth.json
+
+# Capacitor / Android — تولیدی است؛ در CI هر بار از نو ساخته می‌شود
+mobile-app/node_modules/
+mobile-app/android/
+mobile-app/output/

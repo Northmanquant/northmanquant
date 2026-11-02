@@ -244,7 +244,7 @@ with tab_scan:
             value=A.DEFAULT_APPETITE, key="arena_appetite")
     with c4:
         st.write("")
-        go = st.button("🔎 " + L("اسکن کل بازار", "Scan whole market"), type="primary", use_container_width=True, key="arena_go")
+        go = st.button("🔎 " + L("اسکن کل بازار", "Scan whole market"), type="primary", width="stretch", key="arena_go")
 
     st.caption(L(
         "سخت‌گیر: فقط ستاپ تازه + لبه‌ی walk-forward اثبات‌شده (کم‌معامله ولی بی‌رحم) · "
@@ -388,7 +388,7 @@ with tab_scan:
                     L("بهترین ایجنت", "Best agent"): (f"{best['score']:+.2f}" if best else "—"),
                     L("واجد", "Qualified"): ("✅" if (com.get("ok") or any(a["ok"] for a in s.get("agents", {}).values())) else "—"),
                 })
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
             if H["errors"]:
                 st.caption(L("خطاها: ", "Errors: ") + " | ".join(H["errors"][:5]))
 
@@ -488,7 +488,7 @@ with tab_pos:
                 L("قیمت زنده", "Live"): (f"{lp:,.{dec}f}" if lp else "—"),
                 L("R باز", "Open R"): ("—" if ur is None else f"{ur:+.2f}"),
             })
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
         st.caption(L("معامله‌ها هر بار که صفحه باز شود با کندل‌های تازه پیش برده می‌شوند (حداکثر هر ۶۰ ثانیه).",
                      "Trades are advanced with fresh candles whenever this page loads (at most once per 60s)."))
         for t in sorted(_open_trades, key=lambda t: t.get("agent", "")):
@@ -543,7 +543,7 @@ with tab_alerts:
                 L("جهت", "Side"): (DIR_FA if LANG != "en" else _DIR_EN).get(int(a.get("direction") or 0), "—"),
                 L("جزئیات", "Details"): _det,
             })
-        st.dataframe(pd.DataFrame(_arows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(_arows), width="stretch", hide_index=True)
     _ab = AL.get_alerts().backend
     st.caption(("🟢 " if _ab == "supabase" else "🟡 ")
                + L(f"بک‌اند هشدارها: {_ab} · جدول: arena_alerts",
@@ -636,7 +636,7 @@ with tab_board:
                  "وین‌ریت با کمتر از ۱۰ معامله معنای آماری مطمئنی ندارد.",
                  "Ranked by points; equity compounds from a paper $10,000 at 1% risk per trade. "
                  "Winrates under 10 trades are not statistically meaningful."))
-    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
     traded = [r for r in board if r["trades"]]
     if traded:
@@ -649,7 +649,7 @@ with tab_board:
         fig.update_layout(template="plotly_dark", height=380,
                           title=L("ایکوییتی هر شرکت‌کننده (معاملات بسته‌شده)", "Equity per participant (closed trades)"),
                           margin=dict(l=20, r=20, t=50, b=20), legend=dict(orientation="h"))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     st.subheader("📜 " + L("تاریخچه‌ی معاملات", "Trade history"))
     if not _closed_trades:
@@ -671,7 +671,7 @@ with tab_board:
                 L("دلیل", "Reason"): A.EXIT_FA.get(t.get("exit_reason"), t.get("exit_reason") or "—") if LANG != "en" else str(t.get("exit_reason") or "—"),
             })
         hdf = pd.DataFrame(hrows)
-        st.dataframe(hdf, use_container_width=True, hide_index=True)
+        st.dataframe(hdf, width="stretch", hide_index=True)
         st.download_button("💾 " + L("دانلود تاریخچه (CSV)", "Download history (CSV)"),
                            data=hdf.to_csv(index=False).encode("utf-8"),
                            file_name="arena_history.csv", mime="text/csv", key="arena_csv")
@@ -704,7 +704,7 @@ with tab_replay:
     with _rc3:
         st.write("")
         rep_go = st.button("🧪 " + L("اجرای بازپخش", "Run replay"), type="primary",
-                           use_container_width=True, key="arena_rep_go")
+                           width="stretch", key="arena_rep_go")
 
     if rep_go:
         if not rep_syms:
@@ -790,7 +790,7 @@ with tab_replay:
                 "MaxDD": f"{r['maxdd']:.1f}%" if r["trades"] else "—",
                 L("برد/باخت", "W/L"): f"{r['wins']}/{r['losses']}" if r["trades"] else "—",
             })
-        st.dataframe(pd.DataFrame(_rrows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(_rrows), width="stretch", hide_index=True)
 
         # ---- نمودار ایکوییتی: حساب ترکیبی + هر شرکت‌کننده ----
         import plotly.graph_objects as go  # noqa: E402
@@ -807,12 +807,12 @@ with tab_replay:
                             title=L("ایکوییتی بازپخش (۱۰٬۰۰۰$ کاغذی · ریسک ۱٪ · کارمزد و لغزش واقعی)",
                                     "Replay equity (paper $10,000 · 1% risk · real fees & slippage)"),
                             margin=dict(l=20, r=20, t=50, b=20), legend=dict(orientation="h"))
-        st.plotly_chart(_rfig, use_container_width=True)
+        st.plotly_chart(_rfig, width="stretch")
 
         # ---- جدول نمادها ----
         if _R["per_symbol"]:
             st.subheader("🪙 " + L("به تفکیک نماد", "Per symbol"))
-            st.dataframe(pd.DataFrame(_R["per_symbol"]), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(_R["per_symbol"]), width="stretch", hide_index=True)
 
         # ---- تاریخچه‌ی بازپخش ----
         with st.expander(L("📜 معاملات بسته‌شده‌ی بازپخش", "📜 Replayed closed trades"), expanded=False):
@@ -832,7 +832,7 @@ with tab_replay:
                         "R": f"{float(t.get('realized_r') or 0):+.2f}",
                         L("دلیل", "Reason"): A.EXIT_FA.get(t.get("exit_reason"), t.get("exit_reason") or "—") if LANG != "en" else str(t.get("exit_reason") or "—"),
                     })
-                st.dataframe(pd.DataFrame(_hrows), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(_hrows), width="stretch", hide_index=True)
 
         st.caption(L(
             "محدودیت‌های صداقت‌آمیز: جهانِ بازپخش نمادهای انتخابی توست (غربالگریِ لحظه‌ایِ گذشته بازسازی‌شدنی نیست) · "
@@ -869,7 +869,7 @@ with tab_edge:
     with _ec4:
         st.write("")
         edge_go = st.button("⚖️ " + L("بازپخش چندپنجره‌ای", "Multi-window replay"), type="primary",
-                            use_container_width=True, key="edge_go")
+                            width="stretch", key="edge_go")
 
     if edge_go:
         if not edge_syms:
@@ -925,7 +925,7 @@ with tab_edge:
             _row[L("حکم", "Verdict")] = (EG.VERDICT_FA if LANG != "en" else EG.VERDICT_EN).get(_d.get("verdict"), "—")
             _row[L("وزن رأی", "Vote weight")] = f"{EG.weight_for(_E.get('verdicts'), _nm):.1f}×"
             _vrows.append(_row)
-        st.dataframe(pd.DataFrame(_vrows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(_vrows), width="stretch", hide_index=True)
         st.caption(L(
             "قواعد حکم (ثابت و شفاف): ❌ زیان‌ده = حداقل ۱۲ معامله + انتظاری کل زیر −۰٫۱۰R + زیان در بیشتر از نیمِ پنجره‌های فعال · "
             "✅ سودده = حداقل ۱۲ معامله + انتظاری کل بالای +۰٫۰۵R + PF کل > ۱ + هیچ پنجره‌ای بدتر از −۰٫۲۵R + زیان در حداکثر نیمِ پنجره‌ها · "

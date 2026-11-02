@@ -1831,8 +1831,8 @@ def nav_menu(current: str = "main") -> None:
             label = f"{ico} {tr(fa, en)}"
             if pid == current:
                 st.button(label, key=f"nq_nav_{pid}", disabled=True,
-                          type="primary", use_container_width=True)
-            elif st.button(label, key=f"nq_nav_{pid}", use_container_width=True):
+                          type="primary", width="stretch")
+            elif st.button(label, key=f"nq_nav_{pid}", width="stretch"):
                 try:
                     st.switch_page(path)
                 except Exception as e:  # noqa: BLE001

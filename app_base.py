@@ -3446,7 +3446,7 @@ def main() -> None:
                              showspikes=True, spikemode="across", spikethickness=1,
                              spikecolor="rgba(148,163,184,0.5)", spikedash="dot", rangeslider_visible=False)
             fig.update_xaxes(gridcolor=grid, zeroline=False, row=2, col=1)
-            st.plotly_chart(fig, use_container_width=True, config={
+            st.plotly_chart(fig, width="stretch", config={
                 "scrollZoom": True, "displaylogo": False,
                 "modeBarButtonsToRemove": ["lasso2d", "select2d"],
             })
@@ -3484,7 +3484,7 @@ def main() -> None:
                     tcols[i].metric(f"هدف {i + 1}", f"{t_price:,.{dec}f}", f"{t_rr}R", delta_color="off")
                 st.caption("✅ " + plan.get("why", "") + " · حد ضرر: " + plan.get("stop_why", ""))
             with st.expander("📐 اعتبار ستاپ‌ها روی همین نماد/تایم‌فریم (تست walk-forward، بدون نگاه به آینده)", expanded=False):
-                st.dataframe(setup_stats_table(plan["stats"]), use_container_width=True, hide_index=True)
+                st.dataframe(setup_stats_table(plan["stats"]), width="stretch", hide_index=True)
                 st.caption("هر سیگنال گذشته‌ی همین نماد شبیه‌سازی شده: آیا TP1 (1R) قبل از حد ضرر لمس شد؟ انتظار ریاضی با هدف 2R. "
                            "فقط ستاپی که این‌جا «قابل اعتماد» است اجازه‌ی معامله دارد. همگرایی اندیکاتورها فقط زمینه است و جهت را تعیین نمی‌کند.")
             if plan.get("fvg_note"):
@@ -3492,7 +3492,7 @@ def main() -> None:
             with st.expander("🧾 مدارک تحلیل — کندل، ساختار، نقدینگی، جریان پول، FVG/BVG، سطوح", expanded=False):
                 try:
                     _ev, _ = market_evidence(d)
-                    st.dataframe(evidence_table(_ev), use_container_width=True, hide_index=True)
+                    st.dataframe(evidence_table(_ev), width="stretch", hide_index=True)
                 except Exception as _e:  # noqa: BLE001
                     st.info(f"مدارک محاسبه نشد: {_e}")
 
@@ -3503,14 +3503,14 @@ def main() -> None:
             if _ft.empty:
                 st.info("FVG یا BVG فعالی در این بازه پیدا نشد.")
             else:
-                st.dataframe(_ft, use_container_width=True, hide_index=True)
+                st.dataframe(_ft, width="stretch", hide_index=True)
                 st.caption("FVG صعودی = حمایت/محل ورود لانگ · FVG نزولی = مقاومت/محل ورود شورت · "
                            "BVG (BPR) = هم‌پوشانی FVG صعودی و نزولی — ناحیه‌ی بسیار قوی.")
 
             # ===== CONFLUENCE COMPONENTS table ==============================
             st.divider()
             st.markdown("**اجزای همگرایی**")
-            st.dataframe(comp_table, use_container_width=True, hide_index=True)
+            st.dataframe(comp_table, width="stretch", hide_index=True)
 
             # ===== SUPPORT / RESISTANCE — full width =========================
             st.divider()
@@ -3520,7 +3520,7 @@ def main() -> None:
             else:
                 show = levels.copy()
                 show["سطح"] = show["سطح"].map(lambda v: f"{v:,.{dec}f}")
-                st.dataframe(show, use_container_width=True, hide_index=True)
+                st.dataframe(show, width="stretch", hide_index=True)
                 st.download_button("💾 ذخیره سطوح (CSV)", data=show.to_csv(index=False).encode("utf-8"),
                                    file_name=f"{symbol}_levels.csv", mime="text/csv", key="dl_levels")
 
@@ -3530,7 +3530,7 @@ def main() -> None:
             if events.empty:
                 st.info("در این بازه رویدادی ثبت نشده است.")
             else:
-                st.dataframe(events.tail(12).iloc[::-1], use_container_width=True, hide_index=True)
+                st.dataframe(events.tail(12).iloc[::-1], width="stretch", hide_index=True)
 
             # ===== CONFLUENCE TREND =========================================
             st.divider()
@@ -3571,7 +3571,7 @@ def main() -> None:
                                             value=30, key="opp_rescan_s")
         with oc5:
             st.write("")
-            if st.button("🔍 اسکن فوری", type="primary", use_container_width=True):
+            if st.button("🔍 اسکن فوری", type="primary", width="stretch"):
                 st.session_state["opp_force"] = st.session_state.get("opp_force", 0) + 1
 
         def _opp_live_impl(exchange: str, interval: str, opp_n: int, opp_minscore: int, rescan_s: int) -> None:
@@ -3678,13 +3678,13 @@ def main() -> None:
             g, l, v = st.columns(3)
             with g:
                 st.subheader("🚀 بیشترین سود ۲۴س")
-                st.dataframe(tops["gainers"], use_container_width=True, hide_index=True)
+                st.dataframe(tops["gainers"], width="stretch", hide_index=True)
             with l:
                 st.subheader("🩸 بیشترین ریزش ۲۴س")
-                st.dataframe(tops["losers"], use_container_width=True, hide_index=True)
+                st.dataframe(tops["losers"], width="stretch", hide_index=True)
             with v:
                 st.subheader("💧 بیشترین حجم")
-                st.dataframe(tops["volume"], use_container_width=True, hide_index=True)
+                st.dataframe(tops["volume"], width="stretch", hide_index=True)
             st.caption(f"منبع: {exchange} — {EXCHANGE_DOCS[exchange]}")
         except Exception as e:  # noqa: BLE001
             st.error(f"دریافت فهرست بازار ممکن نشد: {e}")
@@ -3777,7 +3777,7 @@ def main() -> None:
                                        placeholder="دلیل ورود، ستاپ تکنیکال، سطوح کلیدی، مدیریت ریسک …")
                 ca_image = st.file_uploader("📷 عکس چارت/تحلیل (اختیاری)", type=["png", "jpg", "jpeg", "webp"],
                                             help="می‌توانی اسکرین‌شات چارت یا تحلیلت را هم پیوست کنی.")
-                ca_submit = st.form_submit_button("📨 ثبت و اشتراک‌گذاری تحلیل", use_container_width=True, type="primary")
+                ca_submit = st.form_submit_button("📨 ثبت و اشتراک‌گذاری تحلیل", width="stretch", type="primary")
 
             if ca_submit:
                 if ca_name.strip() and ca_symbol.strip() and ca_text.strip():
@@ -3843,7 +3843,7 @@ def main() -> None:
                 img_interval = st.selectbox("تایم‌فریم", list(INTERVAL_MINUTES.keys()),
                                             index=list(INTERVAL_MINUTES.keys()).index(interval), key="img_interval")
 
-            make_img = st.button("🖼️ ساخت تصویر تحلیل", type="primary", use_container_width=True)
+            make_img = st.button("🖼️ ساخت تصویر تحلیل", type="primary", width="stretch")
 
             if make_img:
                 img_symbol = normalize_symbol(img_symbol_in, img_exchange)
@@ -3876,13 +3876,13 @@ def main() -> None:
                     if st.session_state.get("img_last", {}).get("fvg"):
                         st.caption("🟪 FVG/BVG: " + st.session_state["img_last"]["fvg"])
 
-                    st.image(png, use_container_width=True)
+                    st.image(png, width="stretch")
                     st.download_button(
                         "⬇️ دانلود تصویر (PNG)",
                         data=png,
                         file_name=f"{img_symbol}_{img_interval}_northmanquant.png",
                         mime="image/png",
-                        use_container_width=True,
+                        width="stretch",
                     )
 
                     if iplan.get("entry") is None:
@@ -3902,7 +3902,7 @@ def main() -> None:
                         st.subheader("🧱 حمایت و مقاومت")
                         show = ilevels.copy()
                         show["سطح"] = show["سطح"].map(lambda v: f"{v:,.{idec}f}")
-                        st.dataframe(show, use_container_width=True, hide_index=True)
+                        st.dataframe(show, width="stretch", hide_index=True)
                     st.caption("برچسب‌های روی تصویر انگلیسی هستند (ENTRY/STOP/TP/S/R) تا در همه‌ی سیستم‌ها درست دیده شوند. این ابزار توصیه‌ی سرمایه‌گذاری نیست.")
                 except Exception as e:  # noqa: BLE001
                     st.error(f"ساخت تصویر ممکن نشد: {e}")
@@ -3914,7 +3914,7 @@ def main() -> None:
                 st.divider()
                 st.caption(f"آخرین تصویر ساخته‌شده: {_il['symbol']} · {_il['exchange']} · {_il['tf']}")
                 if st.button("📨 ارسال این تحلیل تصویری به «👥 تحلیل‌های کاربران»", key="img_to_board",
-                             use_container_width=True):
+                             width="stretch"):
                     _tp = (_il["tps"] + [None, None, None])[:3]
                     save_community({
                         "name": "🖼️ تحلیل تصویری NorthmanQuant",
@@ -3937,7 +3937,7 @@ def main() -> None:
             with hc1:
                 st.caption("تحلیل‌هایی که کاربران ثبت کرده‌اند. برای ثبت تحلیل خودت → تب «✍️ ثبت تحلیل شخصی».")
             with hc2:
-                if st.button("🔄 بازخوانی", use_container_width=True):
+                if st.button("🔄 بازخوانی", width="stretch"):
                     st.rerun()
 
             posts = load_community()
@@ -4024,7 +4024,7 @@ def main() -> None:
             {"صرافی": "LBank", "نوع": "Spot (CCXT)", "کندل": "CCXT · fetch_ohlcv", "تیکر": "CCXT · fetch_ticker",
              "مستندات": EXCHANGE_DOCS["LBank"]},
         ]
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
         st.markdown(
             """
 **نکته‌های واقعیِ داده‌ها**

@@ -1,0 +1,44 @@
+name: Arena Autopilot
+
+# فاز ۶ — اتوپایلوت میدان ایجنت‌ها
+# هر ۳۰ دقیقه: پیش‌بردن پوزیشن‌های باز (TP/SL/تایم‌اوت) + رژیم بازار + اسکن و بازکردن معامله‌ی تازه
+# الزامات: دو Secret در Settings → Secrets and variables → Actions:
+#   SUPABASE_URL  (https://xxxx.supabase.co)
+#   SUPABASE_KEY  (کلید publishable/anon)
+# توقف موقت: تب Actions → Arena Autopilot → ⋯ → Disable workflow
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"   # هر ۳۰ دقیقه (UTC)
+  workflow_dispatch: {}       # اجرای دستی برای تست
+
+concurrency:
+  group: arena-autopilot
+  cancel-in-progress: false   # اجرای هم‌پوشان ممنوع — نوبت بماند، قطع نشود
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Run autopilot
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          ARENA_EXCHANGE: KuCoin
+          ARENA_INTERVAL: 1hour
+          ARENA_APPETITE: hunter
+          ARENA_EDGE_MODE: bench_losers
+          # حالت سبک (فقط مدیریت پوزیشن‌ها، بدون اسکن): ARENA_SCAN را ۰ کنید
+          ARENA_SCAN: "1"
+        run: python -m core.autopilot

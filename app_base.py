@@ -118,6 +118,26 @@ def fmt_price(p, dec: int | None = None, sign: bool = False) -> str:
     return s
 
 
+def signal_card_parts(state: dict, lang: str) -> tuple[str, str, "str | None"]:
+    """سه‌تاییِ (برچسب، مقدار، دلتا) کارت «سیگنال» در ردیف کارت‌های تحلیل زنده.
+
+    Streamlit مقدارِ st.metric را یک‌خطی نگه می‌دارد و با «…» برش می‌زند؛
+    رشته‌ی بلند قبلی («شورت 🔴 · ورود 77,513.80») عددِ ورود را کامل پنهان می‌کرد
+    و کارت فقط «شورت ⬤ · و…» نشان می‌داد. حالا:
+      برچسب = جهت پوزیشن («ورود شورت 🔴») · مقدار = عددِ ورود (هرگز بریده نمی‌شود)
+      دلتا = PnL زنده. حالت flat / ورودِ گمشده → «خارج از بازار».
+    """
+    fa = lang != "en"
+    if state.get("status") not in ("long", "short") or not state.get("entry"):
+        return (("سیگنال همگرایی", "خارج از بازار ⚪", None) if fa
+                else ("Confluence signal", "Flat ⚪", None))
+    long = state["status"] == "long"
+    label = ("ورود لانگ 🟢" if long else "ورود شورت 🔴") if fa \
+        else ("Long entry 🟢" if long else "Short entry 🔴")
+    delta = None if state.get("live_pnl") is None else f"PnL {state['live_pnl']:+.2f}%"
+    return label, fmt_price(state["entry"]), delta
+
+
 # ------------------------------------------------------------------ سشن‌های بازار جهانی
 # ساعاتِ استانداردِ هر بازار (روزهای کاری با weekday: دوشنبه=0 … یکشنبه=6) —
 # تعطیلات رسمی حساب نمی‌شود؛ در صفحه هم همین گفته می‌شود. بورس تهران شنبه تا چهارشنبه.
@@ -3313,17 +3333,8 @@ def main() -> None:
             label = "خرید قوی" if score > 40 else "خرید" if score > 12 else "خنثی" if score > -12 else "فروش" if score > -40 else "فروش قوی"
             c2.metric("همگرایی اندیکاتورها", f"{score:+.0f} · {label}")
             c3.metric("ATR", f"{plan['atr']:,.{dec}f}")
-            _lang = get_lang()
-            if state["status"] == "flat":
-                c4.metric("سیگنال همگرایی" if _lang != "en" else "Confluence signal",
-                          "خارج از بازار ⚪" if _lang != "en" else "Flat ⚪")
-            else:
-                _long = state["status"] == "long"
-                _side = ("لانگ 🟢" if _long else "شورت 🔴") if _lang != "en" else ("Long 🟢" if _long else "Short 🔴")
-                _ent_lbl = "ورود " if _lang != "en" else "entry "
-                c4.metric("سیگنال همگرایی" if _lang != "en" else "Confluence signal",
-                          f"{_side} · {_ent_lbl}{fmt_price(state.get('entry'))}",
-                          delta=None if state.get("live_pnl") is None else f"PnL {state['live_pnl']:+.2f}%")
+            _lbl, _val, _delta = signal_card_parts(state, get_lang())
+            c4.metric(_lbl, _val, delta=_delta)
 
             # Lighter-only extras (real fields from orderBookDetails)
             lighter_extra = None

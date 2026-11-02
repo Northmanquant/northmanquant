@@ -59,6 +59,19 @@ jobs:
       - name: Generate app icon & splash screen
         run: npx capacitor-assets generate --android || echo "assets step skipped"
 
+      # قالب Capacitor signingConfig ندارد؛ گریدل برای بیلد دیباگ از
+      # ~/.android/debug.keystore استفاده می‌کند که روی رانر هر بار تصادفی
+      # ساخته می‌شود → امضای هر APK متفاوت → خطای «package conflicts» هنگام
+      # آپدیت. کی‌استور پایدار (Secret) جای آن می‌نشیند تا همه‌ی بیلدها یک
+      # امضا داشته باشند و آپدیت‌ها بدون حذف نصب شوند.
+      - name: Install stable signing key
+        env:
+          ANDROID_DEBUG_KEYSTORE_B64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}
+        run: |
+          mkdir -p "$HOME/.android"
+          echo "$ANDROID_DEBUG_KEYSTORE_B64" | base64 -d > "$HOME/.android/debug.keystore"
+          keytool -list -keystore "$HOME/.android/debug.keystore" -storepass android 2>/dev/null | grep androiddebugkey
+
       - name: Build debug APK
         working-directory: mobile-app/android
         run: |

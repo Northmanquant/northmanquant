@@ -59,24 +59,33 @@ jobs:
       - name: Generate app icon & splash screen
         run: npx capacitor-assets generate --android || echo "assets step skipped"
 
-      # قالب Capacitor signingConfig ندارد؛ گریدل برای بیلد دیباگ از
-      # ~/.android/debug.keystore استفاده می‌کند که روی رانر هر بار تصادفی
-      # ساخته می‌شود → امضای هر APK متفاوت → خطای «package conflicts» هنگام
-      # آپدیت. کی‌استور پایدار (Secret) جای آن می‌نشیند تا همه‌ی بیلدها یک
-      # امضا داشته باشند و آپدیت‌ها بدون حذف نصب شوند.
+      # امضای پایدار APK: کی‌استور (Secret) کنار ماژول اپ می‌نشیند و با یک
+      # پچ قطعی (قالب Capacitor هیچ signingConfig‌ای ندارد) به buildType دیباگ
+      # وصل می‌شود. بدون این، هر رانر کلید تصادفی خودش را می‌سازد و آپدیتِ
+      # روی نسخه‌ی قبلی با خطای «package conflicts» رد می‌شود.
       - name: Install stable signing key
         env:
           ANDROID_DEBUG_KEYSTORE_B64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}
         run: |
-          mkdir -p "$HOME/.android"
-          echo "$ANDROID_DEBUG_KEYSTORE_B64" | base64 -d > "$HOME/.android/debug.keystore"
-          keytool -list -keystore "$HOME/.android/debug.keystore" -storepass android 2>/dev/null | grep androiddebugkey
+          echo "$ANDROID_DEBUG_KEYSTORE_B64" | base64 -d > android/app/stable.keystore
+          python3 patch_signing.py
+          keytool -list -keystore android/app/stable.keystore -storepass android 2>/dev/null | grep androiddebugkey
 
       - name: Build debug APK
         working-directory: mobile-app/android
         run: |
           chmod +x ./gradlew
           ./gradlew assembleDebug --no-daemon
+          FP=$(keytool -printcert -jarfile app/build/outputs/apk/debug/app-debug.apk 2>/dev/null | grep -m1 'SHA256:' | awk '{print $2}')
+          echo "APK cert SHA-256: $FP"
+          case "$FP" in
+            9B:14:45:42:B7:72:20:39:07:10:D6:2B:C5:76:1A:DF:1F:B6:BB:37:D4:EC:A9:F9:93:56:1E:7D:7E:51:4A:06)
+              echo "امضای پایدار ✓";;
+            '')
+              echo "هشدار: امضای v1 خوانده نشد — بررسی دستی لازم";;
+            *)
+              echo "خطا: APK با کلید پایدار امضا نشده"; exit 1;;
+          esac
 
       - name: Rename APK
         run: |

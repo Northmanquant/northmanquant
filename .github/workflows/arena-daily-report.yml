@@ -1,0 +1,81 @@
+name: Arena Daily Report
+
+# فاز ۸ — گزارش روزانه‌ی میدان ایجنت‌ها
+# هر روز ساعت ۰۹:۰۰ تهران (۰۵:۳۰ UTC): جمع‌بندی ۲۴ ساعت میدان
+#   بسته‌شده‌ها + وین‌ریت + جمع R + پوزیشن‌های باز + رژیم بازار + کل میدان
+# خروجی: Step Summary + کامنت روی Issue آرشیو «📊 گزارش روزانه‌ی میدان»
+# (یک Issue واحد برای همه‌ی روزها — هر روز یک کامنت، بدون اسپم اعلان)
+# همان Secretهای اتوپایلوت: SUPABASE_URL و SUPABASE_KEY
+# توقف موقت: تب Actions → Arena Daily Report → ⋯ → Disable workflow
+# نکته: اجرای schedule در گیت‌هاب معمولاً ۱۵-۳۰ دقیقه تأخیر دارد — طبیعی است.
+
+on:
+  schedule:
+    - cron: "30 5 * * *"    # ۰۹:۰۰ تهران (UTC+3:30)
+  workflow_dispatch: {}      # اجرای دستی برای تست
+
+permissions:
+  issues: write               # برای Issue آرشیو + هشدار شکست
+
+concurrency:
+  group: arena-daily-report
+  cancel-in-progress: false
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: ساخت گزارش روزانه
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python -m core.daily_report
+
+      - name: ارسال گزارش به Issue آرشیو
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create daily-report --repo "$GITHUB_REPOSITORY" \
+            --color 1D76DB --description "گزارش روزانه‌ی میدان" --force || true
+          ISSUE_NUM=$(gh issue list --repo "$GITHUB_REPOSITORY" --label daily-report \
+            --state open --limit 1 --json number --jq '.[0].number // ""')
+          if [ -z "$ISSUE_NUM" ]; then
+            ISSUE_URL=$(gh issue create --repo "$GITHUB_REPOSITORY" \
+              --label daily-report \
+              --title "📊 گزارش روزانه‌ی میدان — آرشیو" \
+              --body "هر روز ساعت ۰۹:۰۰ تهران، گزارش ۲۴ ساعته‌ی میدان ایجنت‌ها به‌صورت کامنت به این Issue اضافه می‌شود. Issue را باز نگه دارید تا گزارش‌ها ادامه پیدا کنند.")
+            ISSUE_NUM="${ISSUE_URL##*/}"
+            echo "Issue آرشیو ساخته شد: #$ISSUE_NUM"
+          fi
+          gh issue comment "$ISSUE_NUM" --repo "$GITHUB_REPOSITORY" \
+            --body-file daily_report.md
+          echo "✅ گزارش به Issue #$ISSUE_NUM اضافه شد"
+
+      - name: هشدار شکست — بازکردن Issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create report-fail --repo "$GITHUB_REPOSITORY" \
+            --color D93F0B --description "شکست گزارش روزانه" --force || true
+          if gh issue list --repo "$GITHUB_REPOSITORY" --label report-fail \
+               --state open --limit 1 | grep -q .; then
+            echo "Issue هشدار از قبل باز است — تکرار ساخته نمی‌شود"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" \
+              --label report-fail \
+              --title "🟠 گزارش روزانه‌ی میدان شکست خورد — بررسی شود" \
+              --body "اجرای [run #$GITHUB_RUN_NUMBER]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID) شکست خورد.\n\n- زمان (UTC): $(date -u '+%Y-%m-%d %H:%M')\n- لاگ: همان صفحه → job → مرحله‌ی شکست‌خورده\n\nبعد از رفع مشکل این Issue را ببندید تا هشدار برای شکست بعدی دوباره کار کند." \
+              && echo "Issue هشدار ساخته شد"
+          fi

@@ -1,0 +1,42 @@
+name: Arena Export
+
+# فاز ۹ — خروجی کامل تاریخچه‌ی میدان برای تحلیل سوددهی
+# فقط اجرای دستی: تب Actions → Arena Export → Run workflow
+# خروجی: آرتیفکت arena-export (فایل arena_export.json — ۷ روز نگهداری)
+# هیچ تغییری در داده نمی‌دهد؛ فقط خواندن از همان بک‌اند اپ (Supabase/محلی).
+
+on:
+  workflow_dispatch: {}      # فقط دستی — هیچ زمان‌بندی‌ای ندارد
+
+concurrency:
+  group: arena-export
+  cancel-in-progress: false
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Export
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python scripts/export_arena.py
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: arena-export
+          path: arena_export.json
+          retention-days: 7
+          if-no-files-found: error

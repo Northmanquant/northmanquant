@@ -6,11 +6,16 @@ name: Arena Autopilot
 #   SUPABASE_URL  (https://xxxx.supabase.co)
 #   SUPABASE_KEY  (کلید publishable/anon)
 # توقف موقت: تب Actions → Arena Autopilot → ⋯ → Disable workflow
+# فاز ۷ — اگر هر اجرایی شکست بخورد، خودکار یک Issue هشدار باز می‌شود
+# (Issue تکراری ساخته نمی‌شود تا وقتی Issue باز قبلی بسته شود)
 
 on:
   schedule:
     - cron: "*/30 * * * *"   # هر ۳۰ دقیقه (UTC)
   workflow_dispatch: {}       # اجرای دستی برای تست
+
+permissions:
+  issues: write               # فقط برای ساخت Issue هشدار در صورت شکست
 
 concurrency:
   group: arena-autopilot
@@ -42,3 +47,21 @@ jobs:
           # حالت سبک (فقط مدیریت پوزیشن‌ها، بدون اسکن): ARENA_SCAN را ۰ کنید
           ARENA_SCAN: "1"
         run: python -m core.autopilot
+
+      - name: هشدار شکست — بازکردن Issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create autopilot-fail --repo "$GITHUB_REPOSITORY" \
+            --color D73A4A --description "شکست اجرای اتوپایلوت" --force || true
+          if gh issue list --repo "$GITHUB_REPOSITORY" --label autopilot-fail \
+               --state open --limit 1 | grep -q .; then
+            echo "Issue هشدار از قبل باز است — تکرار ساخته نمی‌شود"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" \
+              --label autopilot-fail \
+              --title "🔴 اتوپایلوت شکست خورد — بررسی شود" \
+              --body "اجرای [run #$GITHUB_RUN_NUMBER]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID) شکست خورد.\n\n- زمان (UTC): $(date -u '+%Y-%m-%d %H:%M')\n- لاگ: همان صفحه → job → مرحله‌ی شکست‌خورده\n\nبعد از رفع مشکل این Issue را ببندید تا هشدار برای شکست بعدی دوباره کار کند." \
+              && echo "Issue هشدار ساخته شد"
+          fi

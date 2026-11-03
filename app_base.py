@@ -3463,7 +3463,7 @@ def main() -> None:
                                     symbol=symbol, zones=_tv_zones, levels=_tv_levels,
                                     title=f"{symbol} · {interval}", dec=dec,
                                     initial_bars=candle_count),
-                height=780, scrolling=False,
+                height=760, scrolling=False,
             )
 
             # (floating share button removed by request)

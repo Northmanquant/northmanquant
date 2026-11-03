@@ -50,6 +50,12 @@ ok("پیوت‌پوینت روزانه" in html, "پیوت‌پوینت")
 ok("استوکاستیک" in html and "استوک RSI" in html and "ADX / DMI" in html, "نوسان‌گرهای پنلی")
 ok("قلم آزاد" in html and "پرتو افقی" in html and "خط عمودی" in html, "ابزارهای جدید رسم")
 ok('id="btnLog"' in html and "مقیاس لگاریتمی" in html, "دکمه مقیاس لگاریتمی")
+ok('id="btnRange"' in html and "بازه‌ها" in html and 'id="menuRange"' in html, "دکمه بازه‌های سریع + منو")
+ok('id="cdown"' in html and "fmtRem" in html and "setInterval" in html, "چیپ قیمت + شمارش معکوس کندل")
+ok('id="btnLeg"' in html and "applyLeg" in html, "کلید خاموش/روشن لجند")
+ok("ازنو (Redo)" in html and "REDO" in html, "واگرد/ازنو")
+ok("توخالی" in html and "بیس‌لاین" in html and "پله‌ای" in html, "انواع چارت جدید (hollow/baseline/step)")
+ok("WithSteps" in html and "pointMarkersVisible" in html and "addBaselineSeries" in html, "پیاده‌سازی انواع جدید")
 ok('id="txtIn"' in html, "ورودی متن یادداشت")
 for lbl in ["'1min':'1m'", "'3min':'3m'", "'5min':'5m'", "'15min':'15m'", "'30min':'30m'",
             "'1hour':'1H'", "'2hour':'2H'", "'4hour':'4H'", "'6hour':'6H'", "'12hour':'12H'",

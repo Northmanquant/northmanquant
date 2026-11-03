@@ -4,7 +4,7 @@
 نسخه‌ی ۳ — پکیج کامل ابزار و اندیکاتور:
 
   ▸ تایم‌فریم‌سوئیچر داخل چارت — ۱۳ تایم‌فریم (1m تا 1M) با داده‌ی همگام از پایتون
-  ▸ انواع چارت: کندل · میله · خط · ناحیه · هایکن‌آشی
+  ▸ انواع چارت: کندل · توخالی · میله · خط · خط+نشانگر · پله‌ای · ناحیه · بیس‌لاین · هایکن‌آشی
   ▸ اندیکاتورهای روکش: EMA 9/20/21/50/200 · SMA 20/50/100/200 · بولینگر(20,2) · VWAP روزانه
     · Parabolic SAR · SuperTrend(10,3) · ایچیموکو(9,26,52) · پیوت‌پوینت روزانه · میانگین حجم
   ▸ پنل‌های جداگانه: RSI(14) · MACD(12,26,9) · استوکاستیک(14,3,3) · استوک RSI(14,14,3,3)
@@ -13,6 +13,8 @@
     · خط‌کش (٪/قیمت/کندل/مدت) · پوزیشن خرید/فروش (ورود/ضرر/هدف + RR) · فلش صعودی/نزولی
     · متن · قلم آزاد + واگرد/پاک‌کردن + ذخیره‌ی خودکار localStorage (نماد+تایم‌فریم)
   ▸ لجند OHLCV + مقادیر زنده‌ی همه‌ی اندیکاتورها · مقیاس لگاریتمی · نواحی FVG/BVG
+  ▸ چیپ قیمت لحظه‌ای + شمارش معکوس بسته‌شدن کندل (سبک تریدینگ‌ویو) · دکمه‌های بازه‌ی سریع
+  ▸ رابط جمع‌وجور: تولبار باریک، محور زمان کم‌ارتفاع، پنل‌های فشرده — فضای بیشتری برای کندل‌ها
   ▸ بازنشانی نما · پرش به «الان» · تمام‌صفحه · اسکرین‌شات PNG (با رسم‌ها)
 
 کتابخانه از assets/ خوانده و inline می‌شود — بدون وابستگی به CDN.
@@ -93,7 +95,7 @@ const IND_DEF = {
   sma20:false, sma50:false, sma100:false, sma200:false,
   bb:true, vwap:false, volma:false, psar:false, st:false, ichi:false, piv:false,
   rsi:false, macd:false, stoch:false, srsi:false, cci:false, wr:false,
-  adx:false, atr:false, obv:false, mfi:false, log:false };
+  adx:false, atr:false, obv:false, mfi:false, log:false, leg:true };
 
 let S = {
   tf:   localStorage.getItem(SK('tf'))  || DATA.base_tf,
@@ -103,6 +105,7 @@ let S = {
 };
 if(!TFS[S.tf]) S.tf = DATA.base_tf;
 let DRAWINGS = [];
+let REDO = [];
 
 /* ---------- ریاضیات اندیکاتورها (سمت مرورگر) ------------------------- */
 function emaArr(v, n){ const o=new Array(v.length).fill(null); if(v.length<n) return o;
@@ -315,7 +318,7 @@ const MONO = 'ui-monospace, SFMono-Regular, Menlo, monospace';
 function mkChart(el, opts){
   return LightweightCharts.createChart(el, Object.assign({
     autoSize: true,
-    layout: { background:{type:'solid', color:'#0e1117'}, textColor:'#b2b5be', fontFamily:MONO, fontSize:11 },
+    layout: { background:{type:'solid', color:'#0e1117'}, textColor:'#b2b5be', fontFamily:MONO, fontSize:10 },
     grid: { vertLines:{color:'rgba(148,163,184,0.07)'}, horzLines:{color:'rgba(148,163,184,0.07)'} },
     rightPriceScale: { borderColor:'rgba(148,163,184,0.18)', entireTextOnly:true },
     timeScale: { borderColor:'rgba(148,163,184,0.18)', timeVisible:true, secondsVisible:false, rightOffset:4 },
@@ -328,8 +331,8 @@ function mkChart(el, opts){
   }, opts||{}));
 }
 const chartMain = mkChart(document.getElementById('chart'), {
-  rightPriceScale: { borderColor:'rgba(148,163,184,0.18)', entireTextOnly:true, scaleMargins:{top:0.07,bottom:0.24} },
-  watermark: { visible:true, text:DATA.symbol, fontSize:46, color:'rgba(148,163,184,0.05)',
+  rightPriceScale: { borderColor:'rgba(148,163,184,0.18)', entireTextOnly:true, scaleMargins:{top:0.05,bottom:0.20} },
+  watermark: { visible:true, text:DATA.symbol, fontSize:40, color:'rgba(148,163,184,0.05)',
                fontFamily:MONO, fontStyle:'' },
 });
 chartMain._el = document.getElementById('chart');
@@ -347,16 +350,16 @@ function fmtDur(sec){ sec=Math.round(Math.abs(sec));
 
 /* ---------- پنل‌های اندیکاتور (ساخت پویا) ------------------------------ */
 const PANE_DEFS = [
-  {k:'rsi',  h:112, t:'RSI 14'},
-  {k:'macd', h:130, t:'MACD 12·26·9'},
-  {k:'stoch',h:112, t:'استوکاستیک 14·3·3'},
-  {k:'srsi', h:112, t:'استوک RSI 14·14·3·3'},
-  {k:'cci',  h:112, t:'CCI 20'},
-  {k:'wr',   h:112, t:'Williams %R 14'},
-  {k:'adx',  h:132, t:'ADX / DMI 14'},
-  {k:'atr',  h:96,  t:'ATR 14'},
-  {k:'obv',  h:110, t:'OBV'},
-  {k:'mfi',  h:112, t:'MFI 14'},
+  {k:'rsi',  h:82, t:'RSI 14'},
+  {k:'macd', h:98, t:'MACD 12·26·9'},
+  {k:'stoch',h:82, t:'استوکاستیک 14·3·3'},
+  {k:'srsi', h:82, t:'استوک RSI 14·14·3·3'},
+  {k:'cci',  h:82, t:'CCI 20'},
+  {k:'wr',   h:82, t:'Williams %R 14'},
+  {k:'adx',  h:98, t:'ADX / DMI 14'},
+  {k:'atr',  h:72, t:'ATR 14'},
+  {k:'obv',  h:82, t:'OBV'},
+  {k:'mfi',  h:82, t:'MFI 14'},
 ];
 const PANE = {};
 (function buildPanes(){
@@ -503,12 +506,29 @@ function rebuildMain(keepRange){
       borderUpColor:up, borderDownColor:dn, wickUpColor:up, wickDownColor:dn,
       priceFormat:pf, priceLineColor:'rgba(148,163,184,0.6)', priceLineStyle:0 });
     mainSeries.setData(src.map(a=>({time:a[0], open:a[1], high:a[2], low:a[3], close:a[4]})));
+  } else if(S.type==='hollow'){
+    mainSeries = chartMain.addCandlestickSeries({ priceFormat:pf,
+      priceLineColor:'rgba(148,163,184,0.6)', priceLineStyle:0 });
+    mainSeries.setData(src.map(a=>{ const isUp=a[4]>=a[1];
+      return { time:a[0], open:a[1], high:a[2], low:a[3], close:a[4],
+        color: isUp? 'rgba(0,0,0,0)' : dn,
+        borderColor: isUp? up : dn,
+        wickColor: isUp? up : dn }; }));
   } else if(S.type==='bars'){
     mainSeries = chartMain.addBarSeries({ upColor:up, downColor:dn, priceFormat:pf,
       priceLineColor:'rgba(148,163,184,0.6)' });
     mainSeries.setData(src.map(a=>({time:a[0], open:a[1], high:a[2], low:a[3], close:a[4]})));
-  } else if(S.type==='line'){
-    mainSeries = chartMain.addLineSeries({ color:'#2962ff', lineWidth:2, priceFormat:pf });
+  } else if(S.type==='line' || S.type==='linemk' || S.type==='step'){
+    const lopts = { color:'#2962ff', lineWidth:2, priceFormat:pf };
+    if(S.type==='step') lopts.lineType = LightweightCharts.LineType.WithSteps;
+    if(S.type==='linemk') lopts.pointMarkersVisible = true;
+    mainSeries = chartMain.addLineSeries(lopts);
+    mainSeries.setData(src.map(a=>({time:a[0], value:a[4]})));
+  } else if(S.type==='baseline'){
+    mainSeries = chartMain.addBaselineSeries({ baseValue:{type:'price', price:src[0][4]},
+      topLineColor:'rgba(38,166,154,0.9)', topFillColor1:'rgba(38,166,154,0.28)', topFillColor2:'rgba(38,166,154,0.03)',
+      bottomLineColor:'rgba(239,83,80,0.9)', bottomFillColor1:'rgba(239,83,80,0.03)', bottomFillColor2:'rgba(239,83,80,0.28)',
+      lineWidth:2, priceFormat:pf });
     mainSeries.setData(src.map(a=>({time:a[0], value:a[4]})));
   } else {
     mainSeries = chartMain.addAreaSeries({ lineColor:'#2962ff', topColor:'rgba(41,98,255,0.25)',
@@ -574,8 +594,10 @@ const ltitle = document.getElementById('ltitle');
 function setLegend(bar){
   const d = new Date(bar.t*1000);
   const ts = d.toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
-  const up = bar.c>=bar.o, cls = up?'up':'dn';
-  const chg = bar.o? ((bar.c-bar.o)/bar.o*100) : 0;
+  const Ci = CAND(); const bi = IDX.get(bar.t);
+  const pc = (bi!=null && bi>0 && Ci[bi-1]) ? Ci[bi-1][4] : bar.o;   // تغییر مثل TV: نسبت به کلوز کندل قبل
+  const up = bar.c>=pc, cls = up?'up':'dn';
+  const chg = pc? ((bar.c-pc)/pc*100) : 0;
   legend.querySelector('#lbar').innerHTML =
     '<span class="k">O</span><b class="'+cls+'">'+fmtP(bar.o)+'</b>'
     + '<span class="k">H</span><b class="'+cls+'">'+fmtP(bar.h)+'</b>'
@@ -947,7 +969,7 @@ function evPos(e){
   return { x:x, y:y, price: mainSeries? mainSeries.coordinateToPrice(y) : null, t: snapTime(x) };
 }
 function dist(a,b){ return Math.sqrt(Math.pow(a.x-b.x,2)+Math.pow(a.y-b.y,2)); }
-function commit(d){ DRAWINGS.push(d); saveDraw(); }
+function commit(d){ DRAWINGS.push(d); REDO=[]; saveDraw(); }
 ovl.addEventListener('pointerdown', e=>{
   if(S.tool==='cursor' || !mainSeries) return;
   e.preventDefault();
@@ -1034,7 +1056,8 @@ function setTF(tf){
   if(a){ setLegend({t:a[0],o:a[1],h:a[2],l:a[3],c:a[4],v:a[5]}); setIndLegend(a[0]); updatePaneLegends(a[0]); }
   closeMenus();
 }
-const TYPE_LBL = {candles:'کندل', bars:'میله', line:'خط', area:'ناحیه', heikin:'هایکن‌آشی'};
+const TYPE_LBL = {candles:'کندل', hollow:'توخالی', bars:'میله', line:'خط', linemk:'خط + نشانگر',
+                  step:'پله‌ای', area:'ناحیه', baseline:'بیس‌لاین', heikin:'هایکن‌آشی'};
 function setType(t){
   S.type = t; localStorage.setItem(SK('type'), t);
   document.getElementById('typeLbl').textContent = TYPE_LBL[t]||t;
@@ -1114,13 +1137,15 @@ function buildToolsMenu(){
   }
   h += '<div class="msep"></div>'
      + '<div class="mi" data-t="undo"><span class="ti">↩</span><span>واگرد آخرین</span></div>'
+     + '<div class="mi" data-t="redo"><span class="ti">↪</span><span>ازنو (Redo)</span></div>'
      + '<div class="mi" data-t="clear"><span class="ti">🗑</span><span>پاک‌کردن همه</span></div>';
   m.innerHTML = h;
   for(const el of m.querySelectorAll('.mi'))
     el.onclick = ()=>{
       const t = el.dataset.t;
-      if(t==='undo'){ DRAWINGS.pop(); saveDraw(); }
-      else if(t==='clear'){ DRAWINGS=[]; saveDraw(); toast('همه‌ی رسم‌ها پاک شد'); }
+      if(t==='undo'){ if(DRAWINGS.length){ REDO.push(DRAWINGS.pop()); saveDraw(); } }
+      else if(t==='redo'){ if(REDO.length){ DRAWINGS.push(REDO.pop()); saveDraw(); } }
+      else if(t==='clear'){ DRAWINGS=[]; REDO=[]; saveDraw(); toast('همه‌ی رسم‌ها پاک شد'); }
       else setTool(t);
       buildToolsMenu(); closeMenus();
     };
@@ -1133,7 +1158,7 @@ function setTool(t){
   document.getElementById('txtIn').classList.toggle('show', t==='text');
 }
 function closeMenus(){
-  for(const id of ['menuInd','menuTools','menuType'])
+  for(const id of ['menuInd','menuTools','menuType','menuRange'])
     document.getElementById(id).classList.remove('open');
 }
 function openMenu(btnId, menuId){
@@ -1153,8 +1178,9 @@ function bindMenu(btnId, menuId){
   });
 }
 bindMenu('btnInd','menuInd'); bindMenu('btnTools','menuTools'); bindMenu('btnType','menuType');
+bindMenu('btnRange','menuRange');
 document.addEventListener('click', e=>{
-  if(!e.target.closest('.menu') && !e.target.closest('#btnInd,#btnTools,#btnType')) closeMenus();
+  if(!e.target.closest('.menu') && !e.target.closest('#btnInd,#btnTools,#btnType,#btnRange')) closeMenus();
 });
 
 /* ---------- دکمه‌های کناری -------------------------------------------- */
@@ -1187,11 +1213,58 @@ function applyLog(){
 }
 btnLog.onclick = ()=>{ S.ind.log = !S.ind.log; saveInd(); applyLog(); };
 
+/* ---------- بازه‌های سریع (سبک تریدینگ‌ویو) ---------------------------- */
+const RANGES = [
+  ['h24','۲۴ ساعت', 86400], ['d3','۳ روز', 259200], ['w1','۷ روز', 604800],
+  ['m1','۳۰ روز', 2592000], ['m3','۹۰ روز', 7776000], ['all','همه', 0]];
+(function buildRangeMenu(){
+  const m = document.getElementById('menuRange'); let h='';
+  for(const r of RANGES)
+    h += '<div class="mi" data-r="'+r[2]+'"><span>'+r[1]+'</span></div>';
+  m.innerHTML = h;
+  for(const el of m.querySelectorAll('.mi'))
+    el.onclick = ()=>{ const sec = parseInt(el.dataset.r,10); const c=CAND(); const n=c.length;
+      if(!n) return;
+      if(!sec){ chartMain.timeScale().setVisibleLogicalRange({from:0, to:n+4}); }
+      else{ const cnt = Math.min(n, Math.ceil(sec/SEC()));
+        chartMain.timeScale().setVisibleLogicalRange({from:Math.max(0,n-cnt-2), to:n+4}); }
+      closeMenus(); };
+})();
+
+/* ---------- لجند: روشن/خاموش ------------------------------------------ */
+const btnLeg = document.getElementById('btnLeg');
+function applyLeg(){
+  document.getElementById('legend').style.display = (S.ind.leg===false)? 'none' : '';
+  btnLeg.classList.toggle('active', S.ind.leg!==false);
+}
+btnLeg.onclick = ()=>{ S.ind.leg = (S.ind.leg===false)? true : false; saveInd(); applyLeg(); };
+
+/* ---------- چیپ قیمت + شمارش معکوس کندل (سبک تریدینگ‌ویو) --------------- */
+const cdown = document.getElementById('cdown');
+cdown.onclick = ()=> chartMain.timeScale().scrollToRealTime();
+function fmtRem(ms){ if(ms<=0) return '00:00';
+  const s=Math.floor(ms/1000), d=Math.floor(s/86400), h=Math.floor(s%86400/3600),
+        m=Math.floor(s%3600/60), ss=s%60;
+  const p=n=>(n<10?'0':'')+n;
+  if(d) return d+'d '+p(h)+':'+p(m);
+  if(h) return h+':'+p(m)+':'+p(ss);
+  return p(m)+':'+p(ss); }
+setInterval(function(){
+  const c=CAND(); if(!c.length || !mainSeries) return;
+  const a=c[c.length-1];
+  const cls = a[4]>=a[1] ? '#26a69a' : '#ef5350';
+  const pc = c.length>1? c[c.length-2][4] : a[1];
+  const chg = pc? ((a[4]-pc)/pc*100):0;
+  const rem = (a[0]+SEC())*1000 - Date.now();
+  cdown.innerHTML = '<span style="color:'+cls+'">'+fmtP(a[4])+' '+(chg>=0?'+':'')+chg.toFixed(2)+'%'
+                  + '</span><span style="color:#f59e0b">⏱ '+fmtRem(rem)+'</span>';
+}, 500);
+
 /* ---------- منوی نوع چارت -------------------------------------------- */
 (function(){
   const m = document.getElementById('menuType');
   let h='';
-  for(const k of ['candles','bars','line','area','heikin'])
+  for(const k of ['candles','hollow','bars','line','linemk','step','area','baseline','heikin'])
     h += '<div class="mi'+(S.type===k?' sel':'')+'" data-y="'+k+'"><span>'+TYPE_LBL[k]+'</span></div>';
   m.innerHTML = h;
   for(const el of m.querySelectorAll('.mi')) el.onclick = ()=>setType(el.dataset.y);
@@ -1212,6 +1285,7 @@ updateTitle();
   if(a){ setLegend({t:a[0],o:a[1],h:a[2],l:a[3],c:a[4],v:a[5]}); setIndLegend(a[0]); updatePaneLegends(a[0]); } })();
 applyPanes();
 applyLog();
+applyLeg();
 (function(){ const c=CAND(); const n=c.length;
   const win = Math.min(DATA.initial_bars, n);
   chartMain.timeScale().setVisibleLogicalRange({ from: Math.max(0, n-win-2), to: n+4 }); })();
@@ -1222,12 +1296,12 @@ requestAnimationFrame(renderLoop);
 _CSS = """
 html,body{margin:0;padding:0;background:#0e1117;height:100%;overflow:hidden;}
 #wrap{position:relative;width:100%;height:100%;direction:ltr;background:#0e1117;display:flex;flex-direction:column;}
-#toolbar{height:38px;min-height:38px;display:flex;align-items:center;gap:5px;padding:0 8px;
+#toolbar{height:30px;min-height:30px;display:flex;align-items:center;gap:3px;padding:0 6px;
   background:#131722;border-bottom:1px solid rgba(148,163,184,0.14);direction:rtl;
   overflow-x:auto;overflow-y:hidden;scrollbar-width:none;}
 #toolbar::-webkit-scrollbar{display:none;}
-.tb-btn{all:unset;cursor:pointer;font:600 11.5px/1 ui-monospace,monospace;color:#b2b5be;
-  background:transparent;border-radius:6px;padding:6px 8px;white-space:nowrap;user-select:none;}
+.tb-btn{all:unset;cursor:pointer;font:600 11px/1 ui-monospace,monospace;color:#b2b5be;
+  background:transparent;border-radius:6px;padding:5px 7px;white-space:nowrap;user-select:none;}
 .tb-btn:hover{background:rgba(148,163,184,0.12);color:#e2e8f0;}
 .tb-btn.active{color:#5b8def;background:rgba(41,98,255,0.16);}
 .tf{min-width:30px;text-align:center;}
@@ -1238,19 +1312,19 @@ html,body{margin:0;padding:0;background:#0e1117;height:100%;overflow:hidden;}
 #txtIn.show{display:inline-block;}
 #txtIn::placeholder{color:#78849e;}
 #panes{flex:1;position:relative;display:flex;flex-direction:column;min-height:0;}
-#mainPane{flex:1;position:relative;min-height:140px;}
+#mainPane{flex:1;position:relative;min-height:110px;}
 #chart{position:absolute;inset:0;}
 .subpane{position:relative;border-top:1px solid rgba(148,163,184,0.14);display:none;background:#0e1117;}
 .subpane .pch{position:absolute;inset:0;}
-.sublegend{position:absolute;top:4px;right:10px;z-index:7;pointer-events:none;direction:rtl;
-  font:600 10.5px/1.6 ui-monospace,monospace;color:#8ea1c0;}
+.sublegend{position:absolute;top:2px;right:8px;z-index:7;pointer-events:none;direction:rtl;
+  font:600 9.5px/1.5 ui-monospace,monospace;color:#8ea1c0;}
 .sublegend b{color:#cfd6e4;}
 #ovl{position:absolute;inset:0;z-index:5;pointer-events:none;}
 #ovl.armed{pointer-events:auto;cursor:crosshair;touch-action:none;}
-#legend{position:absolute;top:6px;left:8px;z-index:6;pointer-events:none;direction:ltr;
-  font:11px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;color:#b2b5be;
-  background:rgba(14,17,23,0.82);padding:3px 8px;border-radius:6px;
-  border:1px solid rgba(148,163,184,0.12);max-width:calc(100% - 130px);}
+#legend{position:absolute;top:4px;left:6px;z-index:6;pointer-events:none;direction:ltr;
+  font:10px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;color:#b2b5be;
+  background:rgba(14,17,23,0.82);padding:2px 7px;border-radius:6px;
+  border:1px solid rgba(148,163,184,0.12);max-width:calc(100% - 96px);}
 #ltitle{color:#e2e8f0;font-weight:700;margin-right:6px;}
 #lbar .k{color:#78849e;margin:0 3px 0 8px;}
 #lbar b{font-weight:600;color:#e2e8f0;}
@@ -1258,7 +1332,12 @@ html,body{margin:0;padding:0;background:#0e1117;height:100%;overflow:hidden;}
 #lbar .kt{color:#78849e;margin-left:10px;}
 #lind{display:flex;gap:10px;flex-wrap:wrap;}
 #lind .ik{font-weight:600;}
-.menu{position:absolute;top:42px;left:8px;z-index:40;background:#1c2333;
+#cdown{position:absolute;right:0;bottom:26px;z-index:8;pointer-events:auto;cursor:pointer;
+  direction:ltr;display:flex;gap:9px;align-items:center;background:rgba(31,42,61,0.95);
+  border:1px solid rgba(148,163,184,0.3);border-right:none;border-radius:8px 0 0 8px;
+  padding:4px 10px;font:700 11px/1.2 ui-monospace,monospace;color:#e2e8f0;}
+#cdown:hover{background:rgba(41,98,255,0.35);}
+.menu{position:absolute;top:34px;left:8px;z-index:40;background:#1c2333;
   border:1px solid rgba(148,163,184,0.2);border-radius:10px;padding:6px;display:none;
   min-width:220px;box-shadow:0 10px 28px rgba(0,0,0,0.5);direction:rtl;max-height:72%;overflow-y:auto;}
 .menu.open{display:block;}
@@ -1318,7 +1397,9 @@ def build_tv_chart_html(*, candles: List[List[Any]], tfs: Dict[str, List[List[An
         '<button class="tb-btn" id="btnTools">📐<span class="tb-label"> ابزارها</span> ▾</button>'
         '<button class="tb-btn" id="btnLog" title="مقیاس لگاریتمی">log</button>'
         '<input id="txtIn" placeholder="متن یادداشت…">'
+        '<button class="tb-btn" id="btnRange">⇤<span class="tb-label"> بازه‌ها</span> ▾</button>'
         '<div class="tb-spacer"></div>'
+        '<button class="tb-btn" id="btnLeg" title="لجند">ℹ</button>'
         '<button class="tb-btn" id="btnFit" title="بازنشانی نما">⤢</button>'
         '<button class="tb-btn" id="btnNow" title="پرش به کندل آخر">▶▏</button>'
         '<button class="tb-btn" id="btnFull" title="تمام‌صفحه">⛶</button>'
@@ -1329,11 +1410,13 @@ def build_tv_chart_html(*, candles: List[List[Any]], tfs: Dict[str, List[List[An
         '<div id="chart"></div>'
         '<canvas id="ovl"></canvas>'
         '<div id="legend"><span id="ltitle"></span><span id="lbar"></span><div id="lind"></div></div>'
+        '<div id="cdown"></div>'
         '</div>'
         '</div>'
         '<div class="menu" id="menuInd"></div>'
         '<div class="menu" id="menuTools"></div>'
         '<div class="menu" id="menuType"></div>'
+        '<div class="menu" id="menuRange"></div>'
         '<div id="toast"></div>'
         '</div>'
         "<script>" + _lib() + "</script>"

@@ -73,7 +73,7 @@ ok(all((NOW - datetime.fromisoformat(t["closed_at"])).days < TB.SIGNAL_WINDOW_D 
 ok(wins == sorted(wins, key=lambda t: -float(t["realized_r"])), "مرتب: قوی‌ترین اول")
 ok(all(t["id"] != "old" for t in wins), "برد ۱۰ روزه حذف شد")
 sig = TB.fmt_signals(wins, [])
-ok("SOLUSDT" in sig and "+1.20R" in sig, "فرمت سیگنال: نماد + R")
+ok("سولانا (SOL/USDT)" in sig and "+1.20R" in sig, "فرمت سیگنال: نام ارز + نماد تمیز + R")
 
 print("— سیگنال‌های سودده: پوزیشن باز در سود —")
 fake_px = {"XRPUSDT": 110.0, "ADAUSDT": 90.0, "ETHUSDT": 99.0}
@@ -87,7 +87,7 @@ ok("o1" in ids and "o2" in ids, "لانگ بالای ورود + شورت زیر 
 ok("o3" not in ids and "o4" not in ids, "لانگ زیر ورود + بدون قیمت = حذف")
 ok(profits[0]["pnl_pct"] >= profits[-1]["pnl_pct"], "مرتب نزولی درصد سود")
 sig2 = TB.fmt_signals([], profits)
-ok("در سود" in sig2 and "XRPUSDT" in sig2 and "+10.0%" in sig2, "فرمت: بازِ در سود")
+ok("در سود" in sig2 and "ریپل (XRP/USDT)" in sig2 and "+10.0%" in sig2, "فرمت: بازِ در سود با نام ارز")
 
 print("— قیمت زنده (پارس بدون شبکه) —")
 import core.net as NET  # noqa: E402
@@ -132,6 +132,7 @@ arena_store.get_store = lambda: FakeStore(closed + opens)
 try:
     txt_dg = TB.build_digest(now=datetime.now(TB.TEHRAN))
     ok("خلاصه‌ی روزانه" in txt_dg and "پوزیشن باز: 1" in txt_dg, "فرمت خلاصه‌ی روزانه")
+    ok("سولانا (SOL/USDT)" in txt_dg and "+1.20R" in txt_dg, "خلاصه: بردها با نام ارز و نماد")
 finally:
     arena_store.get_store = _orig_store
 
@@ -299,6 +300,109 @@ TG.notify_open({"agent": "A", "symbol": "BTCUSDT", "direction": 1, "entry": 100.
                 "exchange": "KuCoin", "evidence": ""})
 ok("TP1: 110" in _out3[-1] and "TP2: 120" in _out3[-1] and "TP3: 130" in _out3[-1],
    "بازشدن: هر سه TP در پیام لحظه‌ای")
+
+print("— نام ارز، صرافی و تایم‌فریم (خواسته‌ی کاربر) —")
+from core import coins as CO  # noqa: E402
+ok(CO.base("BTC-USDT") == "BTC" and CO.base("BTCUSDT") == "BTC"
+   and CO.base("BTC/USDT") == "BTC" and CO.base("SOLUSDT") == "SOL", "نماد پایه: هر سه شکل ورودی")
+ok(CO.pair_display("BTC-USDT") == "BTC/USDT" and CO.pair_display("DOGEUSDT") == "DOGE/USDT",
+   "جفت‌نماد تمیز")
+ok(CO.coin_label("BTC-USDT") == "بیت‌کوین (BTC/USDT)" and CO.coin_label("XYZUSDT") == "XYZ/USDT",
+   "برچسب: نام فارسی + نماد؛ ناشناخته = فقط نماد")
+ok(CO.name_pair("ETH-USDT") == ("اتریوم", "Ethereum"), "نام دوزبانه")
+ok(CO.quote("BTC-USDT") == "USDT" and CO.quote("BTCUSDC") == "USDC", "ارز مبنا")
+ok(TB._fmt_num(1.21e-05) == "0.0000121" and TG._fmt_num(1.21e-05) == "0.0000121",
+   "قیمت ریز (میم‌کوین): بدون نماد علمی e-05")
+ok(TB._fmt_num(0.0005) == "0.0005" and TB._fmt_num(103250.5) == "103,250", "قیمت: شکل‌های میانی")
+
+win_c = {"symbol": "BTCUSDT", "agent": "A", "direction": 1, "entry": 100.0,
+         "closed_price": 105.0, "realized_r": 1.0, "points": 10.0,
+         "closed_at": (NOW - timedelta(hours=2)).isoformat(),
+         "exchange": "KuCoin", "interval": "15m"}
+op_c = {"symbol": "XRPUSDT", "agent": "B", "direction": -1, "entry": 2.0, "now": 1.9,
+        "pnl_pct": 5.0, "age_min": 5.0, "stop": 2.1, "tp1": 1.8,
+        "opened_at": (NOW - timedelta(minutes=5)).isoformat(),
+        "exchange": "KuCoin", "interval": "1hour"}
+sig_c = TB.fmt_signals([win_c], [op_c], now=NOW)
+ok("بیت‌کوین (BTC/USDT)" in sig_c and "ریپل (XRP/USDT)" in sig_c, "سیگنال: نام ارز + نماد تمیز")
+ok("🏦 صرافی: <b>KuCoin</b>" in sig_c, "سیگنال: صرافی یک‌بار در سر پیام")
+ok("⏲ 15m" in sig_c and "⏲ 1hour" in sig_c, "سیگنال: تایم‌فریم هر معامله")
+ok("فاصله" in sig_c, "سیگنال: فاصله ٪ تا استاپ برای پوزیشن باز")
+ok(TB._ctx_line({"exchange": "KuCoin", "interval": "1h"}, "KuCoin") == "   ⏲ 1h",
+   "بافتار: صرافیِ هم‌نامِ اصلی تکرار نمی‌شود")
+ok(TB._ctx_line({"exchange": "Binance", "interval": "1h"}, "KuCoin") == "   🏦 Binance · ⏲ 1h",
+   "بافتار: صرافیِ متفاوت نمایش داده می‌شود")
+lv_gap = TB._levels_line({"stop": 95.0, "direction": 1}, now_px=110.0)
+ok("SL 95" in lv_gap and "فاصله 13.6%" in lv_gap, "سطح‌ها: فاصله ٪ تا استاپ (لانگ)")
+ok("فاصله" in TB._levels_line({"stop": 95.0, "direction": -1}, now_px=90.0),
+   "سطح‌ها: فاصله تا استاپ (شورت)")
+ok("فاصله" not in TB._levels_line({"stop": 95.0, "direction": 1}),
+   "سطح‌ها: بدون قیمت زنده → بدون فاصله (سازگار با قبل)")
+
+print("— /positions: همه‌ی پوزیشن‌های باز (سود و ضرر) —")
+op_px = {"XRPUSDT": 110.0, "ADAUSDT": 90.0, "ETHUSDT": 99.0}
+det = TB.open_detailed(op, price_fn=lambda ex, s: op_px.get(s))
+ok(len(det) == 3 and det[0]["pnl_pct"] >= det[-1]["pnl_pct"],
+   "open_detailed: سود و ضرر با هم، مرتب از بیشترین سود")
+ok([t["id"] for t in TB.open_in_profit(op, price_fn=lambda ex, s: op_px.get(s))]
+   == ["o1", "o2"], "open_in_profit: فقط سودها — سازگار با قبل")
+p_txt = TB.fmt_positions(det)
+ok("در سود (2)" in p_txt and "در ضرر (1)" in p_txt, "پوزیشن: بخش سود و ضرر با شمارش")
+ok("ریپل (XRP/USDT)" in p_txt and "🏦 صرافی: <b>KuCoin</b>" in p_txt and "⏲ 1hour" in p_txt,
+   "پوزیشن: نام ارز + صرافی + تایم‌فریم")
+ok("فاصله" in p_txt and "برگشت‌پذیر" in p_txt, "پوزیشن: فاصله تا استاپ + هشدار سود شناور")
+ok("وجود ندارد" in TB.fmt_positions([]), "پوزیشن: خالی → پیام شفاف")
+
+print("— /price: قیمت لحظه‌ای هر ارز —")
+ok(TB.route("/positions") == "positions" and TB.route("پوزیشن") == "positions"
+   and TB.route("پوزیشن ها") == "positions" and TB.route("باز") == "positions",
+   "مسیر /positions و مترادف‌های فارسی")
+ok(TB.route("/price BTC") == "price:btc" and TB.route("قیمت اتریوم") == "price:اتریوم"
+   and TB.route("/price") == "price:", "مسیر /price با و بدون نماد")
+ok(TB.resolve_symbol("BTC") == "BTC-USDT" and TB.resolve_symbol("btc-usdt") == "BTC-USDT",
+   "نماد: تیکر و جفتِ صریح")
+ok(TB.resolve_symbol("بیت‌کوین") == "BTC-USDT" and TB.resolve_symbol("Bitcoin") == "BTC-USDT",
+   "نماد: نام فارسی و انگلیسی هم فهمیده می‌شود")
+ok(TB.resolve_symbol("DOGEUSDT") == "DOGE-USDT" and TB.resolve_symbol("xyz") == "XYZ-USDT",
+   "نماد: شکل بدون جداکننده + بهترین تلاش برای ناشناخته")
+try:
+    NET.get_json = lambda url, **kw: {"data": {"last": "103250.5", "changeRate": "0.0123"}}
+    pt = TB.fmt_price_lookup("BTC")
+    ok("بیت‌کوین (BTC/USDT)" in pt and "103,250" in pt and "+1.23%" in pt and "Bitcoin" in pt,
+       "قیمت: آمار کوکوین — قیمت + تغییر ۲۴ ساعت + نام انگلیسی")
+    ok("Ethereum" in TB.fmt_price_lookup("اتریوم"), "قیمت: نام فارسی → اتریوم")
+    NET.get_json = lambda url, **kw: (_ for _ in ()).throw(RuntimeError("x"))
+    ok("نگرفتم" in TB.fmt_price_lookup("NOXYZ"), "قیمت: خطا → پیام مهربان")
+finally:
+    NET.get_json = _orig_gj
+ok("نماد بده" in TB.fmt_price_lookup(""), "قیمت: بدون نماد → راهنمای استفاده")
+
+print("— build_reply برای دستورهای تازه —")
+_orig_od = TB.open_detailed
+_orig_fpl = TB.fmt_price_lookup
+arena_store.get_store = lambda: FakeStore(closed + opens)
+TB.open_detailed = lambda opens: det
+TB.fmt_price_lookup = lambda arg: f"PRICE[{arg}]"
+try:
+    ok("در سود" in TB.build_reply("positions"), "build_reply: positions از دیتای زنده")
+    ok(TB.build_reply("price:btc") == "PRICE[btc]", "build_reply: price → نماد")
+finally:
+    TB.open_detailed = _orig_od
+    TB.fmt_price_lookup = _orig_fpl
+    arena_store.get_store = _orig_store
+
+print("— پیام‌های لحظه‌ای: نام ارز + صرافی —")
+_out4 = []
+TG.send = lambda text, silent=False: _out4.append(text) or True
+TG.notify_open(mk("op10", "NOBODY", "BTCUSDT", 0.0, status="open", d=1))
+ok("بیت‌کوین (BTC/USDT)" in _out4[-1] and "🏦 KuCoin" in _out4[-1] and "⏲ 1hour" in _out4[-1],
+   "بازشدن: نام ارز + صرافی + تایم‌فریم")
+TG.notify_close(mk("cl10", "NOBODY", "ETHUSDT", -0.6, d=1))
+ok("اتریوم (ETH/USDT)" in _out4[-1] and "🏦 KuCoin" in _out4[-1],
+   "بسته‌شدن: نام ارز + صرافی")
+TG.notify_open({"agent": "A", "symbol": "XYZUSDT", "direction": 1, "entry": 1.0, "stop": 0.9})
+ok("XYZ/USDT" in _out4[-1] and "🏦" not in _out4[-1],
+   "بازشدن: بدون صرافی/تایم‌فریم → سطر بافتار حذف می‌شود")
 
 print("— main دودی (بدون توکن واقعی) —")
 ok(TB.main() == 0, "main بدون شبکه سالم تمام می‌شود")

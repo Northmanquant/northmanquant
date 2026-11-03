@@ -24,6 +24,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
 from core.arena_store import _secrets_get
+from core import coins as C
 
 API = "https://api.telegram.org"
 MAX_TEXT = 3900          # سقف امن متن پیام (لیمیت تلگرام 4096 است)
@@ -56,6 +57,9 @@ def _fmt_num(x: Any) -> str:
         v = float(x)
         if v == int(v) and abs(v) < 1e9:
             return f"{int(v):,}"
+        if v != 0 and abs(v) < 0.001:                    # قیمت‌های میم‌کوین — بدون e-05
+            s = f"{v:.12f}".rstrip("0").rstrip(".")
+            return s or "0"
         return f"{v:,.6g}"
     except (TypeError, ValueError):
         return "—"
@@ -90,6 +94,16 @@ def send(text: str, silent: bool = False) -> bool:
 
 
 # ------------------------------------------------------------- قالب‌های پیام
+def _ctx_line(t: dict) -> str:
+    """سطر بافتار معامله: صرافی + تایم‌فریم (هر کدام هست) — پیام تک‌معامله‌ای."""
+    parts = []
+    if t.get("exchange"):
+        parts.append(f"🏦 {t['exchange']}")
+    if t.get("interval"):
+        parts.append(f"⏲ {t['interval']}")
+    return " · ".join(parts)
+
+
 def notify_open(t: dict) -> bool:
     """پیام بازشدن معامله — اگر ایجنتِ سوددهِ در مسیر برد باشد، نشان داغ می‌گیرد."""
     d = int(t.get("direction") or 0)
@@ -100,10 +114,13 @@ def notify_open(t: dict) -> bool:
     lines = [
         f"<b>{head}</b>",
         "",
-        f"💎 نماد: <b>{t.get('symbol', '—')}</b> · {_dir_icon(d)}",
+        f"💎 ارز: <b>{C.coin_label(str(t.get('symbol') or ''))}</b> · {_dir_icon(d)}",
         f"🤖 ایجنت: {t.get('agent', '—')}",
-        f"💵 ورود: <b>{_fmt_num(t.get('entry'))}</b> · 🛑 استاپ: {_fmt_num(t.get('stop'))}",
     ]
+    ctx = _ctx_line(t)
+    if ctx:
+        lines.append(ctx)
+    lines.append(f"💵 ورود: <b>{_fmt_num(t.get('entry'))}</b> · 🛑 استاپ: {_fmt_num(t.get('stop'))}")
     hl = _hot_line(hot)
     if hl:
         lines.append(hl)
@@ -118,7 +135,7 @@ def notify_open(t: dict) -> bool:
     ev = str(t.get("evidence") or "").strip()
     if ev:
         lines.append(f"📎 {ev[:180]}")
-    lines.append(f"\n🕐 {_tehran_now()} تهران · {t.get('exchange', '')}")
+    lines.append(f"\n🕐 {_tehran_now()} تهران")
     return send("\n".join(lines))
 
 
@@ -208,11 +225,14 @@ def notify_close(t: dict) -> bool:
     lines = [
         f"<b>{head}</b>",
         "",
-        f"💎 نماد: <b>{t.get('symbol', '—')}</b> · {_dir_icon(t.get('direction'))}",
+        f"💎 ارز: <b>{C.coin_label(str(t.get('symbol') or ''))}</b> · {_dir_icon(t.get('direction'))}",
         f"🤖 ایجنت: {t.get('agent', '—')}",
-        f"📊 نتیجه: <b>{_RESULT_FA.get(res, res or '—')}</b>"
-        + (f" · <b>{r:+.2f}R</b>" if r is not None else ""),
     ]
+    ctx = _ctx_line(t)
+    if ctx:
+        lines.append(ctx)
+    lines.append(f"📊 نتیجه: <b>{_RESULT_FA.get(res, res or '—')}</b>"
+                 + (f" · <b>{r:+.2f}R</b>" if r is not None else ""))
     hl = _hot_line(_hot_stats(t.get("agent")))
     if hl:
         lines.append(hl)

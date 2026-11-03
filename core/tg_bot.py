@@ -9,8 +9,13 @@
                            (امتیاز، R خالص، وین‌ریت، ایکوییتی، زنجیره‌ی برد، فرم ۱۰تایی)
   signals · سیگنال         💸 سیگنال‌های سودده: بردهای ۷ روز اخیر +
                            پوزیشن‌های بازِ همین الان در سود (با قیمت زنده)
+  positions · پوزیشن       📊 همه‌ی پوزیشن‌های باز با قیمت زنده — سود و ضرر
+  price · قیمت XYZ         💰 قیمت لحظه‌ای هر ارز («/price BTC» یا «قیمت بیت‌کوین»)
   stats · آمار             📊 آمار کل میدان (انتظاری، PF، وین‌ریت، MaxDD، رژیم)
   help · راهنما            فهرست دستورها
+
+هر معامله با «نام خوانای ارز + نماد تمیز (BTC/USDT) + صرافی + تایم‌فریم»
+نمایش داده می‌شود (core/coins.py) — تا کاربر همیشه بداند کجای بازار است.
 
 معماری بدون‌سرور (هم‌راستا با اتوپایلوت):
   GitHub Actions هر ۵ دقیقه «python -m core.tg_bot» را اجرا می‌کند؛ بات اول
@@ -43,6 +48,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Optional
 
 from core.arena_store import _secrets_get, _utcnow_iso
+from core import coins as C
 
 API = "https://api.telegram.org"
 MAX_TEXT = 3900
@@ -75,6 +81,8 @@ _WELCOME = (
     "دستورها:\n"
     "🏆 /top — بهترین ایجنت‌های سودده\n"
     "💸 /signals — سیگنال‌های سودده\n"
+    "📊 /positions — پوزیشن‌های باز (قیمت زنده)\n"
+    "💰 /price BTC — قیمت لحظه‌ای هر ارز\n"
     "📊 /stats — آمار کل میدان\n"
     "ℹ️ /help — راهنما\n\n"
     "⚠️ آموزش، نه توصیه‌ی مالی — ایجنت‌ها با پول کاغذی رقابت می‌کنند."
@@ -86,7 +94,12 @@ _HELP = (
     "وین‌ریت، ایکوییتی، زنجیره‌ی برد و فرم ۱۰ معامله‌ی اخیر\n\n"
     "💸 /signals (یا «سیگنال») — بردهای ۷ روز اخیر (گزارش گذشته) + پوزیشن‌های بازِ در سود"
     " با عمر و تازگی (🟢 تازه / 🟡 نیمه‌تازه / 🟠 کهنه) و سطح‌های SL/TP\n\n"
+    "📊 /positions (یا «پوزیشن») — همه‌ی پوزیشن‌های باز با قیمت زنده: "
+    "سود و ضرر، فاصله تا استاپ و عمر هر پوزیشن\n\n"
+    "💰 /price BTC (یا «قیمت بیت‌کوین») — قیمت لحظه‌ای هر ارز از کوکوین "
+    "+ تغییر ۲۴ ساعت\n\n"
     "📊 /stats (یا «آمار») — انتظاری، سود فاکتور، وین‌ریت، بیشترین افت، رژیم بازار\n\n"
+    "💎 هر معامله با نام ارز و نماد (BTC/USDT) و صرافی و تایم‌فریم نمایش داده می‌شود.\n"
     "🕐 پاسخ‌ها معمولاً چندثانیه تا چند دقیقه می‌رسند (long-poll هر ۵ دقیقه).\n"
     "🔴 پیام‌های لحظه‌ای باز/بسته‌شدن هم مستقیم به چت مالک می‌آید."
 )
@@ -102,6 +115,9 @@ def _fmt_num(x: Any) -> str:
         v = float(x)
         if v == int(v) and abs(v) < 1e9:
             return f"{int(v):,}"
+        if v != 0 and abs(v) < 0.001:                    # قیمت‌های میم‌کوین — بدون e-05
+            s = f"{v:.12f}".rstrip("0").rstrip(".")
+            return s or "0"
         return f"{v:,.6g}"
     except (TypeError, ValueError):
         return "—"
@@ -161,19 +177,55 @@ def _freshness_label(age_min: float) -> str:
     return "🟠 کهنه — ورود الان یعنی قیمت و ریسک متفاوت از ایجنت"
 
 
-def _levels_line(t: dict) -> str:
+def _levels_line(t: dict, now_px: Optional[float] = None) -> str:
     """خط سطح‌های معامله: استاپ مؤثر (اگر تریل جابه‌جا شده باشد cur_stop) + سه TP
-    با نشان پیشرفت — همان چیزی که برای تصمیم زنده لازم است."""
+    با نشان پیشرفت — همان چیزی که برای تصمیم زنده لازم است.
+    اگر قیمت زنده بدهیم، فاصله‌ی ٪ تا استاپ هم می‌گوید («چند جا مانده؟»)."""
     parts = []
     stop = t.get("cur_stop") or t.get("stop")
     if stop:
-        parts.append(f"🛑 SL {_fmt_num(stop)}")
+        gap = ""
+        try:
+            if now_px and float(now_px) > 0 and float(stop) > 0:
+                sign = 1.0 if int(t.get("direction") or 0) >= 0 else -1.0
+                d = (float(now_px) - float(stop)) / float(now_px) * 100.0 * sign
+                if d > 0:
+                    gap = f" (فاصله {d:.1f}%)"
+        except (TypeError, ValueError, ZeroDivisionError):
+            gap = ""
+        parts.append(f"🛑 SL {_fmt_num(stop)}{gap}")
     if t.get("tp1"):
         parts.append(("✅" if t.get("tp1_done") else "🎯") + f" TP1 {_fmt_num(t['tp1'])}")
     if t.get("tp2"):
         parts.append(("✅" if t.get("tp2_done") else "🎯") + f" TP2 {_fmt_num(t['tp2'])}")
     if t.get("tp3"):
         parts.append("🏆 TP3 " + _fmt_num(t["tp3"]))
+    return "   " + " · ".join(parts) if parts else ""
+
+
+def _main_exchange(rows: list) -> str:
+    """صرافیِ غالب لیست — برای نمایش یک‌بار در سرِ پیام (به‌جای تکرار در هر سطر)."""
+    from collections import Counter  # noqa: PLC0415
+    exs = [str(t.get("exchange") or "").strip() for t in rows]
+    exs = [e for e in exs if e]
+    return Counter(exs).most_common(1)[0][0] if exs else ""
+
+
+def _coin_line(t: dict) -> str:
+    """سطر عنوان معامله: آیکن جهت + نام خوانای ارز (نماد تمیز BTC/USDT) + ایجنت."""
+    return (f"{_dir_icon(t.get('direction')).split()[0]} "
+            f"<b>{C.coin_label(str(t.get('symbol') or ''))}</b>"
+            f" · {t.get('agent', '—')}")
+
+
+def _ctx_line(t: dict, main_ex: str = "") -> str:
+    """سطر بافتار معامله: صرافی (فقط اگر با صرافیِ اصلی فرق کند) + تایم‌فریم."""
+    parts = []
+    ex = str(t.get("exchange") or "").strip()
+    if ex and ex != main_ex:
+        parts.append(f"🏦 {ex}")
+    if t.get("interval"):
+        parts.append(f"⏲ {t['interval']}")
     return "   " + " · ".join(parts) if parts else ""
 
 
@@ -272,6 +324,49 @@ def live_price(exchange: str, symbol: str) -> Optional[float]:
     return None
 
 
+def price_info(exchange: str, symbol: str) -> Optional[dict]:
+    """قیمت + تغییر ۲۴ساعته — از آمار کوکوین (پُرداده) و فال‌بک به تیکر ساده.
+    خروجی {"price": float, "change_pct": float|None} یا None."""
+    sym = str(symbol or "").upper().replace("/", "-")
+    if not sym:
+        return None
+    from core.net import get_json  # noqa: PLC0415
+    ex = str(exchange or "").lower()
+    if "kucoin" in ex or not ex:
+        try:
+            j = get_json(f"https://api.kucoin.com/api/v1/market/stats?symbol={sym}",
+                         timeout=8, retries=0)
+            d = (j or {}).get("data") or {}
+            if d.get("last"):
+                chg = d.get("changeRate")
+                try:
+                    chg = float(chg) * 100.0 if chg else None
+                except (TypeError, ValueError):
+                    chg = None
+                return {"price": float(d["last"]), "change_pct": chg}
+        except Exception:  # noqa: BLE001 — فال‌بک
+            pass
+    p = live_price(exchange, symbol)
+    return {"price": p, "change_pct": None} if p else None
+
+
+def resolve_symbol(arg: str) -> str:
+    """«BTC» / «btc-usdt» / «بیت‌کوین» / «Bitcoin» / «DOGEUSDT» → نماد KuCoin
+    مثل «BTC-USDT». خالی = ورودی نامفهوم."""
+    a = str(arg or "").strip()
+    if not a:
+        return ""
+    up = a.upper().replace("/", "-").replace("_", "-")
+    if "-" in up:
+        return up                                   # جفتِ صریح مثل ETH-BTC
+    if up in C.NAMES:                               # تیکر شناخته‌شده
+        return f"{up}-USDT"
+    for k, (fa, en) in C.NAMES.items():             # نام فارسی/انگلیسی
+        if a == fa or a.lower() == en.lower():
+            return f"{k}-USDT"
+    return f"{C.base(up)}-USDT"                     # بهترین تلاش: BTCUSDT → BTC-USDT
+
+
 # ------------------------------------------------------------- دیتاسازها
 def top_rows(closed: list[dict], opens: list[dict]) -> list[dict]:
     """بهترین ایجنت‌ها — فقط سودده‌ها (امتیاز یا ایکوییتی مثبت)، مرتب و بریده."""
@@ -305,10 +400,11 @@ def winning_closes(closed: list[dict], now: Optional[datetime] = None) -> list[d
     return out[:TOP_N]
 
 
-def open_in_profit(opens: list[dict],
-                   price_fn: Callable[[str, str], Optional[float]] = live_price,
-                   now: Optional[datetime] = None) -> list[dict]:
-    """پوزیشن‌های بازِ همین الان در سود — با قیمت زنده و عمر پوزیشن؛ ناموفق‌ها رد می‌شوند."""
+def open_detailed(opens: list[dict],
+                  price_fn: Callable[[str, str], Optional[float]] = live_price,
+                  now: Optional[datetime] = None) -> list[dict]:
+    """همه‌ی پوزیشن‌های بازِ دارای قیمت زنده — سود و ضرر، مرتب از بیشترین سود.
+    پایه‌ی مشترک /signals (فقط سودها) و /positions (همه)."""
     now = now or datetime.now(timezone.utc)
     out = []
     for t in opens[:OPEN_CHECK_CAP]:
@@ -321,11 +417,18 @@ def open_in_profit(opens: list[dict],
             continue
         sign = 1.0 if d > 0 else -1.0
         pnl = (p - entry) / entry * 100.0 * sign
-        if pnl > 0:
-            out.append({**t, "now": p, "pnl_pct": pnl,
-                        "age_min": _age_min(t.get("opened_at"), now)})
+        out.append({**t, "now": p, "pnl_pct": pnl,
+                    "age_min": _age_min(t.get("opened_at"), now)})
     out.sort(key=lambda t: -float(t.get("pnl_pct") or 0.0))
-    return out[:TOP_N]
+    return out
+
+
+def open_in_profit(opens: list[dict],
+                   price_fn: Callable[[str, str], Optional[float]] = live_price,
+                   now: Optional[datetime] = None) -> list[dict]:
+    """پوزیشن‌های بازِ همین الان در سود — با قیمت زنده و عمر پوزیشن؛ ناموفق‌ها رد می‌شوند."""
+    return [t for t in open_detailed(opens, price_fn, now)
+            if float(t.get("pnl_pct") or 0.0) > 0][:TOP_N]
 
 
 # ------------------------------------------------------------- فرمت‌کننده‌ها
@@ -367,14 +470,21 @@ def fmt_top(best: list[dict], total_rows: list[dict]) -> str:
 def fmt_signals(wins: list[dict], open_profits: list[dict],
                 now: Optional[datetime] = None) -> str:
     """سیگنال‌های سودده — صادقانه: بردها «گزارش گذشته»، بازها «زنده ولی برگشت‌پذیر»
-    با عمر پوزیشن، برچسب تازگی (🟢/🟡/🟠) و سطح‌های SL/TP برای تصمیم زنده."""
+    با نام ارز + نماد تمیز، صرافی، تایم‌فریم، عمر پوزیشن، برچسب تازگی
+    (🟢/🟡/🟠)، فاصله تا استاپ و سطح‌های SL/TP برای تصمیم زنده."""
     now = now or datetime.now(timezone.utc)
-    lines = ["<b>💸 سیگنال‌های سودده</b>", ""]
+    main_ex = _main_exchange(list(wins) + list(open_profits))
+    lines = ["<b>💸 سیگنال‌های سودده</b>"]
+    if main_ex:
+        lines.append(f"🏦 صرافی: <b>{main_ex}</b>")
+    lines.append("")
     if wins:
         lines.append(f"<b>✅ بردهای {SIGNAL_WINDOW_D} روز اخیر</b> (≥ {MIN_WIN_R:g}R) — <i>گزارش گذشته</i>")
         for t in wins:
-            lines.append(f"{_dir_icon(t.get('direction')).split()[0]} <b>{t.get('symbol', '—')}</b>"
-                         f" · {t.get('agent', '—')}")
+            lines.append(_coin_line(t))
+            ctx = _ctx_line(t, main_ex)
+            if ctx:
+                lines.append(ctx)
             lines.append(f"   {_fmt_num(t.get('entry'))} → {_fmt_num(t.get('closed_price'))}"
                          f" · <b>{float(t.get('realized_r') or 0):+.2f}R</b>"
                          + (f" · {float(t.get('points') or 0):+.1f} امتیاز"
@@ -387,11 +497,13 @@ def fmt_signals(wins: list[dict], open_profits: list[dict],
     if open_profits:
         lines += ["", "<b>📈 پوزیشن‌های بازِ در سود</b> — <i>زنده، ولی برگشت‌پذیر</i>"]
         for t in open_profits:
-            lines.append(f"{_dir_icon(t.get('direction')).split()[0]} <b>{t.get('symbol', '—')}</b>"
-                         f" · {t.get('agent', '—')}")
+            lines.append(_coin_line(t))
+            ctx = _ctx_line(t, main_ex)
+            if ctx:
+                lines.append(ctx)
             lines.append(f"   ورود {_fmt_num(t.get('entry'))} → الان {_fmt_num(t.get('now'))}"
                          f" · <b>{float(t.get('pnl_pct') or 0):+.1f}%</b> شناور")
-            lv = _levels_line(t)
+            lv = _levels_line(t, t.get("now"))
             if lv:
                 lines.append(lv)
             age_min = t.get("age_min")
@@ -403,6 +515,69 @@ def fmt_signals(wins: list[dict], open_profits: list[dict],
               "⚠️ آموزش، نه توصیه‌ی مالی — بردهای بسته‌شده گذشته‌اند؛"
               " برای ورود زنده عمر پوزیشن و سطح‌ها را ببینید.",
               f"🕐 {_tehran_now()} تهران"]
+    return "\n".join(lines)
+
+
+def fmt_positions(rows: list[dict], now: Optional[datetime] = None) -> str:
+    """همه‌ی پوزیشن‌های باز با قیمت زنده — سود اول، ضرر بعد: تصویر کامل ریسک."""
+    now = now or datetime.now(timezone.utc)
+    main_ex = _main_exchange(rows)
+    lines = ["<b>📊 پوزیشن‌های باز — قیمت زنده</b>"]
+    if main_ex:
+        lines.append(f"🏦 صرافی: <b>{main_ex}</b>")
+    lines.append("")
+    if not rows:
+        return "\n".join(lines + [
+            "الان پوزیشن بازی وجود ندارد یا قیمت زنده‌ای نگرفتیم — دوباره امتحان کن.",
+            "", f"🕐 {_tehran_now()} تهران"])
+    wins = [t for t in rows if float(t.get("pnl_pct") or 0.0) > 0]
+    losses = [t for t in rows if float(t.get("pnl_pct") or 0.0) <= 0]
+    for head, group in (("✅ در سود", wins), ("🔻 در ضرر", losses)):
+        if not group:
+            continue
+        lines.append(f"<b>{head} ({len(group)})</b>")
+        for t in group:
+            lines.append(_coin_line(t))
+            ctx = _ctx_line(t, main_ex)
+            if ctx:
+                lines.append(ctx)
+            lines.append(f"   ورود {_fmt_num(t.get('entry'))} → الان {_fmt_num(t.get('now'))}"
+                         f" · <b>{float(t.get('pnl_pct') or 0):+.1f}%</b>")
+            lv = _levels_line(t, t.get("now"))
+            if lv:
+                lines.append(lv)
+            age_min = float(t.get("age_min") if t.get("age_min") is not None else float("inf"))
+            age_txt = _age_fa(_parse_dt(t.get("opened_at")), now)
+            lines.append(f"   {_freshness_label(age_min)}"
+                         + (f" · ⏱️ {age_txt}" if age_txt else ""))
+        lines.append("")
+    lines += ["⚠️ سود شناور تا بسته‌شدن واقعی نیست — برگشت‌پذیر است.",
+              f"🕐 {_tehran_now()} تهران"]
+    return "\n".join(lines)
+
+
+def fmt_price_lookup(arg: str, info_fn: Optional[Callable] = None) -> str:
+    """جواب /price — قیمت لحظه‌ای + تغییر ۲۴ ساعت؛ نام ارز را هم می‌فهمد."""
+    fn = info_fn or price_info
+    sym = resolve_symbol(arg)
+    if not sym:
+        return ("💰 نماد بده — مثل «/price BTC» یا «/price ETH-USDT» یا حتی "
+                "«قیمت بیت‌کوین».")
+    try:
+        info = fn("KuCoin", sym) or {}
+    except Exception:  # noqa: BLE001 — قیمت نگرفت = جواب مهربان
+        info = {}
+    p = info.get("price")
+    if not p:
+        return (f"🔍 قیمت «{sym}» را نگرفتم — شاید نماد اشتباه است یا بازار "
+                "موقتاً در دسترس نیست.")
+    _fa, en = C.name_pair(sym)
+    chg = info.get("change_pct")
+    lines = [f"💰 <b>{C.coin_label(sym)}</b>" + (f" · {en}" if en else ""), "",
+             f"💵 قیمت الان: <b>{_fmt_num(p)}</b> {C.quote(sym)}"]
+    if chg is not None:
+        lines.append(f"📅 تغییر ۲۴ ساعت: {'📈' if chg >= 0 else '📉'} {chg:+.2f}%")
+    lines += ["", "🏦 KuCoin", f"🕐 {_tehran_now()} تهران"]
     return "\n".join(lines)
 
 
@@ -447,6 +622,10 @@ def fmt_digest(day: str, best: list[dict], wins_24h: list[dict],
         tot_r = sum(float(t.get("realized_r") or 0.0) for t in wins_24h)
         lines += ["", f"✅ بردهای ۲۴ ساعت اخیر: <b>{len(wins_24h)}</b> "
                       f"(مجموع <b>{tot_r:+.2f}R</b>)"]
+        for t in wins_24h:
+            lines.append(f"   {_dir_icon(t.get('direction')).split()[0]} "
+                         f"{C.coin_label(str(t.get('symbol') or ''))} "
+                         f"· {float(t.get('realized_r') or 0):+.2f}R")
     else:
         lines += ["", "بردهی در ۲۴ ساعت اخیر ثبت نشده."]
     lines += [f"🔓 پوزیشن باز: {n_open}", "",
@@ -467,6 +646,15 @@ def route(text: str) -> Optional[str]:
         return "signals"
     if t in ("stats", "stat", "آمار", "امار"):
         return "stats"
+    if t in ("positions", "position", "pos", "پوزیشن", "پوزیشن ها", "پوزیشنها",
+             "پوزیشن‌ها", "باز", "open"):
+        return "positions"
+    if t in ("price", "قیمت") or t.startswith(("price ", "قیمت ")):
+        arg = ""
+        for pre in ("price", "قیمت"):
+            if t.startswith(pre + " "):
+                arg = t[len(pre) + 1:].strip()
+        return f"price:{arg}"
     if t in ("help", "راهنما", "کمک"):
         return "help"
     return "unknown" if str(text or "").strip().startswith("/") else None
@@ -490,6 +678,10 @@ def build_reply(key: str) -> str:
         return fmt_top(top_rows(closed, opens), rows)
     if key == "signals":
         return fmt_signals(winning_closes(closed), open_in_profit(opens))
+    if key == "positions":
+        return fmt_positions(open_detailed(opens))
+    if key.startswith("price:"):
+        return fmt_price_lookup(key.split(":", 1)[1])
     if key == "stats":
         try:
             reg = next((a for a in AL.recent_alerts(50) if a.get("kind") == "regime"), None)

@@ -5,6 +5,8 @@ name: Arena Daily Report
 #   بسته‌شده‌ها + وین‌ریت + جمع R + پوزیشن‌های باز + رژیم بازار + کل میدان
 # خروجی: Step Summary + کامنت روی Issue آرشیو «📊 گزارش روزانه‌ی میدان»
 # (یک Issue واحد برای همه‌ی روزها — هر روز یک کامنت، بدون اسپم اعلان)
+# فاز ۱۲ — خلاصه‌ی صبحگاهی تلگرام: اگر TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID ست باشد
+#   نسخه‌ی جمع‌وجور گزارش هم لحظه‌ی ساخت به چت تلگرام می‌رود.
 # همان Secretهای اتوپایلوت: SUPABASE_URL و SUPABASE_KEY
 # توقف موقت: تب Actions → Arena Daily Report → ⋯ → Disable workflow
 # نکته: اجرای schedule در گیت‌هاب معمولاً ۱۵-۳۰ دقیقه تأخیر دارد — طبیعی است.
@@ -40,6 +42,8 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python -m core.daily_report
 
       - name: ارسال گزارش به Issue آرشیو

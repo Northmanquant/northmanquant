@@ -229,6 +229,63 @@ def fmt_report(agg: Dict[str, Any], open_trades: List[Dict[str, Any]],
     return "\n".join(L)
 
 
+# ------------------------------------------------------------------ قالب تلگرام
+def fmt_telegram(agg: Dict[str, Any], open_trades: List[Dict[str, Any]],
+                 regime: Optional[Dict[str, Any]], now: datetime) -> str:
+    """متن جمع‌وجور HTML برای تلگرام — بدون جدول (تلگرام جدول نمی‌فهمد)،
+    بدون Markdown (تلگرام با MD ترکیبی مشکل دارد) — فقط HTML ساده.
+    """
+    L: List[str] = []
+    L.append(f"📊 <b>گزارش روزانه‌ی میدان</b> — {now.astimezone(TEHRAN):%Y-%m-%d}")
+    L.append("─" * 18)
+
+    closed = agg["closed_24"]
+    wr = f"{agg['winrate']}%" if agg["winrate"] is not None else "—"
+    if closed:
+        L.append(f"🏁 <b>بسته‌شده‌ی ۲۴ ساعت: {len(closed)}</b>")
+        L.append(f"✅ {agg['wins']} برد · ❌ {agg['losses']} باخت · ⚪ {agg['bes']} (وین‌ریت {wr})")
+        L.append(f"💰 جمع R: <b>{agg['sum_r']:+.2f}R</b> · امتیاز: {agg['sum_points']:+.1f}")
+        if agg["best"] and agg["best"] is not agg["worst"]:
+            b, w = agg["best"], agg["worst"]
+            L.append(f"🏆 بهترین: {b.get('symbol')} ({float(b.get('realized_r') or 0):+.2f}R)"
+                     f" · بدترین: {w.get('symbol')} ({float(w.get('realized_r') or 0):+.2f}R)")
+    else:
+        L.append(f"🏁 بسته‌شده‌ی ۲۴ ساعت: هیچ — میدان آرام بود 🌙")
+
+    opened = agg["opened_24"]
+    if opened:
+        L.append("")
+        L.append(f"🟢 بازشده‌ی ۲۴ ساعت: {len(opened)}")
+        for t in opened[:5]:
+            L.append(f"• {t.get('agent')} · {t.get('symbol')} · {_dir_fa(t.get('direction'))}"
+                     f" · ورود {_fmt_price(t.get('entry'))}")
+        if len(opened) > 5:
+            L.append(f"… و {len(opened) - 5} مورد دیگر")
+
+    L.append("")
+    L.append(f"📌 پوزیشن باز فعلی: <b>{len(open_trades)}</b>")
+    if regime:
+        try:
+            d = int(regime.get("direction") or 0)
+        except (TypeError, ValueError):
+            d = 0
+        reg_fa = ("صعودی 🟢" if d > 0 else "نزولی 🔻" if d < 0 else "نامشخص ⚪")
+        L.append(f"🌊 رژیم بازار: <b>{reg_fa}</b>"
+                 f" (BTC {_fmt_price(regime.get('price'))} · MA {_fmt_price(regime.get('ma'))})")
+
+    twr = f"{agg['total_winrate']}%" if agg["total_winrate"] is not None else "—"
+    L.append("")
+    L.append(f"🏆 کل میدان: {agg['total_closed']} بسته‌شده · وین‌ریت {twr} · {agg['total_r']:+.2f}R")
+    if agg.get("by_source"):
+        labels = (("autopilot", "🤖"), ("manual", "👤"), ("legacy", "⭕"))
+        parts = [f"{lab} {agg['by_source'][k]['n']} ({agg['by_source'][k]['r']:+.2f}R)"
+                 for k, lab in labels if k in agg["by_source"]]
+        if parts:
+            L.append("" + " · ".join(parts))
+    L.append(f"🕐 {now.astimezone(TEHRAN):%H:%M} تهران · NorthmanQuant")
+    return "\n".join(L)
+
+
 # ------------------------------------------------------------------ main
 def main() -> int:
     from core import alerts as AL
@@ -260,6 +317,18 @@ def main() -> int:
                 f.write(md + "\n")
         except Exception:  # noqa: BLE001
             pass
+
+    # فاز ۱۲ — خلاصه‌ی صبحگاهی تلگرام (best-effort؛ اگر Secretها ست نباشد رد می‌شود)
+    try:
+        from core import telegram as TG
+        if TG.enabled():
+            msg = fmt_telegram(agg, open_trades, regime, now)
+            print(f"🔔 تلگرام: {'ارسال شد ✅' if TG.send(msg) else 'ارسال نشد ⚠️'}", flush=True)
+        else:
+            print("ℹ️ تلگرام پیکربندی نشده — فقط فایل/Issue", flush=True)
+    except Exception as e:  # noqa: BLE001 — گزارش باید حتی بدون تلگرام تمام شود
+        print(f"⚠️ ارسال تلگرام ناموفق (غیربحرانی): {e}", flush=True)
+
     print(f"✅ گزارش ساخته شد: daily_report.md ({len(trades)} معامله خوانده شد)", flush=True)
     return 0
 

@@ -44,23 +44,33 @@ INTERVAL_MINUTES = {"15min": 15, "1hour": 60, "4hour": 240, "1day": 1440, "1week
 
 # تایم‌فریم‌های چارت حرفه‌ای داشبورد (سوئیچر داخل چارت) — موتور تحلیل همان ۵ تایم‌فریم خودش را دارد
 CHART_TFS = ("1min", "3min", "5min", "15min", "30min", "1hour", "2hour", "4hour",
-             "6hour", "12hour", "1day", "1week", "1month")
+             "6hour", "8hour", "12hour", "1day", "1week", "1month")
 CHART_TF_MINUTES = {"1min": 1, "3min": 3, "5min": 5, "15min": 15, "30min": 30, "1hour": 60,
-                    "2hour": 120, "4hour": 240, "6hour": 360, "12hour": 720,
-                    "1day": 1440, "1week": 10080, "1month": 43200}
+                    "2hour": 120, "3hour": 180, "4hour": 240, "6hour": 360, "8hour": 480,
+                    "12hour": 720, "1day": 1440, "2day": 2880, "3day": 4320,
+                    "1week": 10080, "1month": 43200,
+                    "2min": 2, "10min": 10, "45min": 45}
+# بازه‌های سفارشی سبک تریدینگ‌ویو: از کندل‌های پایه‌ی همان صرافی تجمیع می‌شوند
+# {tf: (base_tf, ضریب, قاعده‌ی resample پانداز)}
+CHART_TF_AGG = {"2min": ("1min", 2, "2min"), "10min": ("5min", 2, "10min"),
+                "45min": ("15min", 3, "45min"), "3hour": ("1hour", 3, "3h"),
+                "2day": ("1day", 2, "2D"), "3day": ("1day", 3, "3D")}
+# بازه‌های ثانیه‌ای سبک تریدینگ‌ویو — هیچ REST کندل ثانیه‌ای نمی‌دهد؛ این‌ها سمت مرورگر
+# از کندل‌های 1s بایننس (data-api.binance.vision) گرفته و تجمیع می‌شوند (تجمیع در tv_chart.py)
+CHART_TF_SEC = {"1s": 1, "5s": 5, "10s": 10, "15s": 15, "30s": 30, "45s": 45}
 
 KUCOIN_TF = {"1min": "1min", "3min": "3min", "5min": "5min", "15min": "15min", "30min": "30min",
-             "1hour": "1hour", "2hour": "2hour", "4hour": "4hour", "6hour": "6hour", "12hour": "12hour",
-             "1day": "1day", "1week": "1week", "1month": "1month"}
+             "1hour": "1hour", "2hour": "2hour", "4hour": "4hour", "6hour": "6hour", "8hour": "8hour",
+             "12hour": "12hour", "1day": "1day", "1week": "1week", "1month": "1month"}
 BINANCE_TF = {"1min": "1m", "3min": "3m", "5min": "5m", "15min": "15m", "30min": "30m",
-              "1hour": "1h", "2hour": "2h", "4hour": "4h", "6hour": "6h", "12hour": "12h",
-              "1day": "1d", "1week": "1w", "1month": "1M"}
+              "1hour": "1h", "2hour": "2h", "4hour": "4h", "6hour": "6h", "8hour": "8h",
+              "12hour": "12h", "1day": "1d", "1week": "1w", "1month": "1M"}
 BYBIT_TF = {"1min": "1", "3min": "3", "5min": "5", "15min": "15", "30min": "30",
-            "1hour": "60", "2hour": "120", "4hour": "240", "6hour": "360", "12hour": "720",
-            "1day": "D", "1week": "W", "1month": "M"}
+            "1hour": "60", "2hour": "120", "4hour": "240", "6hour": "360", "8hour": "480",
+            "12hour": "720", "1day": "D", "1week": "W", "1month": "M"}
 OKX_TF = {"1min": "1m", "3min": "3m", "5min": "5m", "15min": "15m", "30min": "30m",
-          "1hour": "1H", "2hour": "2H", "4hour": "4H", "6hour": "6H", "12hour": "12H",
-          "1day": "1D", "1week": "1W", "1month": "1M"}
+          "1hour": "1H", "2hour": "2H", "4hour": "4H", "6hour": "6H", "8hour": "8H",
+          "12hour": "12H", "1day": "1D", "1week": "1W", "1month": "1M"}
 LIGHTER_TF = {"1min": "1m", "5min": "5m", "15min": "15m", "30min": "30m", "1hour": "1h",
               "2hour": "2h", "4hour": "4h", "6hour": "6h", "12hour": "12h", "1day": "1d", "1week": "1w"}
 
@@ -71,8 +81,8 @@ EXCHANGES = ["KuCoin", "OKX", "Binance", "Bybit", "Lighter"]
 CCXT_SUGGESTED = ["XT", "LBank", "Kraken", "Coinbase", "Gate", "MEXC", "Bitget", "Kucoin",
                   "Gemini", "Bitstamp", "Bitfinex", "Huobi/HTX", "Crypto.com", "Upbit"]
 CCXT_TF = {"1min": "1m", "3min": "3m", "5min": "5m", "15min": "15m", "30min": "30m",
-           "1hour": "1h", "2hour": "2h", "4hour": "4h", "6hour": "6h", "12hour": "12h",
-           "1day": "1d", "1week": "1w", "1month": "1M"}
+           "1hour": "1h", "2hour": "2h", "4hour": "4h", "6hour": "6h", "8hour": "8h",
+           "12hour": "12h", "1day": "1d", "1week": "1w", "1month": "1M"}
 
 EXCHANGE_DOCS = {
     "KuCoin": "https://www.kucoin.com/docs/rest/spot/market-data/get-klines",
@@ -1366,15 +1376,33 @@ def fetch_candles(exchange: str, symbol: str, interval: str, limit: int = 500) -
 _PAGE_CAP = {"KuCoin": 1400, "Binance": 1000, "Bybit": 1000, "Lighter": 500, "OKX": 300}
 
 
+def _resample_ohlcv(df: pd.DataFrame, rule: str) -> pd.DataFrame:
+    """تجمیع کندل به بازه‌های بزرگ‌تر (بازه‌های سفارشی سبک تریدینگ‌ویو: 2m/10m/45m/3h/2D/3D).
+    rule قاعده‌ی resample پانداز است ('45min'، '3h'، '2D'). بازه‌ها به مرز UTC می‌چسبند."""
+    g = (df.set_index("dt")
+           .resample(rule, label="left", closed="left")
+           .agg({"open": "first", "high": "max", "low": "min",
+                 "close": "last", "volume": "sum"})
+           .dropna(subset=["open", "close"]))
+    g = g[g["close"] > 0].reset_index()
+    g["time"] = (g["dt"].astype("int64") // 1_000_000).astype("int64")
+    return g[["time", "open", "high", "low", "close", "volume", "dt"]]
+
+
 @st.cache_data(ttl=120, show_spinner=False)
 def tf_bundle(exchange: str, symbol: str, tfs: tuple[str, ...], limit: int = 380) -> dict:
     """کندل خام چند تایم‌فریمی برای سوئیچر تایم‌فریم چارت TradingView داشبورد.
-    fetch موازی با ThreadPool — خروجی: {tf: [[t_s, o, h, l, c, v], ...]} — TFهای ناموفق حذف می‌شوند."""
+    fetch موازی با ThreadPool — خروجی: {tf: [[t_s, o, h, l, c, v], ...]} — TFهای ناموفق حذف می‌شوند.
+    بازه‌های تجمیعی (CHART_TF_AGG) از کندل‌های پایه‌ی همان صرافی ساخته می‌شوند؛
+    بازه‌های ثانیه‌ای (CHART_TF_SEC) سمت مرورگر از بایننس می‌آیند و اینجا هرگز fetch نمی‌شوند."""
     def _one(tf: str):
         try:
-            _df = fetch_candles(exchange, symbol, tf, limit=limit)
+            base, factor, rule = CHART_TF_AGG.get(tf, (tf, 1, None))
+            _df = fetch_candles(exchange, symbol, base, limit=min(limit * factor, 1500))
             if _df is None or _df.empty:
                 return tf, None
+            if factor > 1:
+                _df = _resample_ohlcv(_df, rule)
             return tf, [
                 [int(r.dt.timestamp()),
                  None if pd.isna(r.open) else float(r.open),
@@ -3437,8 +3465,10 @@ def main() -> None:
                          _n(r.close), _n(r.volume)] for r in dd.itertuples(index=False)]
 
             _tfs = {interval: _raw_candles(d)}
+            # همه‌ی تایم‌فریم‌های چارت: بومی + تجمیعی (2m/10m/45m/3h/2D/3D) — ثانیه‌ای‌ها سمت مرورگر از Binance
+            _chart_tfs = tuple(CHART_TFS) + tuple(CHART_TF_AGG.keys())
             _tfs.update(tf_bundle(exchange, symbol, tuple(
-                tf for tf in CHART_TFS if tf != interval)))
+                tf for tf in _chart_tfs if tf != interval)))
 
             _tv_zones = []
             if show_fvg:

@@ -80,11 +80,103 @@ _MAIN_JS = """
 const DATA = __DATA__;
 const ZONES = __ZONES__;
 const TFS = DATA.tfs;                       // {tf: [[t,o,h,l,c,v],...]}
-const TF_ORDER = ['1min','3min','5min','15min','30min','1hour','2hour','4hour',
-                  '6hour','12hour','1day','1week','1month'];
-const TF_LBL = {'1min':'1m','3min':'3m','5min':'5m','15min':'15m','30min':'30m',
-                '1hour':'1H','2hour':'2H','4hour':'4H','6hour':'6H','12hour':'12H',
-                '1day':'1D','1week':'1W','1month':'1M'};
+const TF_ORDER = ['1s','5s','10s','15s','30s','45s','1min','2min','3min','5min','10min','15min','30min','45min','1hour','2hour','3hour','4hour','6hour','8hour','12hour','1day','2day','3day','1week','1month'];
+const TF_LBL = {'1s':'1s','5s':'5s','10s':'10s','15s':'15s','30s':'30s','45s':'45s',
+                '1min':'1m','2min':'2m','3min':'3m','5min':'5m','10min':'10m','15min':'15m','30min':'30m','45min':'45m',
+                '1hour':'1H','2hour':'2H','3hour':'3h','4hour':'4H','6hour':'6H','8hour':'8H','12hour':'12H',
+                '1day':'1D','2day':'2D','3day':'3D','1week':'1W','1month':'1M'};
+const TF_QUICK = ['1min','5min','15min','1hour','4hour','1day','1week'];
+
+/* ---- منوی بازه‌ی زمانی به سبک تریدینگ‌ویو (گروه‌ها: ثانیه/دقیقه/ساعت/روز/هفته/ماه) ---- */
+const TF_GROUPS = [
+  ['ثانیه‌ها · منبع Binance', ['1s','5s','10s','15s','30s','45s']],
+  ['دقیقه‌ها', ['1min','2min','3min','5min','10min','15min','30min','45min']],
+  ['ساعت‌ها', ['1hour','2hour','3hour','4hour','6hour','8hour','12hour']],
+  ['روزها', ['1day','2day','3day']],
+  ['هفته‌ها', ['1week']],
+  ['ماه‌ها', ['1month']],
+];
+const SECS = {'1s':1,'5s':5,'10s':10,'15s':15,'30s':30,'45s':45};
+const SECS_CACHE = {};
+let SECS_BUSY = false;
+/* کندل ثانیه‌ای از REST هیچ صرافی‌ای نمی‌آید؛ از کندل 1s بایننس (میرور عمومی بدون محدودیت جغرافیایی)
+   سمت مرورگر می‌گیریم و به بازه‌ی خواسته‌شده تجمیع می‌کنیم — مثل «Add custom interval» تریدینگ‌ویو. */
+async function loadSeconds(tf){
+  if(TFS[tf]) return true;
+  if(SECS_CACHE[tf]){ TFS[tf] = SECS_CACHE[tf]; return true; }
+  if(SECS_BUSY){ toast('دریافت قبلی هنوز در جریان است…'); return false; }
+  SECS_BUSY = true;
+  const sym = (DATA.symbol||'').split('/')[0].split('-').join('').toUpperCase();
+  const sec = SECS[tf];
+  const pages = Math.min(6, Math.max(1, Math.ceil(240*sec/1000)));
+  try{
+    toast('⏳ دریافت کندل‌های ثانیه‌ای از Binance…');
+    let rows = [], end = null, got = false;
+    const hosts = ['https://data-api.binance.vision','https://api.binance.com'];
+    for(let p=0; p<pages; p++){
+      let part = null;
+      for(const h of hosts){
+        try{
+          const u = h+'/api/v3/klines?symbol='+sym+'&interval=1s&limit=1000'+(end?('&endTime='+end):'');
+          const r = await fetch(u);
+          if(!r.ok) continue;
+          const j = await r.json();
+          if(!Array.isArray(j) || !j.length) continue;
+          part = j.map(k=>[Math.floor(k[0]/1000), parseFloat(k[1]), parseFloat(k[2]), parseFloat(k[3]), parseFloat(k[4]), parseFloat(k[5])]);
+          break;
+        }catch(err){}
+      }
+      if(!part || !part.length) break;
+      got = true;
+      end = part[0][0]*1000 - 1;
+      rows = part.concat(rows);
+      if(part.length < 1000) break;
+    }
+    if(!got) throw new Error('nodata');
+    const m = new Map();
+    for(const r of rows){
+      const t = Math.floor(r[0]/sec)*sec;
+      const b = m.get(t);
+      if(!b) m.set(t, [t, r[1], r[2], r[3], r[4], r[5]]);
+      else { if(r[2]>b[2]) b[2]=r[2]; if(r[3]<b[3]) b[3]=r[3]; b[4]=r[4]; b[5]+=(r[5]||0); }
+    }
+    const agg = Array.from(m.values()).sort((a,b)=>a[0]-b[0]);
+    SECS_CACHE[tf] = agg; TFS[tf] = agg;
+    return true;
+  }catch(err){
+    toast('بازه‌ی ثانیه‌ای برای این نماد از Binance در دسترس نیست');
+    return false;
+  }finally{ SECS_BUSY = false; }
+}
+function buildTfMenu(){
+  const m = document.getElementById('menuTf'); let h='';
+  for(const g of TF_GROUPS){
+    h += '<div class="mgroup">'+g[0]+'</div>';
+    for(const tf of g[1]){
+      const lazy = (SECS[tf] && !TFS[tf])? '<span class="lzi">⇣</span>' : '';
+      h += '<div class="mi tfmi'+(tf===S.tf?' sel':'')+'" data-tf="'+tf+'">'
+         + '<span class="chk'+(tf===S.tf?' on':'')+'"></span>'
+         + '<span class="tfl">'+(TF_LBL[tf]||tf)+'</span>'+lazy+'</div>';
+    }
+  }
+  m.innerHTML = h;
+  for(const el of m.querySelectorAll('.tfmi')) el.onclick = ()=>pickTf(el);
+}
+async function pickTf(el){
+  const tf = el.dataset.tf;
+  if(TFS[tf]){ closeMenus(); if(tf!==S.tf) setTF(tf); return; }
+  if(SECS[tf]){
+    const lz = el.querySelector('.lzi'); if(lz) lz.textContent = '⏳';
+    const ok = await loadSeconds(tf);
+    if(ok && TFS[tf]){ closeMenus(); setTF(tf); }
+    return;
+  }
+  toast('داده‌ی این تایم‌فریم در دسترس نیست');
+}
+function updTfBtn(){
+  const b = document.getElementById('btnTfAll');
+  if(b) b.innerHTML = (TF_LBL[S.tf]||S.tf) + ' ▾';
+}
 const ZCOL = { bull:'38,166,154', bear:'239,83,80', bvg:'168,85,247' };
 const DEC = DATA.dec;
 function SK(k){ return 'nqtv:' + DATA.title + ':' + k; }
@@ -104,6 +196,9 @@ let S = {
   tool: 'cursor',
 };
 if(!TFS[S.tf]) S.tf = DATA.base_tf;
+/* اگر کاربر قبلاً بازه‌ی ثانیه‌ای انتخاب کرده بود، بعد از رندر اولیه همان را دوباره می‌گیریم */
+const WANT_SECS = (S.tf !== (localStorage.getItem(SK('tf'))||'') && SECS[localStorage.getItem(SK('tf'))||''] && !TFS[localStorage.getItem(SK('tf'))||''])
+  ? localStorage.getItem(SK('tf')) : null;
 let DRAWINGS = [];
 let REDO = [];
 
@@ -1032,7 +1127,7 @@ function toast(msg){
 const tfBtns = document.getElementById('tfBtns');
 function buildTfBtns(){
   let h='';
-  for(const tf of TF_ORDER){
+  for(const tf of TF_QUICK){
     if(!TFS[tf]) continue;
     h += '<button class="tb-btn tf'+(tf===S.tf?' active':'')+'" data-tf="'+tf+'">'+TF_LBL[tf]+'</button>';
   }
@@ -1048,6 +1143,7 @@ function setTF(tf){
   rebuildMain(false);
   rebuildAllPanes();
   buildTfBtns();
+  updTfBtn();
   updateTitle();
   const c = CAND(); const n = c.length;
   const win = Math.min(DATA.initial_bars, n);
@@ -1158,14 +1254,14 @@ function setTool(t){
   document.getElementById('txtIn').classList.toggle('show', t==='text');
 }
 function closeMenus(){
-  for(const id of ['menuInd','menuTools','menuType','menuRange'])
+  for(const id of ['menuInd','menuTools','menuType','menuTf'])
     document.getElementById(id).classList.remove('open');
 }
-function openMenu(btnId, menuId){
+function openMenu(btnId, menuId, mw){
   const wrap = document.getElementById('wrap');
   const btn = document.getElementById(btnId), m = document.getElementById(menuId);
   const wr = wrap.getBoundingClientRect(), br = btn.getBoundingClientRect();
-  m.style.left = Math.max(6, Math.min(br.left - wr.left, wr.width - 232)) + 'px';
+  m.style.left = Math.max(6, Math.min(br.left - wr.left, wr.width - (mw||232))) + 'px';
   m.classList.add('open');
 }
 function bindMenu(btnId, menuId){
@@ -1178,9 +1274,15 @@ function bindMenu(btnId, menuId){
   });
 }
 bindMenu('btnInd','menuInd'); bindMenu('btnTools','menuTools'); bindMenu('btnType','menuType');
-bindMenu('btnRange','menuRange');
+document.getElementById('btnTfAll').addEventListener('click', e=>{
+  e.stopPropagation();
+  const m = document.getElementById('menuTf');
+  const was = m.classList.contains('open');
+  closeMenus();
+  if(!was){ buildTfMenu(); openMenu('btnTfAll','menuTf', 270); }
+});
 document.addEventListener('click', e=>{
-  if(!e.target.closest('.menu') && !e.target.closest('#btnInd,#btnTools,#btnType,#btnRange')) closeMenus();
+  if(!e.target.closest('.menu') && !e.target.closest('#btnInd,#btnTools,#btnType,#btnTfAll')) closeMenus();
 });
 
 /* ---------- دکمه‌های کناری -------------------------------------------- */
@@ -1213,23 +1315,32 @@ function applyLog(){
 }
 btnLog.onclick = ()=>{ S.ind.log = !S.ind.log; saveInd(); applyLog(); };
 
-/* ---------- بازه‌های سریع (سبک تریدینگ‌ویو) ---------------------------- */
-const RANGES = [
-  ['h24','۲۴ ساعت', 86400], ['d3','۳ روز', 259200], ['w1','۷ روز', 604800],
-  ['m1','۳۰ روز', 2592000], ['m3','۹۰ روز', 7776000], ['all','همه', 0]];
-(function buildRangeMenu(){
-  const m = document.getElementById('menuRange'); let h='';
-  for(const r of RANGES)
-    h += '<div class="mi" data-r="'+r[2]+'"><span>'+r[1]+'</span></div>';
-  m.innerHTML = h;
-  for(const el of m.querySelectorAll('.mi'))
-    el.onclick = ()=>{ const sec = parseInt(el.dataset.r,10); const c=CAND(); const n=c.length;
-      if(!n) return;
-      if(!sec){ chartMain.timeScale().setVisibleLogicalRange({from:0, to:n+4}); }
-      else{ const cnt = Math.min(n, Math.ceil(sec/SEC()));
-        chartMain.timeScale().setVisibleLogicalRange({from:Math.max(0,n-cnt-2), to:n+4}); }
-      closeMenus(); };
+/* ---------- نوار پایین به سبک تریدینگ‌ویو: رنج‌های سریع + SELL/BUY + ساعت زنده ------ */
+const BRANGES = [['1D',86400],['5D',432000],['1M',2592000],['3M',7776000],['6M',15552000],['YTD','ytd'],['همه',0]];
+(function buildBbar(){
+  const el = document.getElementById('bbarRanges'); let h='';
+  for(const r of BRANGES) h += '<button class="bb-r" data-s="'+r[1]+'">'+r[0]+'</button>';
+  el.innerHTML = h;
+  for(const b of el.querySelectorAll('.bb-r'))
+    b.onclick = ()=> setRange(b.dataset.s==='ytd' ? 'ytd' : parseInt(b.dataset.s,10));
 })();
+function setRange(sec){
+  const c = CAND(); const n = c.length; if(!n) return;
+  let cnt;
+  if(sec==='ytd'){
+    const jan = Math.floor(Date.UTC(new Date().getUTCFullYear(),0,1)/1000);
+    cnt = Math.min(n, Math.ceil((c[n-1][0]-jan)/SEC())+1);
+  } else if(!sec){ cnt = n; }
+  else cnt = Math.min(n, Math.ceil(sec/SEC()));
+  chartMain.timeScale().setVisibleLogicalRange({from:Math.max(0,n-cnt-2), to:n+4});
+}
+document.getElementById('bbSell').onclick = ()=>{ setTool('posS'); toast('پوزیشن فروش: ۳ کلیک روی چارت — ورود، حد ضرر، هدف'); };
+document.getElementById('bbBuy').onclick  = ()=>{ setTool('posL'); toast('پوزیشن خرید: ۳ کلیک روی چارت — ورود، حد ضرر، هدف'); };
+function tickClock(){
+  const el = document.getElementById('clock');
+  if(el) el.textContent = new Date().toLocaleTimeString('en-GB',{timeZone:'Asia/Tehran',hour12:false});
+}
+setInterval(tickClock, 1000); tickClock();
 
 /* ---------- لجند: روشن/خاموش ------------------------------------------ */
 const btnLeg = document.getElementById('btnLeg');
@@ -1272,6 +1383,7 @@ setInterval(function(){
 
 /* ---------- شروع ------------------------------------------------------ */
 buildTfBtns();
+updTfBtn();
 buildIndMenu();
 buildToolsMenu();
 document.getElementById('typeLbl').textContent = TYPE_LBL[S.type]||S.type;
@@ -1290,6 +1402,7 @@ applyLeg();
   const win = Math.min(DATA.initial_bars, n);
   chartMain.timeScale().setVisibleLogicalRange({ from: Math.max(0, n-win-2), to: n+4 }); })();
 sizeOvl();
+if(WANT_SECS) loadSeconds(WANT_SECS).then(ok=>{ if(ok && TFS[WANT_SECS]) setTF(WANT_SECS); });
 requestAnimationFrame(renderLoop);
 """
 
@@ -1357,9 +1470,27 @@ html,body{margin:0;padding:0;background:#0e1117;height:100%;overflow:hidden;}
   padding:8px 14px;border-radius:8px;border:1px solid rgba(148,163,184,0.25);
   opacity:0;transition:opacity .25s;pointer-events:none;}
 #toast.show{opacity:1;}
+#bbar{height:24px;min-height:24px;display:flex;align-items:center;justify-content:space-between;gap:8px;
+  background:#131722;border-top:1px solid rgba(148,163,184,0.14);padding:0 8px;direction:ltr;overflow:hidden;}
+#bbarRanges{display:flex;gap:1px;overflow-x:auto;scrollbar-width:none;flex:1;min-width:0;}
+#bbarRanges::-webkit-scrollbar{display:none;}
+.bb-r{all:unset;cursor:pointer;font:700 10px/1 ui-monospace,monospace;color:#8ea1c0;
+  padding:4px 7px;border-radius:5px;white-space:nowrap;}
+.bb-r:hover{background:rgba(148,163,184,0.12);color:#e2e8f0;}
+#bbarRight{display:flex;align-items:center;gap:7px;flex:none;}
+#clock{font:700 10.5px/1 ui-monospace,monospace;color:#e2e8f0;letter-spacing:0.4px;}
+#tzt{font:600 9px/1 ui-monospace,monospace;color:#78849e;}
+.bb-sell,.bb-buy{all:unset;cursor:pointer;font:800 9.5px/1 ui-monospace,monospace;color:#fff;
+  padding:4px 9px;border-radius:5px;letter-spacing:0.5px;}
+.bb-sell{background:#ef5350;} .bb-sell:hover{background:#ff6b66;}
+.bb-buy{background:#26a69a;} .bb-buy:hover{background:#31c2b4;}
+#menuTf{min-width:270px;}
+.tfmi .tfl{font:700 11px/1 ui-monospace,monospace;min-width:36px;color:#e2e8f0;}
+.tfmi .lzi{color:#f59e0b;font-size:10px;font-weight:700;}
 a[href*="tradingview.com"]{opacity:0.28; filter:grayscale(1);}
 a[href*="tradingview.com"]:hover{opacity:0.7;}
-@media (max-width:700px){ .tb-label{display:none;} .menu{min-width:190px;} }
+@media (max-width:700px){ .tb-label{display:none;} .menu{min-width:190px;} #tzt{display:none;}
+  .bb-sell,.bb-buy{padding:3px 6px;} #clock{font-size:10px;} }
 """
 
 
@@ -1369,7 +1500,7 @@ def build_tv_chart_html(*, candles: List[List[Any]], tfs: Dict[str, List[List[An
                         initial_bars: int = 160) -> str:
     """HTML خودکفای چارت TV کامل.
     candles:  [t_s, o, h, l, c, v]  (t ثانیه · NaN قبلاً None شده)
-    tfs:      {tf_key: candles} — تا ۱۳ تایم‌فریم برای سوئیچر
+    tfs:      {tf_key: candles} — تا ۲۶ تایم‌فریم برای سوئیچر (بومی + تجمیعی سرور، ثانیه‌ای مرورگر)
     zones:    {t0,top,bottom,kind,tag} — فقط برای تایم‌فریم پایه
     levels:   {price,name,color,dash} — فقط برای تایم‌فریم پایه
     """
@@ -1390,14 +1521,14 @@ def build_tv_chart_html(*, candles: List[List[Any]], tfs: Dict[str, List[List[An
         "<style>" + _CSS + "</style></head><body>"
         '<div id="wrap">'
         '<div id="toolbar">'
-        '<div id="tfBtns" style="display:flex;gap:2px;"></div>'
+        '<button class="tb-btn tf" id="btnTfAll" title="همه‌ی بازه‌ها — سبک تریدینگ‌ویو">▾</button>'
         '<span class="tb-sep"></span>'
+        '<div id="tfBtns" style="display:flex;gap:2px;"></div>'
         '<button class="tb-btn" id="btnType">🕯 <span class="tb-label" id="typeLbl">کندل</span> ▾</button>'
         '<button class="tb-btn" id="btnInd">ƒ<span class="tb-label"> اندیکاتورها</span> ▾</button>'
         '<button class="tb-btn" id="btnTools">📐<span class="tb-label"> ابزارها</span> ▾</button>'
         '<button class="tb-btn" id="btnLog" title="مقیاس لگاریتمی">log</button>'
         '<input id="txtIn" placeholder="متن یادداشت…">'
-        '<button class="tb-btn" id="btnRange">⇤<span class="tb-label"> بازه‌ها</span> ▾</button>'
         '<div class="tb-spacer"></div>'
         '<button class="tb-btn" id="btnLeg" title="لجند">ℹ</button>'
         '<button class="tb-btn" id="btnFit" title="بازنشانی نما">⤢</button>'
@@ -1413,10 +1544,18 @@ def build_tv_chart_html(*, candles: List[List[Any]], tfs: Dict[str, List[List[An
         '<div id="cdown"></div>'
         '</div>'
         '</div>'
+        '<div id="bbar" dir="ltr">'
+        '<div id="bbarRanges"></div>'
+        '<div id="bbarRight">'
+        '<button class="bb-sell" id="bbSell" title="شروع ابزار پوزیشن فروش (۳ کلیک)">SELL</button>'
+        '<button class="bb-buy" id="bbBuy" title="شروع ابزار پوزیشن خرید (۳ کلیک)">BUY</button>'
+        '<span id="clock">--:--:--</span><span id="tzt">UTC+3:30</span>'
+        '</div>'
+        '</div>'
         '<div class="menu" id="menuInd"></div>'
         '<div class="menu" id="menuTools"></div>'
         '<div class="menu" id="menuType"></div>'
-        '<div class="menu" id="menuRange"></div>'
+        '<div class="menu" id="menuTf"></div>'
         '<div id="toast"></div>'
         '</div>'
         "<script>" + _lib() + "</script>"

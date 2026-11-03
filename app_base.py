@@ -28,6 +28,8 @@ import requests
 import streamlit as st
 from PIL import Image
 
+from core.tv_chart import build_tv_chart_html
+
 from core import community_store as _cstore
 from core.community_store import render_backend_banner
 from core.i18n import setup_i18n, get_lang
@@ -3226,9 +3228,7 @@ def extract_candles_from_image(img: Image.Image, max_dim: int = 1400) -> pd.Data
 # ------------------------------------------------------------------ UI
 
 def main() -> None:
-    import plotly.graph_objects as go
     import streamlit.components.v1 as components
-    from plotly.subplots import make_subplots
 
     st.set_page_config(page_title="NorthmanQuant", page_icon="📈", layout="wide")
     # انتخاب زبان (فارسی / English) — با تعویض زبان، منو و نوشتارها ترجمه می‌شوند
@@ -3269,9 +3269,9 @@ def main() -> None:
 
             # --- chart settings (merged into «بازار و نماد») -----------------
             st.markdown("**📈 تنظیمات چارت**")
-            candle_count = st.slider("تعداد کندل روی چارت (فشرده/باز)", min_value=40, max_value=500,
+            candle_count = st.slider("تعداد کندل روی چارت", min_value=40, max_value=500,
                                      value=160, step=20,
-                                     help="کمتر = کندل‌ها بازتر و درشت‌تر · بیشتر = فشرده‌تر")
+                                     help="پنجره‌ی اولیه‌ی لود — روی چارت با اسکرول/درگ آزاد زوم و پن کن (مثل تریدینگ‌ویو)")
             show_fvg = st.checkbox("🟪 نمایش نواحی FVG / BVG روی چارت", value=True)
             live_on = st.checkbox("🔴 حالت زنده (قیمت لحظه‌ای)", value=True)
 
@@ -3374,93 +3374,46 @@ def main() -> None:
                 st.caption("🟪 " + fvg_info["text"])
             st.divider()
 
-            # ---- TradingView-style chart ---------------------------------
-            # Slice to the chosen number of candles (horizontal compress/expand)
+            # ---- TradingView engine chart (lightweight-charts) ------------
+            # پن/زوم/کراس‌هیر روان موتور واقعی تریدینگ‌ویو + همه‌ی پوشش‌های سایت
             dc = d.tail(candle_count).reset_index(drop=True)
 
-            fig = make_subplots(
-                rows=2, cols=1, shared_xaxes=True, row_heights=[0.80, 0.20],
-                vertical_spacing=0.03,
-            )
-            # Bollinger band fill (subtle), drawn first so candles sit on top
-            fig.add_trace(go.Scatter(x=dc["dt"], y=dc["bb_up"], line=dict(color="rgba(148,163,184,0.35)", width=1),
-                                     name="BB بالا", hoverinfo="skip"), row=1, col=1)
-            fig.add_trace(go.Scatter(x=dc["dt"], y=dc["bb_lo"], line=dict(color="rgba(148,163,184,0.35)", width=1),
-                                     name="BB پایین", fill="tonexty", fillcolor="rgba(148,163,184,0.06)",
-                                     hoverinfo="skip"), row=1, col=1)
-            fig.add_trace(go.Candlestick(
-                x=dc["dt"], open=dc["open"], high=dc["high"], low=dc["low"], close=dc["close"],
-                increasing_line_color="#26a69a", increasing_fillcolor="#26a69a",
-                decreasing_line_color="#ef5350", decreasing_fillcolor="#ef5350",
-                line_width=1, name="قیمت", whiskerwidth=0.6,
-            ), row=1, col=1)
-            fig.add_trace(go.Scatter(x=dc["dt"], y=dc["ema20"], line=dict(color="#2962ff", width=1.4),
-                                     name="EMA20"), row=1, col=1)
-            fig.add_trace(go.Scatter(x=dc["dt"], y=dc["ema50"], line=dict(color="#ff9800", width=1.4),
-                                     name="EMA50"), row=1, col=1)
+            def _n(x):
+                try:
+                    v = float(x)
+                except (TypeError, ValueError):
+                    return None
+                return None if v != v else v          # NaN → None
 
-            # Entry / Stop / Targets as clean horizontal lines, labels pinned to
-            # the RIGHT price axis (no overlapping free-floating annotations).
-            x_last = dc["dt"].iloc[-1]
-            level_rows = []
-            if plan.get("entry") is not None:
-                level_rows = [("ورود", plan["entry"], "#f59e0b", "solid"),
-                              ("حد ضرر", plan["stop"], "#ef5350", "dash")]
-                for i, (t_price, t_rr) in enumerate(plan["targets"]):
-                    level_rows.append((f"هدف{i + 1} · {t_rr}R", t_price, "#2962ff", "dash"))
-            for name, yv, col, dash in level_rows:
-                fig.add_hline(y=yv, line_color=col, line_width=1.4, line_dash=dash, row=1, col=1)
-                fig.add_annotation(
-                    x=x_last, y=yv, xref="x", yref="y", text=f" {name} {yv:,.{dec}f} ",
-                    showarrow=False, xanchor="left", yanchor="middle", font=dict(size=11, color="#0b1220"),
-                    bgcolor=col, borderpad=3, opacity=0.95, row=1, col=1,
-                )
+            _cand = []
+            for r in dc.itertuples(index=False):
+                _cand.append([int(r.dt.timestamp()),
+                              _n(r.open), _n(r.high), _n(r.low), _n(r.close), _n(r.volume),
+                              _n(r.ema20), _n(r.ema50), _n(r.bb_up), _n(r.bb_lo)])
 
-            # FVG (green/red) and BVG (purple) zones — active/unfilled only
+            _tv_zones = []
             if show_fvg:
-                first_dt = dc["dt"].iloc[0]
-                fvg_boxes = ([(z, "rgba(38,166,154,0.16)", "#26a69a", "FVG▲") for z in fvg_info["bulls"][:4]]
-                             + [(z, "rgba(239,83,80,0.16)", "#ef5350", "FVG▼") for z in fvg_info["bears"][:4]]
-                             + [(b, "rgba(168,85,247,0.20)", "#a855f7", "BVG") for b in fvg_info["bvgs"][:3]])
-                for z, fillc, linec, tag in fvg_boxes:
-                    x0 = z["dt"] if z["dt"] >= first_dt else first_dt
-                    fig.add_shape(type="rect", x0=x0, x1=x_last, y0=z["bottom"], y1=z["top"],
-                                  fillcolor=fillc, line=dict(color=linec, width=0.6), layer="below",
-                                  row=1, col=1)
-                    fig.add_annotation(x=x0, y=z["top"], xref="x", yref="y", text=tag, showarrow=False,
-                                       xanchor="left", yanchor="bottom", font=dict(size=9, color=linec),
-                                       row=1, col=1)
+                def _zone(z, kind, tag):
+                    return {"t0": int(pd.Timestamp(z["dt"]).timestamp()),
+                            "top": _n(z["top"]), "bottom": _n(z["bottom"]),
+                            "kind": kind, "tag": tag}
+                _tv_zones = ([_zone(z, "bull", "FVG▲") for z in fvg_info["bulls"][:4]]
+                             + [_zone(z, "bear", "FVG▼") for z in fvg_info["bears"][:4]]
+                             + [_zone(z, "bvg", "BVG") for z in fvg_info["bvgs"][:3]])
 
-            vol_colors = ["#26a69a" if cl >= op else "#ef5350" for cl, op in zip(dc["close"], dc["open"])]
-            fig.add_trace(go.Bar(x=dc["dt"], y=dc["volume"], marker_color=vol_colors, marker_line_width=0,
-                                 name="حجم", opacity=0.55), row=2, col=1)
+            _tv_levels = []
+            if plan.get("entry") is not None:
+                _tv_levels = [{"price": _n(plan["entry"]), "name": "ورود", "color": "#f59e0b", "dash": False},
+                              {"price": _n(plan["stop"]), "name": "حد ضرر", "color": "#ef5350", "dash": True}]
+                for _i, (_tp, _rr) in enumerate(plan["targets"]):
+                    _tv_levels.append({"price": _n(_tp), "name": f"هدف{_i + 1} · {_rr}R",
+                                       "color": "#2962ff", "dash": True})
 
-            fig.update_layout(
-                height=640, template="plotly_dark", dragmode="pan", hovermode="x unified",
-                xaxis_rangeslider_visible=False,
-                paper_bgcolor="#0e1117", plot_bgcolor="#0e1117",
-                font=dict(family="ui-monospace, monospace", size=11, color="#b2b5be"),
-                legend=dict(orientation="h", y=1.03, x=0, bgcolor="rgba(0,0,0,0)",
-                            font=dict(size=10)),
-                margin=dict(l=8, r=72, t=28, b=8),
-                title=dict(text=f"{symbol} · {interval}", x=0.5, xanchor="center",
-                           font=dict(size=13, color="#e2e8f0")),
+            components.html(
+                build_tv_chart_html(candles=_cand, zones=_tv_zones, levels=_tv_levels,
+                                    title=f"{symbol} · {interval}", dec=dec),
+                height=640, scrolling=False,
             )
-            # TradingView-like axes: price axis on the RIGHT, thin grid, spike line
-            grid = "rgba(148,163,184,0.08)"
-            fig.update_yaxes(side="right", gridcolor=grid, zeroline=False, row=1, col=1,
-                             showspikes=True, spikemode="across", spikethickness=1,
-                             spikecolor="rgba(148,163,184,0.5)", spikedash="dot", tickformat=",")
-            fig.update_yaxes(side="right", gridcolor=grid, zeroline=False, row=2, col=1,
-                             title_text="حجم", title_font=dict(size=9))
-            fig.update_xaxes(gridcolor=grid, zeroline=False, row=1, col=1,
-                             showspikes=True, spikemode="across", spikethickness=1,
-                             spikecolor="rgba(148,163,184,0.5)", spikedash="dot", rangeslider_visible=False)
-            fig.update_xaxes(gridcolor=grid, zeroline=False, row=2, col=1)
-            st.plotly_chart(fig, width="stretch", config={
-                "scrollZoom": True, "displaylogo": False,
-                "modeBarButtonsToRemove": ["lasso2d", "select2d"],
-            })
 
             # (floating share button removed by request)
 

@@ -252,6 +252,54 @@ try:
 finally:
     arena_store.get_store = _orig_store
 
+print("— عمر پوزیشن، تازگی و سطح‌ها (سیگنال عملیاتی) —")
+# سن فارسی
+ok(TB._age_fa(NOW) == "همین الان", "سن: همین الان")
+ok(TB._age_fa(NOW - timedelta(minutes=12)) == "12 دقیقه پیش", "سن: ۱۲ دقیقه")
+ok(TB._age_fa(NOW - timedelta(hours=3)) == "3 ساعت پیش", "سن: ۳ ساعت")
+ok(TB._age_fa(NOW - timedelta(days=2)) == "2 روز پیش", "سن: ۲ روز")
+ok(TB._age_fa(None) == "", "سن: بدون تاریخ → خالی")
+# برچسب تازگی
+ok("🟢" in TB._freshness_label(5), "تازگی: ۵ دقیقه → 🟢 تازه")
+ok("🟡" in TB._freshness_label(20), "تازگی: ۲۰ دقیقه → 🟡 نیمه‌تازه")
+ok("🟠" in TB._freshness_label(90) and "🟠" in TB._freshness_label(float("inf")),
+   "تازگی: ۹۰ دقیقه و تاریخ نامعلوم → 🟠 کهنه (محتاطانه)")
+# خط سطح‌ها
+t_lv = {"cur_stop": 101.0, "stop": 95.0, "tp1": 110.0, "tp2": 120.0, "tp3": 130.0,
+        "tp1_done": True, "tp2_done": False}
+lv = TB._levels_line(t_lv)
+ok("SL 101" in lv and "✅ TP1 110" in lv and "🎯 TP2 120" in lv and "🏆 TP3 130" in lv,
+   "سطح‌ها: استاپ مؤثر + سه TP با نشان پیشرفت")
+ok(TB._levels_line({}) == "", "سطح‌ها: بدون دیتا → خط خالی")
+# open_in_profit با عمر
+op_raw = {"symbol": "BTCUSDT", "agent": "A", "direction": 1, "entry": 100.0,
+          "exchange": "KuCoin", "opened_at": (NOW - timedelta(minutes=7)).isoformat()}
+out_op = TB.open_in_profit([op_raw], price_fn=lambda ex, sy: 102.0, now=NOW)
+ok(out_op and 6.9 < out_op[0]["age_min"] < 7.1, "باز در سود: عمر پوزیشن محاسبه شد")
+# fmt_signals یکپارچه: گذشته/زنده + عمر + سطح‌ها + سلب مسئولیت
+op_t = {"symbol": "BTCUSDT", "agent": "A", "direction": 1, "entry": 100.0, "now": 102.0,
+        "pnl_pct": 2.0, "age_min": 7.0,
+        "opened_at": (NOW - timedelta(minutes=7)).isoformat(),
+        "stop": 95.0, "cur_stop": 101.0, "tp1": 110.0, "tp2": 120.0, "tp3": 130.0,
+        "tp1_done": False, "tp2_done": False}
+win_t = {"symbol": "ETHUSDT", "agent": "B", "direction": -1, "entry": 50.0,
+         "closed_price": 47.0, "realized_r": 1.4, "points": 1.4,
+         "closed_at": (NOW - timedelta(hours=5)).isoformat()}
+sig = TB.fmt_signals([win_t], [op_t], now=NOW)
+ok("گزارش گذشته" in sig and "5 ساعت پیش بسته شد" in sig,
+   "سیگنال: بردها = گزارش گذشته + سن بسته‌شدن")
+ok("🟢" in sig and "7 دقیقه پیش" in sig, "سیگنال: پوزیشن باز تازه با عمر")
+ok("SL 101" in sig and "TP3 130" in sig, "سیگنال: سطح‌های SL/TP در پوزیشن باز")
+ok("برگشت‌پذیر" in sig and "آموزش، نه توصیه‌ی مالی" in sig, "سیگنال: سلب مسئولیت صادقانه")
+# notify_open: هر سه TP در پیام لحظه‌ای
+_out3 = []
+TG.send = lambda text, silent=False: _out3.append(text) or True
+TG.notify_open({"agent": "A", "symbol": "BTCUSDT", "direction": 1, "entry": 100.0,
+                "stop": 95.0, "tp1": 110.0, "tp2": 120.0, "tp3": 130.0, "rr": 2.0,
+                "exchange": "KuCoin", "evidence": ""})
+ok("TP1: 110" in _out3[-1] and "TP2: 120" in _out3[-1] and "TP3: 130" in _out3[-1],
+   "بازشدن: هر سه TP در پیام لحظه‌ای")
+
 print("— main دودی (بدون توکن واقعی) —")
 ok(TB.main() == 0, "main بدون شبکه سالم تمام می‌شود")
 

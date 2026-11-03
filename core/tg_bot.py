@@ -60,6 +60,10 @@ SIGNAL_WINDOW_D = 7                   # پنجره‌ی بردهای اخیر (�
 TOP_N = 5                             # سطرهای فهرست بهترین‌ها
 OPEN_CHECK_CAP = 12                   # سقف چک قیمت زنده برای پوزیشن‌های باز
 
+# تازگی سیگنال زنده — برای «به درد معامله‌ی لحظه‌ای می‌خورد؟»
+FRESH_MIN = 10                        # تا این عمر (دقیقه): 🟢 تازه — ورود نزدیک قیمت ایجنت
+STALE_MIN = 30                        # بعد از این عمر: 🟠 کهنه — ورود یعنی قیمت/ریسک متفاوت
+
 TEHRAN = timezone(timedelta(hours=3, minutes=30))   # UTC+03:30 — مثل core/telegram
 
 _MEDALS = ("🥇", "🥈", "🥉")
@@ -80,7 +84,8 @@ _HELP = (
     "ℹ️ <b>راهنمای بات</b>\n\n"
     "🏆 /top (یا «بهترین») — جدول بهترین ایجنت‌ها: امتیاز، R خالص، "
     "وین‌ریت، ایکوییتی، زنجیره‌ی برد و فرم ۱۰ معامله‌ی اخیر\n\n"
-    "💸 /signals (یا «سیگنال») — بردهای ۷ روز اخیر + پوزیشن‌های بازِ در سود\n\n"
+    "💸 /signals (یا «سیگنال») — بردهای ۷ روز اخیر (گزارش گذشته) + پوزیشن‌های بازِ در سود"
+    " با عمر و تازگی (🟢 تازه / 🟡 نیمه‌تازه / 🟠 کهنه) و سطح‌های SL/TP\n\n"
     "📊 /stats (یا «آمار») — انتظاری، سود فاکتور، وین‌ریت، بیشترین افت، رژیم بازار\n\n"
     "🕐 پاسخ‌ها معمولاً چندثانیه تا چند دقیقه می‌رسند (long-poll هر ۵ دقیقه).\n"
     "🔴 پیام‌های لحظه‌ای باز/بسته‌شدن هم مستقیم به چت مالک می‌آید."
@@ -118,6 +123,58 @@ def _parse_dt(s: Any) -> Optional[datetime]:
 
 def _dir_icon(direction: Any) -> str:
     return "🟢 لانگ" if int(direction or 0) > 0 else "🔴 شورت"
+
+
+# ------------------------------------------- عمر و تازگی سیگنال (عملیاتی‌سازی)
+def _age_min(ts: Any, now: Optional[datetime] = None) -> float:
+    """عمر پوزیشن به دقیقه — تاریخ نامعلوم = بی‌نهایت (محتاطانه: کهنه فرض شود)."""
+    dt = _parse_dt(ts)
+    if not dt:
+        return float("inf")
+    now = now or datetime.now(timezone.utc)
+    return max(0.0, (now - dt).total_seconds() / 60.0)
+
+
+def _age_fa(dt: Optional[datetime], now: Optional[datetime] = None) -> str:
+    """سن human-readable فارسی — «۱۲ دقیقه پیش» / «۳ ساعت پیش» / «۲ روز پیش»."""
+    if dt is None:
+        return ""
+    now = now or datetime.now(timezone.utc)
+    s = max(0.0, (now - dt).total_seconds())
+    if s < 90:
+        return "همین الان"
+    m = s / 60.0
+    if m < 60:
+        return f"{int(m)} دقیقه پیش"
+    h = m / 60.0
+    if h < 24:
+        return f"{int(h)} ساعت پیش"
+    return f"{int(h / 24.0)} روز پیش"
+
+
+def _freshness_label(age_min: float) -> str:
+    """برچسب صادقانه‌ی قابل‌اجرابودن سیگنال زنده بر اساس عمر پوزیشن."""
+    if age_min <= FRESH_MIN:
+        return "🟢 تازه — ورود نزدیک به قیمت ایجنت"
+    if age_min <= STALE_MIN:
+        return "🟡 نیمه‌تازه — قیمت ورود ممکن است دیگر در دسترس نباشد"
+    return "🟠 کهنه — ورود الان یعنی قیمت و ریسک متفاوت از ایجنت"
+
+
+def _levels_line(t: dict) -> str:
+    """خط سطح‌های معامله: استاپ مؤثر (اگر تریل جابه‌جا شده باشد cur_stop) + سه TP
+    با نشان پیشرفت — همان چیزی که برای تصمیم زنده لازم است."""
+    parts = []
+    stop = t.get("cur_stop") or t.get("stop")
+    if stop:
+        parts.append(f"🛑 SL {_fmt_num(stop)}")
+    if t.get("tp1"):
+        parts.append(("✅" if t.get("tp1_done") else "🎯") + f" TP1 {_fmt_num(t['tp1'])}")
+    if t.get("tp2"):
+        parts.append(("✅" if t.get("tp2_done") else "🎯") + f" TP2 {_fmt_num(t['tp2'])}")
+    if t.get("tp3"):
+        parts.append("🏆 TP3 " + _fmt_num(t["tp3"]))
+    return "   " + " · ".join(parts) if parts else ""
 
 
 # ------------------------------------------------------------- لایه‌ی API
@@ -249,8 +306,10 @@ def winning_closes(closed: list[dict], now: Optional[datetime] = None) -> list[d
 
 
 def open_in_profit(opens: list[dict],
-                   price_fn: Callable[[str, str], Optional[float]] = live_price) -> list[dict]:
-    """پوزیشن‌های بازِ همین الان در سود — با قیمت زنده؛ ناموفق‌ها رد می‌شوند."""
+                   price_fn: Callable[[str, str], Optional[float]] = live_price,
+                   now: Optional[datetime] = None) -> list[dict]:
+    """پوزیشن‌های بازِ همین الان در سود — با قیمت زنده و عمر پوزیشن؛ ناموفق‌ها رد می‌شوند."""
+    now = now or datetime.now(timezone.utc)
     out = []
     for t in opens[:OPEN_CHECK_CAP]:
         entry = float(t.get("entry") or 0.0)
@@ -263,7 +322,8 @@ def open_in_profit(opens: list[dict],
         sign = 1.0 if d > 0 else -1.0
         pnl = (p - entry) / entry * 100.0 * sign
         if pnl > 0:
-            out.append({**t, "now": p, "pnl_pct": pnl})
+            out.append({**t, "now": p, "pnl_pct": pnl,
+                        "age_min": _age_min(t.get("opened_at"), now)})
     out.sort(key=lambda t: -float(t.get("pnl_pct") or 0.0))
     return out[:TOP_N]
 
@@ -304,10 +364,14 @@ def fmt_top(best: list[dict], total_rows: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def fmt_signals(wins: list[dict], open_profits: list[dict]) -> str:
+def fmt_signals(wins: list[dict], open_profits: list[dict],
+                now: Optional[datetime] = None) -> str:
+    """سیگنال‌های سودده — صادقانه: بردها «گزارش گذشته»، بازها «زنده ولی برگشت‌پذیر»
+    با عمر پوزیشن، برچسب تازگی (🟢/🟡/🟠) و سطح‌های SL/TP برای تصمیم زنده."""
+    now = now or datetime.now(timezone.utc)
     lines = ["<b>💸 سیگنال‌های سودده</b>", ""]
     if wins:
-        lines.append(f"<b>✅ بردهای {SIGNAL_WINDOW_D} روز اخیر</b> (≥ {MIN_WIN_R:g}R)")
+        lines.append(f"<b>✅ بردهای {SIGNAL_WINDOW_D} روز اخیر</b> (≥ {MIN_WIN_R:g}R) — <i>گزارش گذشته</i>")
         for t in wins:
             lines.append(f"{_dir_icon(t.get('direction')).split()[0]} <b>{t.get('symbol', '—')}</b>"
                          f" · {t.get('agent', '—')}")
@@ -315,16 +379,29 @@ def fmt_signals(wins: list[dict], open_profits: list[dict]) -> str:
                          f" · <b>{float(t.get('realized_r') or 0):+.2f}R</b>"
                          + (f" · {float(t.get('points') or 0):+.1f} امتیاز"
                             if t.get("points") is not None else ""))
+            age = _age_fa(_parse_dt(t.get("closed_at")), now)
+            if age:
+                lines.append(f"   ⏱️ {age} بسته شد")
     else:
         lines.append(f"در {SIGNAL_WINDOW_D} روز اخیر برده‌ای با ≥ {MIN_WIN_R:g}R ثبت نشده.")
     if open_profits:
-        lines += ["", "<b>📈 پوزیشن‌های بازِ در سود</b>"]
+        lines += ["", "<b>📈 پوزیشن‌های بازِ در سود</b> — <i>زنده، ولی برگشت‌پذیر</i>"]
         for t in open_profits:
             lines.append(f"{_dir_icon(t.get('direction')).split()[0]} <b>{t.get('symbol', '—')}</b>"
                          f" · {t.get('agent', '—')}")
             lines.append(f"   ورود {_fmt_num(t.get('entry'))} → الان {_fmt_num(t.get('now'))}"
                          f" · <b>{float(t.get('pnl_pct') or 0):+.1f}%</b> شناور")
-    lines += ["", "⚠️ آموزش، نه توصیه‌ی مالی",
+            lv = _levels_line(t)
+            if lv:
+                lines.append(lv)
+            age_min = t.get("age_min")
+            age_min = float(age_min) if age_min is not None else float("inf")
+            age_txt = _age_fa(_parse_dt(t.get("opened_at")), now)
+            lines.append(f"   {_freshness_label(age_min)}"
+                         + (f" · ⏱️ {age_txt}" if age_txt else ""))
+    lines += ["",
+              "⚠️ آموزش، نه توصیه‌ی مالی — بردهای بسته‌شده گذشته‌اند؛"
+              " برای ورود زنده عمر پوزیشن و سطح‌ها را ببینید.",
               f"🕐 {_tehran_now()} تهران"]
     return "\n".join(lines)
 

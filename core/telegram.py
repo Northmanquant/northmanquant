@@ -108,7 +108,12 @@ def notify_open(t: dict) -> bool:
     if hl:
         lines.append(hl)
     if t.get("tp1"):
-        lines.append(f"🎯 TP1: {_fmt_num(t.get('tp1'))}"
+        tps = [f"🎯 TP1: {_fmt_num(t.get('tp1'))}"]
+        if t.get("tp2"):
+            tps.append(f"TP2: {_fmt_num(t.get('tp2'))}")
+        if t.get("tp3"):
+            tps.append(f"🏆 TP3: {_fmt_num(t.get('tp3'))}")
+        lines.append(" · ".join(tps)
                      + (f" · R/R: {t.get('rr')}" if t.get("rr") else ""))
     ev = str(t.get("evidence") or "").strip()
     if ev:

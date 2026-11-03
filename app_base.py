@@ -42,11 +42,27 @@ LIGHTER = "https://mainnet.zklighter.elliot.ai"
 
 INTERVAL_MINUTES = {"15min": 15, "1hour": 60, "4hour": 240, "1day": 1440, "1week": 10080}
 
-KUCOIN_TF = {"15min": "15min", "1hour": "1hour", "4hour": "4hour", "1day": "1day", "1week": "1week"}
-BINANCE_TF = {"15min": "15m", "1hour": "1h", "4hour": "4h", "1day": "1d", "1week": "1w"}
-BYBIT_TF = {"15min": "15", "1hour": "60", "4hour": "240", "1day": "D", "1week": "W"}
-OKX_TF = {"15min": "15m", "1hour": "1H", "4hour": "4H", "1day": "1D", "1week": "1W"}
-LIGHTER_TF = {"15min": "15m", "1hour": "1h", "4hour": "4h", "1day": "1d", "1week": "1w"}
+# تایم‌فریم‌های چارت حرفه‌ای داشبورد (سوئیچر داخل چارت) — موتور تحلیل همان ۵ تایم‌فریم خودش را دارد
+CHART_TFS = ("1min", "3min", "5min", "15min", "30min", "1hour", "2hour", "4hour",
+             "6hour", "12hour", "1day", "1week", "1month")
+CHART_TF_MINUTES = {"1min": 1, "3min": 3, "5min": 5, "15min": 15, "30min": 30, "1hour": 60,
+                    "2hour": 120, "4hour": 240, "6hour": 360, "12hour": 720,
+                    "1day": 1440, "1week": 10080, "1month": 43200}
+
+KUCOIN_TF = {"1min": "1min", "3min": "3min", "5min": "5min", "15min": "15min", "30min": "30min",
+             "1hour": "1hour", "2hour": "2hour", "4hour": "4hour", "6hour": "6hour", "12hour": "12hour",
+             "1day": "1day", "1week": "1week", "1month": "1month"}
+BINANCE_TF = {"1min": "1m", "3min": "3m", "5min": "5m", "15min": "15m", "30min": "30m",
+              "1hour": "1h", "2hour": "2h", "4hour": "4h", "6hour": "6h", "12hour": "12h",
+              "1day": "1d", "1week": "1w", "1month": "1M"}
+BYBIT_TF = {"1min": "1", "3min": "3", "5min": "5", "15min": "15", "30min": "30",
+            "1hour": "60", "2hour": "120", "4hour": "240", "6hour": "360", "12hour": "720",
+            "1day": "D", "1week": "W", "1month": "M"}
+OKX_TF = {"1min": "1m", "3min": "3m", "5min": "5m", "15min": "15m", "30min": "30m",
+          "1hour": "1H", "2hour": "2H", "4hour": "4H", "6hour": "6H", "12hour": "12H",
+          "1day": "1D", "1week": "1W", "1month": "1M"}
+LIGHTER_TF = {"1min": "1m", "5min": "5m", "15min": "15m", "30min": "30m", "1hour": "1h",
+              "2hour": "2h", "4hour": "4h", "6hour": "6h", "12hour": "12h", "1day": "1d", "1week": "1w"}
 
 EXCHANGES = ["KuCoin", "OKX", "Binance", "Bybit", "Lighter"]
 
@@ -54,7 +70,9 @@ EXCHANGES = ["KuCoin", "OKX", "Binance", "Bybit", "Lighter"]
 # Users can also type ANY ccxt exchange id (e.g. "kraken", "gate", "htx").
 CCXT_SUGGESTED = ["XT", "LBank", "Kraken", "Coinbase", "Gate", "MEXC", "Bitget", "Kucoin",
                   "Gemini", "Bitstamp", "Bitfinex", "Huobi/HTX", "Crypto.com", "Upbit"]
-CCXT_TF = {"15min": "15m", "1hour": "1h", "4hour": "4h", "1day": "1d", "1week": "1w"}
+CCXT_TF = {"1min": "1m", "3min": "3m", "5min": "5m", "15min": "15m", "30min": "30m",
+           "1hour": "1h", "2hour": "2h", "4hour": "4h", "6hour": "6h", "12hour": "12h",
+           "1day": "1d", "1week": "1w", "1month": "1M"}
 
 EXCHANGE_DOCS = {
     "KuCoin": "https://www.kucoin.com/docs/rest/spot/market-data/get-klines",
@@ -1292,7 +1310,7 @@ def _fetch_candles_ccxt(exchange: str, symbol: str, interval: str, limit: int) -
         ohlcv = client.fetch_ohlcv(sym, timeframe=tf, limit=want) or []
     else:
         # صفحه‌بندی رو به جلو — برخی صرافی‌های ccxt بیش از ۱۰۰۰ کندل در هر درخواست نمی‌دهند
-        tf_ms = int(INTERVAL_MINUTES.get(interval, 60)) * 60 * 1000
+        tf_ms = int(INTERVAL_MINUTES.get(interval, CHART_TF_MINUTES.get(interval, 60))) * 60 * 1000
         ohlcv = []
         since = client.milliseconds() - want * tf_ms
         for _ in range(8):
@@ -1351,14 +1369,13 @@ _PAGE_CAP = {"KuCoin": 1400, "Binance": 1000, "Bybit": 1000, "Lighter": 500, "OK
 @st.cache_data(ttl=120, show_spinner=False)
 def tf_bundle(exchange: str, symbol: str, tfs: tuple[str, ...], limit: int = 380) -> dict:
     """کندل خام چند تایم‌فریمی برای سوئیچر تایم‌فریم چارت TradingView داشبورد.
-    خروجی: {tf: [[t_s, o, h, l, c, v], ...]} — TFهای ناموفق حذف می‌شوند."""
-    out: dict[str, list] = {}
-    for tf in tfs:
+    fetch موازی با ThreadPool — خروجی: {tf: [[t_s, o, h, l, c, v], ...]} — TFهای ناموفق حذف می‌شوند."""
+    def _one(tf: str):
         try:
             _df = fetch_candles(exchange, symbol, tf, limit=limit)
             if _df is None or _df.empty:
-                continue
-            out[tf] = [
+                return tf, None
+            return tf, [
                 [int(r.dt.timestamp()),
                  None if pd.isna(r.open) else float(r.open),
                  None if pd.isna(r.high) else float(r.high),
@@ -1368,7 +1385,14 @@ def tf_bundle(exchange: str, symbol: str, tfs: tuple[str, ...], limit: int = 380
                 for r in _df.itertuples(index=False)
             ]
         except Exception:
-            continue
+            return tf, None
+
+    from concurrent.futures import ThreadPoolExecutor
+    out: dict[str, list] = {}
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        for tf, rows in pool.map(_one, tfs):
+            if rows:
+                out[tf] = rows
     return out
 
 
@@ -1378,7 +1402,7 @@ def _fetch_candles(exchange: str, symbol: str, interval: str, limit: int, end_ms
     rows: list[dict] = []
 
     if exchange == "KuCoin":
-        minutes = INTERVAL_MINUTES[interval]
+        minutes = INTERVAL_MINUTES.get(interval, CHART_TF_MINUTES.get(interval, 60))
         end = (end_ms // 1000) if end_ms else int(datetime.now(timezone.utc).timestamp())
         start = end - minutes * 60 * (limit + 10)
         j = get_json(
@@ -1426,7 +1450,7 @@ def _fetch_candles(exchange: str, symbol: str, interval: str, limit: int, end_ms
         market_id = lighter_market_id(symbol)
         if market_id is None:
             raise ValueError(f"مارکت {symbol} روی Lighter پیدا نشد.")
-        minutes = INTERVAL_MINUTES[interval]
+        minutes = INTERVAL_MINUTES.get(interval, CHART_TF_MINUTES.get(interval, 60))
         end = end_ms if end_ms else int(datetime.now(timezone.utc).timestamp() * 1000)
         start = end - minutes * 60 * 1000 * (limit + 10)
         j = get_json(
@@ -3414,7 +3438,7 @@ def main() -> None:
 
             _tfs = {interval: _raw_candles(d)}
             _tfs.update(tf_bundle(exchange, symbol, tuple(
-                tf for tf in INTERVAL_MINUTES if tf != interval)))
+                tf for tf in CHART_TFS if tf != interval)))
 
             _tv_zones = []
             if show_fvg:

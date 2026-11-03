@@ -1,16 +1,18 @@
 # -*- coding: utf-8 -*-
 """core/tv_chart.py — چارت موتور TradingView برای داشبورد (lightweight-charts v4.2)
 =====================================================================================
-نسخه‌ی ۲: علاوه بر موتور پن/زوم/کراس‌هیر، ابزارها و اندیکاتورهای تریدینگ‌ویو:
+نسخه‌ی ۳ — پکیج کامل ابزار و اندیکاتور:
 
-  ▸ تایم‌فریم‌سوئیچر داخل چارت (15m/1H/4H/1D/1W) — داده‌ی همه‌ی TFها از پایتون
+  ▸ تایم‌فریم‌سوئیچر داخل چارت — ۱۳ تایم‌فریم (1m تا 1M) با داده‌ی همگام از پایتون
   ▸ انواع چارت: کندل · میله · خط · ناحیه · هایکن‌آشی
-  ▸ اندیکاتورها (منوی ƒ): EMA20/50/200 · بولینگر(20,2) · VWAP · میانگین حجم · RSI(14) · MACD(12,26,9)
-  ▸ پنل‌های جداگانه‌ی RSI و MACD با کراس‌هیر و محور زمان همگام
-  ▸ ابزارهای رسم: خط روند · خط افقی · مستطیل · فیبوناچی · خط‌کش (اندازه‌گیری)
-     + واگرد/پاک‌کردن + ذخیره‌ی خودکار در localStorage (مقاوم به رفرش)
-  ▸ لجند OHLCV + مقادیر زنده‌ی اندیکاتورها (مثل TV)
-  ▸ نواحی FVG/BVG و خطوط ورود/حد ضرر/اهداف (تایم‌فریم پایه)
+  ▸ اندیکاتورهای روکش: EMA 9/20/21/50/200 · SMA 20/50/100/200 · بولینگر(20,2) · VWAP روزانه
+    · Parabolic SAR · SuperTrend(10,3) · ایچیموکو(9,26,52) · پیوت‌پوینت روزانه · میانگین حجم
+  ▸ پنل‌های جداگانه: RSI(14) · MACD(12,26,9) · استوکاستیک(14,3,3) · استوک RSI(14,14,3,3)
+    · CCI(20) · ویلیامز %R(14) · ADX/DMI(14) · ATR(14) · OBV · MFI(14)
+  ▸ ابزارهای رسم: خط روند · خط افقی · پرتو افقی · خط عمودی · مستطیل · فیبوناچی (۷ سطح)
+    · خط‌کش (٪/قیمت/کندل/مدت) · پوزیشن خرید/فروش (ورود/ضرر/هدف + RR) · فلش صعودی/نزولی
+    · متن · قلم آزاد + واگرد/پاک‌کردن + ذخیره‌ی خودکار localStorage (نماد+تایم‌فریم)
+  ▸ لجند OHLCV + مقادیر زنده‌ی همه‌ی اندیکاتورها · مقیاس لگاریتمی · نواحی FVG/BVG
   ▸ بازنشانی نما · پرش به «الان» · تمام‌صفحه · اسکرین‌شات PNG (با رسم‌ها)
 
 کتابخانه از assets/ خوانده و inline می‌شود — بدون وابستگی به CDN.
@@ -76,18 +78,27 @@ _MAIN_JS = """
 const DATA = __DATA__;
 const ZONES = __ZONES__;
 const TFS = DATA.tfs;                       // {tf: [[t,o,h,l,c,v],...]}
-const TF_ORDER = ['15min','1hour','4hour','1day','1week'];
-const TF_LBL = {'15min':'15m','1hour':'1H','4hour':'4H','1day':'1D','1week':'1W'};
+const TF_ORDER = ['1min','3min','5min','15min','30min','1hour','2hour','4hour',
+                  '6hour','12hour','1day','1week','1month'];
+const TF_LBL = {'1min':'1m','3min':'3m','5min':'5m','15min':'15m','30min':'30m',
+                '1hour':'1H','2hour':'2H','4hour':'4H','6hour':'6H','12hour':'12H',
+                '1day':'1D','1week':'1W','1month':'1M'};
 const ZCOL = { bull:'38,166,154', bear:'239,83,80', bvg:'168,85,247' };
 const DEC = DATA.dec;
 function SK(k){ return 'nqtv:' + DATA.title + ':' + k; }
 function safeParse(s){ try{ return JSON.parse(s); }catch(e){ return null; } }
 
+const IND_DEF = {
+  vol:true, ema9:false, ema20:true, ema21:false, ema50:true, ema200:false,
+  sma20:false, sma50:false, sma100:false, sma200:false,
+  bb:true, vwap:false, volma:false, psar:false, st:false, ichi:false, piv:false,
+  rsi:false, macd:false, stoch:false, srsi:false, cci:false, wr:false,
+  adx:false, atr:false, obv:false, mfi:false, log:false };
+
 let S = {
   tf:   localStorage.getItem(SK('tf'))  || DATA.base_tf,
   type: localStorage.getItem(SK('type'))|| 'candles',
-  ind:  safeParse(localStorage.getItem(SK('ind'))) ||
-        {ema20:true, ema50:true, ema200:false, bb:true, vwap:false, volma:false, rsi:false, macd:false},
+  ind:  Object.assign({}, IND_DEF, safeParse(localStorage.getItem(SK('ind'))) || {}),
   tool: 'cursor',
 };
 if(!TFS[S.tf]) S.tf = DATA.base_tf;
@@ -99,6 +110,15 @@ function emaArr(v, n){ const o=new Array(v.length).fill(null); if(v.length<n) re
   for(let i=n;i<v.length;i++){ e=v[i]*k+e*(1-k); o[i]=e; } return o; }
 function smaArr(v, n){ const o=new Array(v.length).fill(null); let s=0;
   for(let i=0;i<v.length;i++){ s+=v[i]; if(i>=n) s-=v[i-n]; if(i>=n-1) o[i]=s/n; } return o; }
+function smaN(a, n){ const o=new Array(a.length).fill(null);
+  for(let i=n-1;i<a.length;i++){ let s=0, ok=true;
+    for(let j=i-n+1;j<=i;j++){ if(a[j]==null){ ok=false; break; } s+=a[j]; }
+    if(ok) o[i]=s/n; } return o; }
+function rmaN(a, n){ const o=new Array(a.length).fill(null);
+  let st=-1; for(let i=0;i<a.length;i++){ if(a[i]!=null){ st=i; break; } }
+  if(st<0 || st+n>a.length) return o;
+  let s=0; for(let i=st;i<st+n;i++) s+=a[i]; let v=s/n; o[st+n-1]=v;
+  for(let i=st+n;i<a.length;i++){ v=(v*(n-1)+a[i])/n; o[i]=v; } return o; }
 function stdArr(v, n, mid){ const o=new Array(v.length).fill(null);
   for(let i=n-1;i<v.length;i++){ let s=0;
     for(let j=i-n+1;j<=i;j++){ const d=v[j]-mid[i]; s+=d*d; } o[i]=Math.sqrt(s/n); } return o; }
@@ -127,24 +147,166 @@ function haCalc(cd){ const o=[]; let po=null, pc=null;
     const op= po==null? (a[1]+a[4])/2 : (po+pc)/2;
     o.push([a[0], op, Math.max(a[2],op,c), Math.min(a[3],op,c), c, a[5]]); po=op; pc=c; }
   return o; }
+function trArr(cd){ const o=new Array(cd.length).fill(null);
+  if(cd.length<1) return o;
+  o[0]=cd[0][2]-cd[0][3];
+  for(let i=1;i<cd.length;i++){ const h=cd[i][2], l=cd[i][3], pc=cd[i-1][4];
+    o[i]=Math.max(h-l, Math.abs(h-pc), Math.abs(l-pc)); } return o; }
+function hh(cd,i,n,f){ let m=-Infinity;
+  for(let j=Math.max(0,i-n+1);j<=i;j++) m=Math.max(m,cd[j][f]); return m; }
+function ll(cd,i,n,f){ let m=Infinity;
+  for(let j=Math.max(0,i-n+1);j<=i;j++) m=Math.min(m,cd[j][f]); return m; }
+function psarCalc(cd, step, max){
+  const n=cd.length; const out=new Array(n).fill(null); const side=new Array(n).fill(0);
+  if(n<3) return {v:out, s:side};
+  let up=cd[1][4]>=cd[0][4];
+  let ep= up? cd[0][2]:cd[0][3];
+  let sar= up? cd[0][3]:cd[0][2];
+  let af=step;
+  for(let i=1;i<n;i++){
+    sar = sar + af*(ep-sar);
+    const l1=cd[i-1][3], h1=cd[i-1][2];
+    const l2= i>=2? cd[i-2][3]:l1, h2= i>=2? cd[i-2][2]:h1;
+    if(up) sar=Math.min(sar,l1,l2); else sar=Math.max(sar,h1,h2);
+    const hit = up? cd[i][3]<sar : cd[i][2]>sar;
+    if(hit){ up=!up; sar=ep; ep= up? cd[i][2]:cd[i][3]; af=step; }
+    else { if(up && cd[i][2]>ep){ ep=cd[i][2]; af=Math.min(max,af+step); }
+           else if(!up && cd[i][3]<ep){ ep=cd[i][3]; af=Math.min(max,af+step); } }
+    out[i]=sar; side[i]= up?1:-1;
+  }
+  return {v:out, s:side}; }
+function stCalc(cd, n, mult){
+  const len=cd.length; const u=new Array(len).fill(null), d=new Array(len).fill(null);
+  const tr=trArr(cd); const atr=rmaN(tr,n);
+  let trend=1, fub=null, fbl=null;
+  for(let i=n-1;i<len;i++){ if(atr[i]==null) continue;
+    const mid=(cd[i][2]+cd[i][3])/2;
+    const bu=mid+mult*atr[i], bl=mid-mult*atr[i];
+    if(fub==null){ fub=bu; fbl=bl; }
+    else{ fub = (bu<fub || cd[i-1][4]>fub)? bu : fub;
+          fbl = (bl>fbl || cd[i-1][4]<fbl)? bl : fbl; }
+    if(trend===1 && cd[i][4]<fbl) trend=-1;
+    else if(trend===-1 && cd[i][4]>fub) trend=1;
+    if(trend===1) u[i]=fbl; else d[i]=fub; }
+  return {u:u, d:d}; }
+function stochCalc(cd, n, k, d){
+  const raw=new Array(cd.length).fill(null);
+  for(let i=n-1;i<cd.length;i++){ const hv=hh(cd,i,n,2), lv=ll(cd,i,n,3);
+    raw[i]= hv===lv? 50 : (cd[i][4]-lv)/(hv-lv)*100; }
+  const K=smaN(raw,k), D=smaN(K,d);
+  return {k:K, d:D}; }
+function srsiCalc(cd, nS, nSt, k, d){
+  const r=rsiArr(cd.map(a=>a[4]), nS);
+  const raw=new Array(cd.length).fill(null);
+  for(let i=0;i<cd.length;i++){ if(r[i]==null) continue;
+    let mn=Infinity, mx=-Infinity, ok=true;
+    for(let j=i-nSt+1;j<=i;j++){ if(j<0||r[j]==null){ ok=false; break; }
+      mn=Math.min(mn,r[j]); mx=Math.max(mx,r[j]); }
+    if(ok) raw[i]= mx===mn? 50 : (r[i]-mn)/(mx-mn)*100; }
+  const K=smaN(raw,k), D=smaN(K,d);
+  return {k:K, d:D}; }
+function cciCalc(cd, n){
+  const tp=cd.map(a=>(a[1]+a[2]+a[3]+a[4])/4);
+  const m=smaArr(tp,n); const o=new Array(cd.length).fill(null);
+  for(let i=n-1;i<cd.length;i++){ if(m[i]==null) continue;
+    let md=0; for(let j=i-n+1;j<=i;j++) md+=Math.abs(tp[j]-m[i]);
+    md/=n; o[i]= md===0? 0 : (tp[i]-m[i])/(0.015*md); }
+  return o; }
+function wrCalc(cd, n){ const o=new Array(cd.length).fill(null);
+  for(let i=n-1;i<cd.length;i++){ const hv=hh(cd,i,n,2), lv=ll(cd,i,n,3);
+    o[i]= hv===lv? -50 : -100*(hv-cd[i][4])/(hv-lv); } return o; }
+function atrCalc(cd, n){ return rmaN(trArr(cd), n); }
+function adxCalc(cd, n){
+  const len=cd.length;
+  const pdm=new Array(len).fill(0), mdm=new Array(len).fill(0);
+  for(let i=1;i<len;i++){ const up=cd[i][2]-cd[i-1][2], dn=cd[i-1][3]-cd[i][3];
+    pdm[i]= (up>dn && up>0)? up:0; mdm[i]= (dn>up && dn>0)? dn:0; }
+  const tr=rmaN(trArr(cd),n);
+  const p=rmaN(pdm,n), m=rmaN(mdm,n);
+  const pdi=new Array(len).fill(null), mdi=new Array(len).fill(null), dx=new Array(len).fill(null);
+  for(let i=n;i<len;i++){ if(tr[i]==null||p[i]==null||m[i]==null) continue;
+    if(tr[i]===0) continue;
+    pdi[i]=100*p[i]/tr[i]; mdi[i]=100*m[i]/tr[i];
+    const s=pdi[i]+mdi[i]; dx[i]= s===0? 0 : 100*Math.abs(pdi[i]-mdi[i])/s; }
+  return {adx:rmaN(dx,n), pdi:pdi, mdi:mdi}; }
+function obvCalc(cd){ const o=new Array(cd.length).fill(0);
+  for(let i=1;i<cd.length;i++){ const v=cd[i][5]||0;
+    const dvi= cd[i][4]>cd[i-1][4]? v : (cd[i][4]<cd[i-1][4]? -v : 0);
+    o[i]=o[i-1]+dvi; } return o; }
+function mfiCalc(cd, n){
+  const o=new Array(cd.length).fill(null); const qp=[], qn=[];
+  for(let i=1;i<cd.length;i++){
+    const tp=(cd[i][1]+cd[i][2]+cd[i][3]+cd[i][4])/4;
+    const pp=(cd[i-1][1]+cd[i-1][2]+cd[i-1][3]+cd[i-1][4])/4;
+    const v=cd[i][5]||0;
+    const fl= tp>pp? v*tp : (tp<pp? -v*tp : 0);
+    qp.push(fl>0?fl:0); qn.push(fl<0?-fl:0);
+    if(qp.length>n){ qp.shift(); qn.shift(); }
+    if(qp.length===n){ let s=0,t=0; for(const x of qp) s+=x; for(const x of qn) t+=x;
+      o[i]= t===0? 100 : 100-100/(1+s/t); } }
+  return o; }
+function pivCalc(cd){
+  const days={};
+  for(const a of cd){ const d=new Date(a[0]*1000);
+    const k=d.getUTCFullYear()+'-'+d.getUTCMonth()+'-'+d.getUTCDate();
+    if(!days[k]) days[k]={h:-Infinity, l:Infinity, c:a[4]};
+    days[k].h=Math.max(days[k].h,a[2]); days[k].l=Math.min(days[k].l,a[3]); days[k].c=a[4]; }
+  const keys=Object.keys(days); if(keys.length<2) return null;
+  const p=days[keys[keys.length-2]];
+  const P=(p.h+p.l+p.c)/3;
+  return { P:P, R1:2*P-p.l, S1:2*P-p.h, R2:P+(p.h-p.l), S2:P-(p.h-p.l),
+           R3:p.h+2*(P-p.l), S3:p.l-2*(p.h-P) }; }
+function ichiCalc(cd, sec){
+  const n=cd.length; const closes=cd.map(a=>a[4]);
+  const tenkan=new Array(n).fill(null), kijun=new Array(n).fill(null), spanB=new Array(n).fill(null);
+  for(let i=8;i<n;i++) tenkan[i]=(hh(cd,i,9,2)+ll(cd,i,9,3))/2;
+  for(let i=25;i<n;i++) kijun[i]=(hh(cd,i,26,2)+ll(cd,i,26,3))/2;
+  for(let i=51;i<n;i++) spanB[i]=(hh(cd,i,52,2)+ll(cd,i,52,3))/2;
+  const spanA=new Array(n).fill(null);
+  for(let i=0;i<n;i++) if(tenkan[i]!=null && kijun[i]!=null) spanA[i]=(tenkan[i]+kijun[i])/2;
+  const chik=new Array(n).fill(null);
+  for(let i=26;i<n;i++) chik[i-26]=closes[i];
+  const lastT=cd[n-1][0];
+  function futT(idx){ return idx<n? cd[idx][0] : lastT+(idx-(n-1))*sec; }
+  const A=[], B=[];
+  for(let i=0;i<n;i++){
+    if(spanA[i]!=null) A.push({time:futT(i+26), value:spanA[i]});
+    if(spanB[i]!=null) B.push({time:futT(i+26), value:spanB[i]}); }
+  const C=[]; for(let i=0;i<n;i++) if(chik[i]!=null) C.push({time:cd[i][0], value:chik[i]});
+  return {tenkan:tenkan, kijun:kijun, A:A, B:B, C:C}; }
 
 const CALC = {};
 function calcFor(tf){
   if(CALC[tf]) return CALC[tf];
   const c = TFS[tf]; const t = c.map(a=>a[0]);
-  const closes = c.map(a=>a[4]); const vols = c.map(a=>a[5]);
+  const closes = c.map(a=>a[4]); const vols = c.map(a=>a[5]||0);
   const mid = smaArr(closes,20), sd = stdArr(closes,20,mid);
   const M = macdCalc(closes);
-  CALC[tf] = { t:t,
-    e20:emaArr(closes,20), e50:emaArr(closes,50), e200:emaArr(closes,200),
+  const sec = c.length>1? (c[1][0]-c[0][0]) : 900;
+  const ps = psarCalc(c, 0.02, 0.2);
+  const stx = stCalc(c, 10, 3);
+  const ad = adxCalc(c, 14);
+  const sc = stochCalc(c, 14, 3, 3);
+  const sr = srsiCalc(c, 14, 14, 3, 3);
+  CALC[tf] = { t:t, sec:sec,
+    e9:emaArr(closes,9), e20:emaArr(closes,20), e21:emaArr(closes,21),
+    e50:emaArr(closes,50), e200:emaArr(closes,200),
+    s20:mid, s50:smaArr(closes,50), s100:smaArr(closes,100), s200:smaArr(closes,200),
     bbU:mid.map((v,i)=> v==null||sd[i]==null? null : v+2*sd[i]),
     bbM:mid, bbL:mid.map((v,i)=> v==null||sd[i]==null? null : v-2*sd[i]),
     vw:vwapCalc(c), volma:smaArr(vols,20),
-    rsi:rsiArr(closes,14), m:M.m, sig:M.sig, h:M.h };
+    psar:ps.v, psarS:ps.s, stU:stx.u, stD:stx.d,
+    rsi:rsiArr(closes,14), m:M.m, sig:M.sig, h:M.h,
+    stoK:sc.k, stoD:sc.d, srK:sr.k, srD:sr.d,
+    cci:cciCalc(c,20), wr:wrCalc(c,14),
+    adx:ad.adx, pdi:ad.pdi, mdi:ad.mdi,
+    atr:atrCalc(c,14), obv:obvCalc(c), mfi:mfiCalc(c,14),
+    piv:pivCalc(c), ichi:ichiCalc(c, sec) };
   return CALC[tf];
 }
 function zip(t, arr){ const o=[]; for(let i=0;i<t.length;i++) if(arr[i]!=null) o.push({time:t[i], value:arr[i]}); return o; }
 function CAND(){ return TFS[S.tf] || []; }
+function SEC(){ const c=CAND(); return c.length>1? (c[1][0]-c[0][0]) : 900; }
 let IDX = new Map();
 function buildIdx(){ IDX = new Map(CAND().map((a,i)=>[a[0], i])); }
 
@@ -170,35 +332,160 @@ const chartMain = mkChart(document.getElementById('chart'), {
   watermark: { visible:true, text:DATA.symbol, fontSize:46, color:'rgba(148,163,184,0.05)',
                fontFamily:MONO, fontStyle:'' },
 });
-const chartRsi  = mkChart(document.getElementById('rsiChart'),  { timeScale:{visible:false}, rightPriceScale:{scaleMargins:{top:0.12,bottom:0.12}} });
-const chartMacd = mkChart(document.getElementById('macdChart'), { timeScale:{visible:false}, rightPriceScale:{scaleMargins:{top:0.12,bottom:0.12}} });
 chartMain._el = document.getElementById('chart');
-chartRsi._el  = document.getElementById('rsiChart');
-chartMacd._el = document.getElementById('macdChart');
 
 const fmtP = v => v==null ? '—' : Number(v).toLocaleString('en-US',{minimumFractionDigits:DEC, maximumFractionDigits:DEC});
 function fmtV(v){ if(v==null) return '—';
   if(v>=1e9) return (v/1e9).toFixed(2)+'B'; if(v>=1e6) return (v/1e6).toFixed(2)+'M';
   if(v>=1e3) return (v/1e3).toFixed(2)+'K'; return v.toFixed(2); }
+function F1(v){ return v==null? '—' : v.toFixed(1); }
+function F4(v){ if(v==null) return '—'; const a=Math.abs(v);
+  return a<0.01? v.toFixed(6) : a<1000? v.toFixed(4) : v.toFixed(1); }
 function fmtDur(sec){ sec=Math.round(Math.abs(sec));
   const d=Math.floor(sec/86400), h=Math.floor(sec%86400/3600), m=Math.floor(sec%3600/60);
   if(d) return d+'d '+h+'h'; if(h) return h+'h '+m+'m'; return m+'m'; }
 
+/* ---------- پنل‌های اندیکاتور (ساخت پویا) ------------------------------ */
+const PANE_DEFS = [
+  {k:'rsi',  h:112, t:'RSI 14'},
+  {k:'macd', h:130, t:'MACD 12·26·9'},
+  {k:'stoch',h:112, t:'استوکاستیک 14·3·3'},
+  {k:'srsi', h:112, t:'استوک RSI 14·14·3·3'},
+  {k:'cci',  h:112, t:'CCI 20'},
+  {k:'wr',   h:112, t:'Williams %R 14'},
+  {k:'adx',  h:132, t:'ADX / DMI 14'},
+  {k:'atr',  h:96,  t:'ATR 14'},
+  {k:'obv',  h:110, t:'OBV'},
+  {k:'mfi',  h:112, t:'MFI 14'},
+];
+const PANE = {};
+(function buildPanes(){
+  const host = document.getElementById('panes');
+  for(const d of PANE_DEFS){
+    const el = document.createElement('div');
+    el.className='subpane'; el.id='pane-'+d.k; el.style.height=d.h+'px';
+    el.innerHTML = '<div class="pch" id="pch-'+d.k+'"></div>'
+                 + '<div class="sublegend" id="leg-'+d.k+'">'+d.t+' · <b>—</b></div>';
+    host.appendChild(el);
+    const ch = mkChart(document.getElementById('pch-'+d.k),
+      { timeScale:{visible:false}, rightPriceScale:{scaleMargins:{top:0.13,bottom:0.13}} });
+    ch._el = document.getElementById('pch-'+d.k);
+    PANE[d.k] = { el:el, chart:ch, def:d, s:{} };
+  }
+})();
+function pline(ch, opts){ return ch.addLineSeries(Object.assign(
+  { lineWidth:1.4, priceLineVisible:false, lastValueVisible:false, crosshairMarkerVisible:false }, opts)); }
+function guide(series, price, col){ series.createPriceLine({ price:price, color:col, lineWidth:1,
+  lineStyle:LightweightCharts.LineStyle.Dashed, axisLabelVisible:true, title:'' }); }
+function fixScale(lo, hi){ return { autoscaleInfoProvider: () => ({ priceRange:{ minValue:lo, maxValue:hi } }) }; }
+
+(function buildPaneSeries(){
+  const P = PANE;
+  P.rsi.s.main = pline(P.rsi.chart,  Object.assign({color:'#7e57c2', lineWidth:1.5}, fixScale(0,100)));
+  guide(P.rsi.s.main, 70, 'rgba(148,163,184,0.35)'); guide(P.rsi.s.main, 30, 'rgba(148,163,184,0.35)');
+
+  P.macd.s.m    = pline(P.macd.chart, {color:'#2962ff', lineWidth:1.5});
+  P.macd.s.sig  = pline(P.macd.chart, {color:'#ff9800', lineWidth:1.5});
+  P.macd.s.hist = P.macd.chart.addHistogramSeries({ priceLineVisible:false, lastValueVisible:false });
+  guide(P.macd.s.m, 0, 'rgba(148,163,184,0.3)');
+
+  P.stoch.s.k = pline(P.stoch.chart, Object.assign({color:'#2962ff', lineWidth:1.6}, fixScale(0,100)));
+  P.stoch.s.d = pline(P.stoch.chart, {color:'#ff9800', lineWidth:1.3});
+  guide(P.stoch.s.k, 80, 'rgba(148,163,184,0.35)'); guide(P.stoch.s.k, 20, 'rgba(148,163,184,0.35)');
+
+  P.srsi.s.k = pline(P.srsi.chart, Object.assign({color:'#a855f7', lineWidth:1.6}, fixScale(0,100)));
+  P.srsi.s.d = pline(P.srsi.chart, {color:'#26a69a', lineWidth:1.3});
+  guide(P.srsi.s.k, 80, 'rgba(148,163,184,0.35)'); guide(P.srsi.s.k, 20, 'rgba(148,163,184,0.35)');
+
+  P.cci.s.main = pline(P.cci.chart, {color:'#ff9800', lineWidth:1.4});
+  guide(P.cci.s.main, 100, 'rgba(148,163,184,0.35)'); guide(P.cci.s.main, -100, 'rgba(148,163,184,0.35)');
+
+  P.wr.s.main = pline(P.wr.chart, Object.assign({color:'#ef5350', lineWidth:1.4}, fixScale(-100,0)));
+  guide(P.wr.s.main, -20, 'rgba(148,163,184,0.35)'); guide(P.wr.s.main, -80, 'rgba(148,163,184,0.35)');
+
+  P.adx.s.a   = pline(P.adx.chart, {color:'#b2b5be', lineWidth:1.8});
+  P.adx.s.p   = pline(P.adx.chart, {color:'#26a69a', lineWidth:1.2});
+  P.adx.s.m   = pline(P.adx.chart, {color:'#ef5350', lineWidth:1.2});
+  guide(P.adx.s.a, 20, 'rgba(148,163,184,0.35)');
+
+  P.atr.s.main = pline(P.atr.chart, {color:'#f59e0b', lineWidth:1.4});
+  P.obv.s.main = pline(P.obv.chart, {color:'#2962ff', lineWidth:1.4});
+  P.mfi.s.main = pline(P.mfi.chart, Object.assign({color:'#a855f7', lineWidth:1.4}, fixScale(0,100)));
+  guide(P.mfi.s.main, 80, 'rgba(148,163,184,0.35)'); guide(P.mfi.s.main, 20, 'rgba(148,163,184,0.35)');
+})();
+
+/* ---------- داده‌ی پنل‌ها ---------------------------------------------- */
+const FILL = {
+  rsi(){ const K=calcFor(S.tf); PANE.rsi.s.main.setData(zip(K.t, K.rsi)); },
+  macd(){ const K=calcFor(S.tf);
+    PANE.macd.s.m.setData(zip(K.t, K.m)); PANE.macd.s.sig.setData(zip(K.t, K.sig));
+    PANE.macd.s.hist.setData(K.t.map((t,i)=>{
+      const v=K.h[i]; if(v==null) return null;
+      const pv=K.h[i-1];
+      const col = v>=0 ? (pv!=null && v>=pv ? 'rgba(38,166,154,0.65)' : 'rgba(38,166,154,0.28)')
+                       : (pv!=null && v<=pv ? 'rgba(239,83,80,0.65)'  : 'rgba(239,83,80,0.28)');
+      return {time:t, value:v, color:col};
+    }).filter(Boolean)); },
+  stoch(){ const K=calcFor(S.tf);
+    PANE.stoch.s.k.setData(zip(K.t, K.stoK)); PANE.stoch.s.d.setData(zip(K.t, K.stoD)); },
+  srsi(){ const K=calcFor(S.tf);
+    PANE.srsi.s.k.setData(zip(K.t, K.srK)); PANE.srsi.s.d.setData(zip(K.t, K.srD)); },
+  cci(){ const K=calcFor(S.tf); PANE.cci.s.main.setData(zip(K.t, K.cci)); },
+  wr(){ const K=calcFor(S.tf); PANE.wr.s.main.setData(zip(K.t, K.wr)); },
+  adx(){ const K=calcFor(S.tf);
+    PANE.adx.s.a.setData(zip(K.t, K.adx)); PANE.adx.s.p.setData(zip(K.t, K.pdi));
+    PANE.adx.s.m.setData(zip(K.t, K.mdi)); },
+  atr(){ const K=calcFor(S.tf); PANE.atr.s.main.setData(zip(K.t, K.atr)); },
+  obv(){ const K=calcFor(S.tf); PANE.obv.s.main.setData(zip(K.t, K.obv)); },
+  mfi(){ const K=calcFor(S.tf); PANE.mfi.s.main.setData(zip(K.t, K.mfi)); },
+};
+function rebuildAllPanes(){ for(const k in FILL) FILL[k](); }
+/* ---------- سری اصلی + اندیکاتورهای روکش ------------------------------- */
 let mainSeries=null, volSeries=null; const IND={}; let priceLines=[];
 function rm(s){ if(s){ try{ chartMain.removeSeries(s); }catch(e){} } }
 
-const IND_META = [
-  ['ema20','EMA 20','#2962ff'], ['ema50','EMA 50','#ff9800'], ['ema200','EMA 200','#e91e63'],
+const IND_MENU = [
+  ['_g','میانگین‌های متحرک'],
+  ['ema9','EMA 9','#00bcd4'], ['ema20','EMA 20','#2962ff'], ['ema21','EMA 21','#8d6e63'],
+  ['ema50','EMA 50','#ff9800'], ['ema200','EMA 200','#e91e63'],
+  ['sma20','SMA 20','#f23645'], ['sma50','SMA 50','#089981'],
+  ['sma100','SMA 100','#7e57c2'], ['sma200','SMA 200','#fbc02d'],
+  ['_g','روند'],
+  ['psar','Parabolic SAR','#26a69a'], ['st','SuperTrend (10,3)','#00e676'],
+  ['ichi','ایچیموکو (9,26,52)','#5b8def'],
+  ['_g','باندها و سطوح'],
   ['bb','باندهای بولینگر (20,2)','#94a3b8'], ['vwap','VWAP (روزانه)','#f59e0b'],
-  ['volma','میانگین حجم ۲۰','#8ea1c0'], ['rsi','RSI (14) — پنل جداگانه','#7e57c2'],
-  ['macd','MACD (12,26,9) — پنل جداگانه','#26a69a'],
+  ['piv','پیوت‌پوینت روزانه','#8ea1c0'],
+  ['_g','نوسان‌گرها — پنل جداگانه'],
+  ['rsi','RSI (14)','#7e57c2'], ['macd','MACD (12,26,9)','#26a69a'],
+  ['stoch','استوکاستیک (14,3,3)','#2962ff'], ['srsi','استوک RSI (14,14,3,3)','#a855f7'],
+  ['cci','CCI (20)','#ff9800'], ['wr','ویلیامز %R (14)','#ef5350'],
+  ['adx','ADX / DMI (14)','#b2b5be'], ['atr','ATR (14)','#f59e0b'],
+  ['_g','حجم'],
+  ['vol','هیستوگرام حجم','#26a69a'], ['volma','میانگین حجم ۲۰','#8ea1c0'],
+  ['obv','OBV — پنل جداگانه','#2962ff'], ['mfi','MFI (14) — پنل جداگانه','#a855f7'],
 ];
+const VIS = { e9:'ema9', e20:'ema20', e21:'ema21', e50:'ema50', e200:'ema200',
+  s20:'sma20', s50:'sma50', s100:'sma100', s200:'sma200',
+  bbU:'bb', bbM:'bb', bbL:'bb', vwap:'vwap', volma:'volma',
+  stU:'st', stD:'st', ichiT:'ichi', ichiK:'ichi', ichiA:'ichi', ichiB:'ichi', ichiC:'ichi' };
+
+function applyMarkers(){
+  if(!mainSeries) return;
+  if(!S.ind.psar){ mainSeries.setMarkers([]); return; }
+  const K = calcFor(S.tf); const c = CAND();
+  const mks = [];
+  for(let i=0;i<c.length;i++){ const v=K.psar[i]; if(v==null) continue;
+    mks.push({ time:c[i][0], position: K.psarS[i]===1? 'belowBar':'aboveBar',
+               color: K.psarS[i]===1? '#26a69a':'#ef5350', shape:'circle' }); }
+  mainSeries.setMarkers(mks);
+}
 
 function rebuildMain(keepRange){
   const prev = keepRange ? chartMain.timeScale().getVisibleLogicalRange() : null;
   rm(mainSeries); rm(volSeries);
   for(const k in IND) rm(IND[k]);
-  IND.e20=IND.e50=IND.e200=IND.bbU=IND.bbM=IND.bbL=IND.vwap=IND.volma=null;
+  for(const k in IND) IND[k]=null;
   const c = CAND(); if(c.length<2) return;
   const up='#26a69a', dn='#ef5350';
   const pf = { type:'price', precision:DEC, minMove:Math.pow(10,-DEC) };
@@ -207,6 +494,7 @@ function rebuildMain(keepRange){
   chartMain.priceScale('vol').applyOptions({ scaleMargins:{top:0.8, bottom:0} });
   volSeries.setData(c.filter(a=>a[5]!=null).map(a=>({time:a[0], value:a[5],
     color: a[4]>=a[1] ? 'rgba(38,166,154,0.5)' : 'rgba(239,83,80,0.5)'})));
+  volSeries.applyOptions({ visible: !!S.ind.vol });
 
   const isHA = S.type==='heikin';
   const src = isHA ? haCalc(c) : c;
@@ -232,20 +520,32 @@ function rebuildMain(keepRange){
   const mk=(key,opts)=>{ IND[key]=chartMain.addLineSeries(Object.assign(
     { priceLineVisible:false, lastValueVisible:false, crosshairMarkerVisible:false, visible:false }, opts));
     return IND[key]; };
-  mk('ema20',{color:'#2962ff', lineWidth:1.6}).setData(zip(K.t, K.e20));
-  mk('ema50',{color:'#ff9800', lineWidth:1.6}).setData(zip(K.t, K.e50));
-  mk('ema200',{color:'#e91e63', lineWidth:1.6}).setData(zip(K.t, K.e200));
+  mk('e9',  {color:'#00bcd4', lineWidth:1.4}).setData(zip(K.t, K.e9));
+  mk('e20', {color:'#2962ff', lineWidth:1.6}).setData(zip(K.t, K.e20));
+  mk('e21', {color:'#8d6e63', lineWidth:1.4}).setData(zip(K.t, K.e21));
+  mk('e50', {color:'#ff9800', lineWidth:1.6}).setData(zip(K.t, K.e50));
+  mk('e200',{color:'#e91e63', lineWidth:1.6}).setData(zip(K.t, K.e200));
+  mk('s20', {color:'#f23645', lineWidth:1.4}).setData(zip(K.t, K.s20));
+  mk('s50', {color:'#089981', lineWidth:1.4}).setData(zip(K.t, K.s50));
+  mk('s100',{color:'#7e57c2', lineWidth:1.4}).setData(zip(K.t, K.s100));
+  mk('s200',{color:'#fbc02d', lineWidth:1.4}).setData(zip(K.t, K.s200));
   mk('bbU',{color:'rgba(148,163,184,0.45)', lineWidth:1}).setData(zip(K.t, K.bbU));
   mk('bbM',{color:'rgba(148,163,184,0.28)', lineWidth:1, lineStyle:2}).setData(zip(K.t, K.bbM));
   mk('bbL',{color:'rgba(148,163,184,0.45)', lineWidth:1}).setData(zip(K.t, K.bbL));
   mk('vwap',{color:'#f59e0b', lineWidth:1.6}).setData(zip(K.t, K.vw));
-  mk('volma',{color:'#8ea1c0', lineWidth:1, priceScaleId:'vol', priceLineVisible:false,
-    lastValueVisible:false, crosshairMarkerVisible:false}).setData(zip(K.t, K.volma));
+  mk('volma',{color:'#8ea1c0', lineWidth:1, priceScaleId:'vol'}).setData(zip(K.t, K.volma));
   chartMain.priceScale('vol').applyOptions({ scaleMargins:{top:0.8, bottom:0} });
-  const visMap = { ema20:'ema20', ema50:'ema50', ema200:'ema200', vwap:'vwap', volma:'volma',
-                   bbU:'bb', bbL:'bb', bbM:'bb' };
-  for(const k of ['ema20','ema50','ema200','bbU','bbM','bbL','vwap','volma'])
-    IND[k].applyOptions({ visible: !!S.ind[visMap[k]] });
+  mk('stU',{color:'#00e676', lineWidth:1.8}).setData(zip(K.t, K.stU));
+  mk('stD',{color:'#ff5252', lineWidth:1.8}).setData(zip(K.t, K.stD));
+  mk('ichiT',{color:'#2962ff', lineWidth:1.1}).setData(zip(K.t, K.ichi.tenkan));
+  mk('ichiK',{color:'#f23645', lineWidth:1.1}).setData(zip(K.t, K.ichi.kijun));
+  mk('ichiA',{color:'rgba(38,166,154,0.55)', lineWidth:1}).setData(K.ichi.A);
+  mk('ichiB',{color:'rgba(239,83,80,0.55)',  lineWidth:1}).setData(K.ichi.B);
+  mk('ichiC',{color:'rgba(168,85,247,0.5)',  lineWidth:1}).setData(K.ichi.C);
+  for(const k of Object.keys(VIS))
+    if(IND[k]) IND[k].applyOptions({ visible: !!S.ind[VIS[k]] });
+
+  applyMarkers();
 
   priceLines = [];
   if(S.tf===DATA.base_tf){
@@ -255,33 +555,16 @@ function rebuildMain(keepRange){
         axisLabelVisible:true, title:lv.name }));
     }
   }
+  if(S.ind.piv && SEC() < 86400 && K.piv){
+    const pv = K.piv;
+    const defs = [['P',pv.P,'#f59e0b'], ['R1',pv.R1,'#ef5350'], ['R2',pv.R2,'#ef5350'],
+                  ['R3',pv.R3,'#ef5350'], ['S1',pv.S1,'#26a69a'], ['S2',pv.S2,'#26a69a'],
+                  ['S3',pv.S3,'#26a69a']];
+    for(const d of defs)
+      priceLines.push(mainSeries.createPriceLine({ price:d[1], color:d[2], lineWidth:1,
+        lineStyle:LightweightCharts.LineStyle.Dotted, axisLabelVisible:true, title:d[0] }));
+  }
   if(prev) chartMain.timeScale().setVisibleLogicalRange(prev);
-}
-
-const rsiSeries = chartRsi.addLineSeries({ color:'#7e57c2', lineWidth:1.5, priceLineVisible:false,
-  autoscaleInfoProvider: () => ({ priceRange: { minValue: 0, maxValue: 100 } }) });
-rsiSeries.createPriceLine({ price:70, color:'rgba(148,163,184,0.35)', lineWidth:1,
-  lineStyle:LightweightCharts.LineStyle.Dashed, axisLabelVisible:true, title:'' });
-rsiSeries.createPriceLine({ price:30, color:'rgba(148,163,184,0.35)', lineWidth:1,
-  lineStyle:LightweightCharts.LineStyle.Dashed, axisLabelVisible:true, title:'' });
-const macdLine = chartMacd.addLineSeries({ color:'#2962ff', lineWidth:1.5, priceLineVisible:false, lastValueVisible:false, crosshairMarkerVisible:false });
-const sigLine  = chartMacd.addLineSeries({ color:'#ff9800', lineWidth:1.5, priceLineVisible:false, lastValueVisible:false, crosshairMarkerVisible:false });
-const macdHist = chartMacd.addHistogramSeries({ priceLineVisible:false, lastValueVisible:false });
-macdLine.createPriceLine({ price:0, color:'rgba(148,163,184,0.3)', lineWidth:1,
-  lineStyle:LightweightCharts.LineStyle.Dashed, axisLabelVisible:false, title:'' });
-
-function rebuildSubs(){
-  const K = calcFor(S.tf);
-  rsiSeries.setData(zip(K.t, K.rsi));
-  macdLine.setData(zip(K.t, K.m));
-  sigLine.setData(zip(K.t, K.sig));
-  macdHist.setData(K.t.map((t,i)=>{
-    const v=K.h[i]; if(v==null) return null;
-    const pv=K.h[i-1];
-    const col = v>=0 ? (pv!=null && v>=pv ? 'rgba(38,166,154,0.65)' : 'rgba(38,166,154,0.28)')
-                     : (pv!=null && v<=pv ? 'rgba(239,83,80,0.65)'  : 'rgba(239,83,80,0.28)');
-    return {time:t, value:v, color:col};
-  }).filter(Boolean));
 }
 
 /* ---------- لجند ------------------------------------------------------ */
@@ -307,23 +590,68 @@ function setIndLegend(time){
   if(!K || i==null){ lind.innerHTML=''; return; }
   const rows=[];
   const add=(col,lbl,val)=>{ if(val!=null) rows.push('<span class="ik" style="color:'+col+'">'+lbl+' '+fmtP(val)+'</span>'); };
+  if(S.ind.ema9)  add('#00bcd4','EMA9',K.e9[i]);
   if(S.ind.ema20) add('#2962ff','EMA20',K.e20[i]);
+  if(S.ind.ema21) add('#8d6e63','EMA21',K.e21[i]);
   if(S.ind.ema50) add('#ff9800','EMA50',K.e50[i]);
   if(S.ind.ema200) add('#e91e63','EMA200',K.e200[i]);
+  if(S.ind.sma20) add('#f23645','SMA20',K.s20[i]);
+  if(S.ind.sma50) add('#089981','SMA50',K.s50[i]);
+  if(S.ind.sma100) add('#7e57c2','SMA100',K.s100[i]);
+  if(S.ind.sma200) add('#fbc02d','SMA200',K.s200[i]);
   if(S.ind.bb && K.bbU[i]!=null) rows.push('<span class="ik" style="color:#94a3b8">BB '+fmtP(K.bbU[i])+' / '+fmtP(K.bbL[i])+'</span>');
   if(S.ind.vwap) add('#f59e0b','VWAP',K.vw[i]);
+  if(S.ind.st) rows.push('<span class="ik" style="color:'+(K.stU[i]!=null?'#00e676':'#ff5252')+'">ST '+fmtP(K.stU[i]!=null?K.stU[i]:K.stD[i])+'</span>');
+  if(S.ind.psar && K.psar[i]!=null) add(K.psarS[i]===1?'#26a69a':'#ef5350','PSAR',K.psar[i]);
+  if(S.ind.ichi && K.ichi.tenkan[i]!=null) rows.push('<span class="ik" style="color:#5b8def">ICH '+fmtP(K.ichi.tenkan[i])+' / '+fmtP(K.ichi.kijun[i])+'</span>');
   lind.innerHTML = rows.join('');
 }
-function setSubLegends(time){
+function paneLegendHTML(k, K, i){
+  const sp=(col,txt)=> '<span style="color:'+col+'">'+txt+'</span>';
+  if(k==='rsi')  return sp('#7e57c2', F1(K.rsi[i]));
+  if(k==='macd') return sp('#2962ff',F4(K.m[i]))+' '+sp('#ff9800',F4(K.sig[i]))+' '
+                      + sp(K.h[i]==null||K.h[i]>=0?'#26a69a':'#ef5350', F4(K.h[i]));
+  if(k==='stoch') return sp('#2962ff','K '+F1(K.stoK[i]))+' '+sp('#ff9800','D '+F1(K.stoD[i]));
+  if(k==='srsi') return sp('#a855f7','K '+F1(K.srK[i]))+' '+sp('#26a69a','D '+F1(K.srD[i]));
+  if(k==='cci')  return sp('#ff9800', F1(K.cci[i]));
+  if(k==='wr')   return sp('#ef5350', F1(K.wr[i]));
+  if(k==='adx')  return sp('#b2b5be',F1(K.adx[i]))+' '+sp('#26a69a','+DI '+F1(K.pdi[i]))+' '+sp('#ef5350','−DI '+F1(K.mdi[i]));
+  if(k==='atr')  return sp('#f59e0b', fmtP(K.atr[i]));
+  if(k==='obv')  return sp('#2962ff', fmtV(K.obv[i]));
+  if(k==='mfi')  return sp('#a855f7', F1(K.mfi[i]));
+  return '';
+}
+function updatePaneLegends(time){
   const K = CALC[S.tf]; const i = IDX.get(time);
-  document.getElementById('rsiVal').textContent = (K && i!=null && K.rsi[i]!=null)? K.rsi[i].toFixed(1) : '—';
-  if(K && i!=null){
-    document.getElementById('macdVal').textContent =
-      (K.m[i]!=null?K.m[i].toFixed(4):'—') + ' · ' + (K.sig[i]!=null?K.sig[i].toFixed(4):'—') + ' · ' + (K.h[i]!=null?K.h[i].toFixed(4):'—');
-  } else document.getElementById('macdVal').textContent = '—';
+  for(const k in PANE){
+    if(!S.ind[k]) continue;
+    const el = document.getElementById('leg-'+k);
+    el.innerHTML = PANE[k].def.t + ' · <b>' + ((K && i!=null)? paneLegendHTML(k,K,i) : '—') + '</b>';
+  }
 }
 function updateTitle(){ ltitle.textContent = DATA.symbol + ' · ' + (TF_LBL[S.tf]||S.tf); }
 
+/* ---------- همگام‌سازی کراس‌هیر و محور زمان ---------------------------- */
+const ALLCH = () => [chartMain].concat(Object.keys(PANE).map(k=>PANE[k].chart));
+let syncing = false;
+let suppressed = false;
+function syncFrom(src){
+  if(syncing || suppressed) return; syncing = true;
+  const r = src.timeScale().getVisibleLogicalRange();
+  if(r) for(const c of ALLCH()){
+    if(c!==src && c._el && c._el.clientWidth>0){ try{ c.timeScale().setVisibleLogicalRange(r); }catch(e){} }
+  }
+  syncing = false;
+}
+let lastT = {};
+function setCross(ch, key, price, t, series){
+  if(lastT[key]===t) return; lastT[key]=t;
+  try{ ch.setCrosshairPosition(price, t, series); }catch(e){}
+}
+function clearCross(key, ch){
+  if(lastT[key]==null) return; lastT[key]=null;
+  try{ ch.clearCrosshairPosition(); }catch(e){}
+}
 chartMain.subscribeCrosshairMove(param => {
   if(param && param.time && param.seriesData){
     const c = param.seriesData.get(mainSeries);
@@ -333,42 +661,48 @@ chartMain.subscribeCrosshairMove(param => {
       const a = CAND()[IDX.get(c.time)];
       setLegend({t:c.time, o:isOHLC?c.open:cv, h:isOHLC?c.high:cv, l:isOHLC?c.low:cv, c:cv,
                  v:a?a[5]:null});
-      setIndLegend(c.time); setSubLegends(c.time);
+      setIndLegend(c.time); updatePaneLegends(c.time);
       const K=CALC[S.tf]; const i=IDX.get(c.time);
       if(K && i!=null){
-        if(K.rsi[i]!=null) chartRsi.setCrosshairPosition(K.rsi[i], c.time, rsiSeries); else chartRsi.clearCrosshairPosition();
-        if(K.m[i]!=null) chartMacd.setCrosshairPosition(K.m[i], c.time, macdLine); else chartMacd.clearCrosshairPosition();
+        for(const k in PANE){
+          if(!S.ind[k]) continue;
+          const v = PANE_VAL[k](K, i);
+          if(v!=null) setCross(PANE[k].chart, 'p:'+k, v, c.time, PANE_PRIM[k]);
+          else clearCross('p:'+k, PANE[k].chart);
+        }
       }
     }
   } else {
     const c=CAND(); const l=c.length-1; const a=c[l];
-    if(a){ setLegend({t:a[0],o:a[1],h:a[2],l:a[3],c:a[4],v:a[5]}); setIndLegend(a[0]); setSubLegends(a[0]); }
-    chartRsi.clearCrosshairPosition(); chartMacd.clearCrosshairPosition();
+    if(a){ setLegend({t:a[0],o:a[1],h:a[2],l:a[3],c:a[4],v:a[5]}); setIndLegend(a[0]); updatePaneLegends(a[0]); }
+    for(const k in PANE) clearCross('p:'+k, PANE[k].chart);
   }
 });
-chartRsi.subscribeCrosshairMove(param => {
-  if(param && param.time && param.seriesData){
-    const v = param.seriesData.get(rsiSeries);
-    const c = CAND(); const i = IDX.get(param.time);
-    if(v && i!=null && c[i]){ setSubLegends(param.time);
-      chartMain.setCrosshairPosition(c[i][4], param.time, mainSeries); }
-  } else { chartMain.clearCrosshairPosition(); }
-});
-
-/* ---------- همگام‌سازی محور زمان -------------------------------------- */
-const ALLCH = [chartMain, chartRsi, chartMacd];
-let syncing = false;
-let suppressed = false;                     // هنگام نمایش/مخفی‌شدن پنل‌ها حلقه‌ی سینک خاموش می‌شود
-function syncFrom(src){
-  if(syncing || suppressed) return; syncing = true;
-  const r = src.timeScale().getVisibleLogicalRange();
-  if(r) for(const c of ALLCH){
-    if(c!==src && c._el && c._el.clientWidth>0){ try{ c.timeScale().setVisibleLogicalRange(r); }catch(e){} }
-  }
-  syncing = false;
+for(const k in PANE){
+  const p = PANE[k];
+  p.chart.subscribeCrosshairMove(param => {
+    if(param && param.time && param.seriesData){
+      const c = CAND(); const i = IDX.get(param.time);
+      if(i!=null && c[i]){ updatePaneLegends(param.time);
+        setCross(chartMain, 'm', c[i][4], param.time, mainSeries); }
+    } else { clearCross('m', chartMain); }
+  });
 }
-for(const c of ALLCH) c.timeScale().subscribeVisibleLogicalRangeChange(()=>syncFrom(c));
-
+const PANE_PRIM = {};
+const PANE_VAL = {};
+(function definePrim(){
+  PANE_PRIM.rsi=PANE.rsi.s.main;  PANE_VAL.rsi=(K,i)=>K.rsi[i];
+  PANE_PRIM.macd=PANE.macd.s.m;   PANE_VAL.macd=(K,i)=>K.m[i];
+  PANE_PRIM.stoch=PANE.stoch.s.k; PANE_VAL.stoch=(K,i)=>K.stoK[i];
+  PANE_PRIM.srsi=PANE.srsi.s.k;   PANE_VAL.srsi=(K,i)=>K.srK[i];
+  PANE_PRIM.cci=PANE.cci.s.main;  PANE_VAL.cci=(K,i)=>K.cci[i];
+  PANE_PRIM.wr=PANE.wr.s.main;    PANE_VAL.wr=(K,i)=>K.wr[i];
+  PANE_PRIM.adx=PANE.adx.s.a;     PANE_VAL.adx=(K,i)=>K.adx[i];
+  PANE_PRIM.atr=PANE.atr.s.main;  PANE_VAL.atr=(K,i)=>K.atr[i];
+  PANE_PRIM.obv=PANE.obv.s.main;  PANE_VAL.obv=(K,i)=>K.obv[i];
+  PANE_PRIM.mfi=PANE.mfi.s.main;  PANE_VAL.mfi=(K,i)=>K.mfi[i];
+})();
+for(const c of ALLCH()) c.timeScale().subscribeVisibleLogicalRangeChange(()=>syncFrom(c));
 /* ---------- بوم پوشانو: نواحی + رسم‌ها + خط‌کش ------------------------ */
 const mainPane = document.getElementById('mainPane');
 const ovl = document.getElementById('ovl');
@@ -407,7 +741,7 @@ function xOfT(t){
   const li = i + (t-times[i]) / ((t1-times[i])||1);
   return xOfLogical(li);
 }
-function yOf(p){ return mainSeries.priceToCoordinate(p); }
+function yOf(p){ return (mainSeries && p!=null)? mainSeries.priceToCoordinate(p) : null; }
 function snapTime(x){
   const ts = chartMain.timeScale(); let li = ts.coordinateToLogical(x);
   if(li==null) return null;
@@ -416,23 +750,62 @@ function snapTime(x){
 }
 function loadDraw(){ const v = safeParse(localStorage.getItem(SK('draw:'+S.tf))); return Array.isArray(v)? v : []; }
 function saveDraw(){ try{ localStorage.setItem(SK('draw:'+S.tf), JSON.stringify(DRAWINGS)); }catch(e){} }
+function saveInd(){ try{ localStorage.setItem(SK('ind'), JSON.stringify(S.ind)); }catch(e){} }
+/* رسم‌های قدیمی (قالب تخت) → قالب جدید (تودرتو) */
+function normDraw(d){
+  if(d && typeof d.p1==='number'){
+    return { type:d.type, txt:d.txt||null,
+      p1:{ t:(d.t1!=null? d.t1:null), price:d.p1 },
+      p2: (d.p2!=null)? { t:(d.t2!=null? d.t2:null), price:d.p2 } : null };
+  }
+  return d;
+}
 
 const FIB_LV = [[0,'#f59e0b'],[0.236,'#ef5350'],[0.382,'#f59e0b'],[0.5,'#2962ff'],[0.618,'#26a69a'],[0.786,'#a855f7'],[1,'#f59e0b']];
+function drawSeg(a, b){
+  const x1=a&&a.t!=null? xOfT(a.t):null, x2=b&&b.t!=null? xOfT(b.t):null;
+  const y1=a&&a.price!=null? yOf(a.price):null, y2=b&&b.price!=null? yOf(b.price):null;
+  if(x1==null||x2==null||y1==null||y2==null) return;
+  octx.save(); octx.setLineDash([4,4]);
+  octx.strokeStyle='rgba(148,163,184,0.8)'; octx.lineWidth=1.2;
+  octx.beginPath(); octx.moveTo(x1,y1); octx.lineTo(x2,y2); octx.stroke();
+  octx.restore();
+}
 function drawOne(d, dashed){
-  const x1=d.t1!=null?xOfT(d.t1):null, x2=d.t2!=null?xOfT(d.t2):null;
-  const y1=d.p1!=null?yOf(d.p1):null, y2=d.p2!=null?yOf(d.p2):null;
+  const pt1=d.p1||null, pt2=d.p2||null, pt3=d.p3||null;
+  const x1= pt1&&pt1.t!=null? xOfT(pt1.t):null;
+  const x2= pt2&&pt2.t!=null? xOfT(pt2.t):null;
+  const y1= pt1&&pt1.price!=null? yOf(pt1.price):null;
+  const y2= pt2&&pt2.price!=null? yOf(pt2.price):null;
+  const y3= pt3&&pt3.price!=null? yOf(pt3.price):null;
   octx.save();
   if(dashed) octx.setLineDash([4,4]);
+  const W = chartMain.timeScale().width(), H = ovl.height/(window.devicePixelRatio||1);
   if(d.type==='hline'){
     if(y1==null){ octx.restore(); return; }
-    const w = chartMain.timeScale().width();
     octx.strokeStyle='#f59e0b'; octx.lineWidth=1;
-    octx.beginPath(); octx.moveTo(0,y1); octx.lineTo(w,y1); octx.stroke();
+    octx.beginPath(); octx.moveTo(0,y1); octx.lineTo(W,y1); octx.stroke();
     octx.setLineDash([]);
-    const txt = fmtP(d.p1);
+    const txt = fmtP(pt1.price);
     octx.font='600 10px '+MONO; const tw = octx.measureText(txt).width;
-    octx.fillStyle='#f59e0b'; octx.fillRect(w-tw-10, y1-9, tw+8, 16);
-    octx.fillStyle='#0e1117'; octx.fillText(txt, w-tw-6, y1+3);
+    octx.fillStyle='#f59e0b'; octx.fillRect(W-tw-10, y1-9, tw+8, 16);
+    octx.fillStyle='#0e1117'; octx.fillText(txt, W-tw-6, y1+3);
+  } else if(d.type==='hray'){
+    if(y1==null){ octx.restore(); return; }
+    const x0 = x1!=null? x1 : 0;
+    octx.strokeStyle='#8ea1c0'; octx.lineWidth=1.2;
+    octx.beginPath(); octx.moveTo(x0,y1); octx.lineTo(W,y1); octx.stroke();
+    octx.setLineDash([]);
+    octx.fillStyle='#8ea1c0';
+    octx.beginPath(); octx.arc(x0,y1,3,0,7); octx.fill();
+    const txt = fmtP(pt1.price);
+    octx.font='600 10px '+MONO; const tw = octx.measureText(txt).width;
+    octx.fillStyle='#8ea1c0'; octx.fillRect(Math.min(x0+6, W-tw-10), y1-9, tw+8, 16);
+    octx.fillStyle='#0e1117'; octx.fillText(txt, Math.min(x0+10, W-tw-6), y1+3);
+  } else if(d.type==='vline'){
+    if(x1==null){ octx.restore(); return; }
+    octx.strokeStyle='#8ea1c0'; octx.lineWidth=1.2;
+    octx.beginPath(); octx.moveTo(x1,0); octx.lineTo(x1,H); octx.stroke();
   } else if(d.type==='trend'){
     if(x1==null||x2==null||y1==null||y2==null){ octx.restore(); return; }
     octx.strokeStyle='#2962ff'; octx.lineWidth=1.6;
@@ -452,15 +825,78 @@ function drawOne(d, dashed){
     const xa=Math.min(x1,x2), xb=Math.max(x1,x2);
     octx.font='600 10px '+MONO;
     for(const lv of FIB_LV){
-      const p = d.p2 + (d.p1-d.p2)*lv[0];
+      const p = pt2.price + (pt1.price-pt2.price)*lv[0];
       const y = yOf(p); if(y==null) continue;
       octx.strokeStyle=lv[1]; octx.lineWidth=1;
       octx.beginPath(); octx.moveTo(xa,y); octx.lineTo(xb,y); octx.stroke();
       octx.fillStyle=lv[1];
       octx.fillText(lv[0].toFixed(3)+' · '+fmtP(p), xb+5, y-3);
     }
+  } else if(d.type==='arrowU' || d.type==='arrowD'){
+    if(x1==null||y1==null){ octx.restore(); return; }
+    const isU = d.type==='arrowU';
+    octx.fillStyle = isU? '#26a69a' : '#ef5350';
+    octx.beginPath();
+    if(isU){ octx.moveTo(x1,y1-9); octx.lineTo(x1-6,y1+4); octx.lineTo(x1+6,y1+4); }
+    else   { octx.moveTo(x1,y1+9); octx.lineTo(x1-6,y1-4); octx.lineTo(x1+6,y1-4); }
+    octx.closePath(); octx.fill();
+  } else if(d.type==='text'){
+    if(x1==null||y1==null){ octx.restore(); return; }
+    octx.font='600 11px Tahoma, sans-serif';
+    const txt = d.txt||'';
+    const tw = octx.measureText(txt).width;
+    octx.fillStyle='rgba(14,17,23,0.75)';
+    octx.fillRect(x1-2, y1-13, tw+6, 17);
+    octx.fillStyle='#f59e0b';
+    octx.fillText(txt, x1+1, y1);
+  } else if(d.type==='brush'){
+    if(!d.pts || d.pts.length<2){ octx.restore(); return; }
+    octx.strokeStyle='rgba(41,98,255,0.85)'; octx.lineWidth=1.6;
+    octx.beginPath();
+    let started=false;
+    for(const pt of d.pts){
+      const x= pt.t!=null? xOfT(pt.t):null, y= pt.price!=null? yOf(pt.price):null;
+      if(x==null||y==null){ started=false; continue; }
+      if(!started){ octx.moveTo(x,y); started=true; } else octx.lineTo(x,y);
+    }
+    octx.stroke();
+  } else if(d.type==='posL' || d.type==='posS'){
+    if(y1==null||y2==null||y3==null){ octx.restore(); return; }
+    const x0 = x1!=null? Math.max(0,x1) : 0;
+    octx.fillStyle='rgba(38,166,154,0.13)';
+    octx.fillRect(x0, Math.min(y1,y3), W-x0, Math.abs(y3-y1));
+    octx.strokeStyle='rgba(38,166,154,0.6)'; octx.lineWidth=1;
+    octx.strokeRect(x0+0.5, Math.min(y1,y3)+0.5, W-x0-1, Math.abs(y3-y1)-1);
+    octx.fillStyle='rgba(239,83,80,0.13)';
+    octx.fillRect(x0, Math.min(y1,y2), W-x0, Math.abs(y2-y1));
+    octx.strokeStyle='rgba(239,83,80,0.6)';
+    octx.strokeRect(x0+0.5, Math.min(y1,y2)+0.5, W-x0-1, Math.abs(y2-y1)-1);
+    octx.strokeStyle='rgba(148,163,184,0.8)';
+    octx.beginPath(); octx.moveTo(x0,y1); octx.lineTo(W,y1); octx.stroke();
+    const risk = Math.abs(pt1.price-pt2.price), rew = Math.abs(pt3.price-pt1.price);
+    const rr = risk>0? rew/risk : 0;
+    const rpct = pt1.price? (rew/pt1.price*100) : 0;
+    const spct = pt1.price? (risk/pt1.price*100) : 0;
+    octx.font='600 10px '+MONO;
+    const t1 = 'TARGET +'+rpct.toFixed(2)+'% · RR 1:'+(rr?rr.toFixed(1):'—');
+    const t2 = 'RISK −'+spct.toFixed(2)+'%';
+    octx.fillStyle='rgba(38,166,154,0.92)';
+    octx.fillRect(x0+4, Math.min(y1,y3)+2, octx.measureText(t1).width+10, 15);
+    octx.fillStyle='#04120e'; octx.fillText(t1, x0+9, Math.min(y1,y3)+13);
+    octx.fillStyle='rgba(239,83,80,0.92)';
+    octx.fillRect(x0+4, Math.max(y1,y2)-16, octx.measureText(t2).width+10, 15);
+    octx.fillStyle='#140505'; octx.fillText(t2, x0+9, Math.max(y1,y2)-5);
   }
   octx.restore();
+}
+function drawPend(pd){
+  const a = pd.pts[0];
+  const b = pd.pts[1] || pd.p2p || a;
+  drawSeg(a, b);
+  if(pd.pts.length>=2 && (pd.type==='posL' || pd.type==='posS')){
+    const t = a.price + (a.price - b.price)*2;
+    drawSeg(b, {t:a.t, price:t});
+  }
 }
 function drawMeasure(m){
   const x1=xOfT(m.p1.t), x2=xOfT(m.p2.t), y1=yOf(m.p1.price), y2=yOf(m.p2.price);
@@ -488,60 +924,82 @@ function drawMeasure(m){
   octx.fillStyle='#ffffff';
   octx.fillText(txt, bx+8, by+14);
 }
-let pend=null, measure=null, dragMoved=false;
+let pend=null, measure=null, brush=null, dragMoved=false;
 __ZONES_JS__
 function renderLoop(){
   const r = mainPane.getBoundingClientRect();
   octx.clearRect(0,0,r.width,r.height);
   drawZones();
   for(const d of DRAWINGS) drawOne(d,false);
-  if(pend) drawOne(pend,true);
+  if(brush && brush.pts.length>1) drawOne({type:'brush', pts:brush.pts}, true);
+  if(pend) drawPend(pend);
   if(measure) drawMeasure(measure);
   requestAnimationFrame(renderLoop);
 }
 if(window.ResizeObserver) new ResizeObserver(()=>sizeOvl()).observe(mainPane);
 
 /* ---------- رویدادهای ماوس/لمس رسم ------------------------------------ */
+const CLICKS = { trend:2, rect:2, fib:2, posL:3, posS:3,
+                 hline:1, hray:1, vline:1, arrowU:1, arrowD:1, text:1 };
 function evPos(e){
   const r = ovl.getBoundingClientRect();
   const x = e.clientX-r.left, y = e.clientY-r.top;
-  return { x:x, y:y, price: mainSeries.coordinateToPrice(y), t: snapTime(x) };
+  return { x:x, y:y, price: mainSeries? mainSeries.coordinateToPrice(y) : null, t: snapTime(x) };
 }
 function dist(a,b){ return Math.sqrt(Math.pow(a.x-b.x,2)+Math.pow(a.y-b.y,2)); }
 function commit(d){ DRAWINGS.push(d); saveDraw(); }
 ovl.addEventListener('pointerdown', e=>{
-  if(S.tool==='cursor') return;
+  if(S.tool==='cursor' || !mainSeries) return;
   e.preventDefault();
   if(measure){ measure=null; }
   const p = evPos(e);
-  if(S.tool==='hline'){ if(p.price!=null) commit({type:'hline', p1:p.price, t1:null, p2:null, t2:null}); return; }
   if(S.tool==='measure'){ measure={p1:p, p2:p}; return; }
-  if(pend){
-    if(p.t!=null && p.price!=null){ pend.p2={t:p.t, price:p.price}; commit({type:pend.type, p1:pend.p1.price, t1:pend.p1.t, p2:pend.p2.price, t2:pend.p2.t}); pend=null; }
+  if(S.tool==='brush'){ brush={pts:[p]}; return; }
+  if(CLICKS[S.tool]===1){
+    if(S.tool==='hline'){ if(p.price!=null) commit({type:'hline', p1:{t:null, price:p.price}}); }
+    else if(S.tool==='vline'){ if(p.t!=null) commit({type:'vline', p1:{t:p.t, price:null}}); }
+    else if(S.tool==='hray'){ if(p.price!=null) commit({type:'hray', p1:{t:p.t, price:p.price}}); }
+    else if(S.tool==='arrowU'){ if(p.t!=null&&p.price!=null) commit({type:'arrowU', p1:p}); }
+    else if(S.tool==='arrowD'){ if(p.t!=null&&p.price!=null) commit({type:'arrowD', p1:p}); }
+    else if(S.tool==='text'){ if(p.t!=null&&p.price!=null){
+      const ti=document.getElementById('txtIn');
+      commit({type:'text', p1:p, txt:(ti && ti.value.trim()) || 'یادداشت'}); } }
     return;
   }
-  if(p.t!=null && p.price!=null){ pend={type:S.tool, p1:{t:p.t, price:p.price}, p2:{t:p.t, price:p.price}}; dragMoved=false; }
+  const need = CLICKS[S.tool] || 2;
+  if(pend){
+    if(p.t!=null && p.price!=null){
+      pend.pts.push(p);
+      if(pend.pts.length>=need){
+        commit({type:pend.type, p1:pend.pts[0], p2:pend.pts[1], p3:pend.pts[2]||null});
+        pend=null;
+      }
+    }
+    return;
+  }
+  if(p.t!=null && p.price!=null){ pend={type:S.tool, pts:[p]}; dragMoved=false; }
 });
 ovl.addEventListener('pointermove', e=>{
+  if(!mainSeries) return;
   const p = evPos(e);
   if(measure){ if(p.t!=null && p.price!=null) measure.p2=p; return; }
-  if(pend){ if(dist(pend.p1,p)>6) dragMoved=true;
-    if(p.t!=null) pend.p2.t=p.t;
-    if(p.price!=null) pend.p2.price=p.price; }
+  if(brush){ const last=brush.pts[brush.pts.length-1];
+    if(brush.pts.length<240 && dist(last,p)>3) brush.pts.push(p); return; }
+  if(pend){ if(dist(pend.pts[0],p)>6) dragMoved=true; pend.p2p=p; }
 });
 ovl.addEventListener('pointerup', e=>{
   if(S.tool==='measure' && measure) return;
-  if(pend && dragMoved){
+  if(brush){ if(brush.pts.length>=3) commit({type:'brush', pts:brush.pts}); brush=null; return; }
+  if(pend && CLICKS[pend.type]===2 && dragMoved){
     const p = evPos(e);
-    if(dist(pend.p1,p)>14){
-      if(p.t!=null) pend.p2.t=p.t;
-      if(p.price!=null) pend.p2.price=p.price;
-      commit({type:pend.type, p1:pend.p1.price, t1:pend.p1.t, p2:pend.p2.price, t2:pend.p2.t});
+    if(dist(pend.pts[0],p)>14){
+      const p2 = { t:(p.t!=null? p.t : pend.pts[0].t), price:(p.price!=null? p.price : pend.pts[0].price) };
+      commit({type:pend.type, p1:pend.pts[0], p2:p2});
       pend=null;
     }
   }
 });
-window.addEventListener('keydown', e=>{ if(e.key==='Escape'){ pend=null; measure=null; setTool('cursor'); } });
+window.addEventListener('keydown', e=>{ if(e.key==='Escape'){ pend=null; measure=null; brush=null; setTool('cursor'); } });
 
 /* ---------- تولبار: تایم‌فریم · نوع چارت · منوها ---------------------- */
 function toast(msg){
@@ -563,15 +1021,17 @@ function buildTfBtns(){
 function setTF(tf){
   if(!TFS[tf]){ toast('داده‌ی این تایم‌فریم در دسترس نیست'); return; }
   S.tf = tf; localStorage.setItem(SK('tf'), tf);
-  DRAWINGS = loadDraw();
+  DRAWINGS = loadDraw().map(normDraw);
   buildIdx();
   rebuildMain(false);
-  rebuildSubs();
+  rebuildAllPanes();
   buildTfBtns();
   updateTitle();
   const c = CAND(); const n = c.length;
   const win = Math.min(DATA.initial_bars, n);
   chartMain.timeScale().setVisibleLogicalRange({ from: Math.max(0, n-win-2), to: n+4 });
+  const a = c[c.length-1];
+  if(a){ setLegend({t:a[0],o:a[1],h:a[2],l:a[3],c:a[4],v:a[5]}); setIndLegend(a[0]); updatePaneLegends(a[0]); }
   closeMenus();
 }
 const TYPE_LBL = {candles:'کندل', bars:'میله', line:'خط', area:'ناحیه', heikin:'هایکن‌آشی'};
@@ -581,14 +1041,15 @@ function setType(t){
   rebuildMain(true);
   closeMenus();
 }
-function anySub(){ return !!(S.ind.rsi || S.ind.macd); }
 function applyPanes(){
-  document.getElementById('rsiPane').style.display  = S.ind.rsi ? 'block' : 'none';
-  document.getElementById('macdPane').style.display = S.ind.macd ? 'block' : 'none';
-  chartMain.applyOptions({ timeScale:{ visible: !anySub() } });
-  /* محور زمان فقط روی پایین‌ترین پنلِ فعال */
-  chartRsi.applyOptions({ timeScale:{ visible: !!(S.ind.rsi && !S.ind.macd) } });
-  chartMacd.applyOptions({ timeScale:{ visible: !!S.ind.macd } });
+  let last=null;
+  for(const k in PANE){
+    const on = !!S.ind[k];
+    PANE[k].el.style.display = on? 'block':'none';
+    if(on) last = PANE[k];
+  }
+  for(const k in PANE) PANE[k].chart.applyOptions({ timeScale:{ visible: PANE[k]===last } });
+  chartMain.applyOptions({ timeScale:{ visible: !last } });
   /* چارت تازه‌نمایش‌شده هنوز عرض نگرفته؛ چند فریم رنجِ اصلی را به‌زور اعمال می‌کنیم
      تا barSpacing خراب (حداقل 0.5px) از چارت‌های مخفی نشت نکند. */
   suppressed = true;
@@ -596,8 +1057,9 @@ function applyPanes(){
   const tick = () => {
     n++;
     const r = chartMain.timeScale().getVisibleLogicalRange();
-    if(r) for(const c of ALLCH){
-      if(c!==chartMain && c._el && c._el.clientWidth>0){ try{ c.timeScale().setVisibleLogicalRange(r); }catch(e){} }
+    if(r) for(const k in PANE){
+      const c = PANE[k].chart;
+      if(c._el && c._el.clientWidth>0){ try{ c.timeScale().setVisibleLogicalRange(r); }catch(e){} }
     }
     sizeOvl();
     if(n < 10) requestAnimationFrame(tick); else suppressed = false;
@@ -605,18 +1067,22 @@ function applyPanes(){
   requestAnimationFrame(tick);
 }
 function toggleInd(k){
-  S.ind[k] = !S.ind[k];
-  localStorage.setItem(SK('ind'), JSON.stringify(S.ind));
-  if(k==='rsi' || k==='macd'){ applyPanes(); return; }
-  if(k==='bb'){ if(IND.bbU) IND.bbU.applyOptions({visible:S.ind.bb});
-    if(IND.bbL) IND.bbL.applyOptions({visible:S.ind.bb});
-    if(IND.bbM) IND.bbM.applyOptions({visible:S.ind.bb}); return; }
+  S.ind[k] = !S.ind[k]; saveInd();
+  if(PANE[k]){ FILL[k](); applyPanes(); return; }
+  const grp = (keys)=>{ for(const s of keys) if(IND[s]) IND[s].applyOptions({visible:S.ind[k]}); };
+  if(k==='bb'){ grp(['bbU','bbM','bbL']); return; }
+  if(k==='st'){ grp(['stU','stD']); return; }
+  if(k==='ichi'){ grp(['ichiT','ichiK','ichiA','ichiB','ichiC']); return; }
+  if(k==='psar'){ applyMarkers(); return; }
+  if(k==='piv'){ rebuildMain(true); return; }
+  if(k==='vol'){ if(volSeries) volSeries.applyOptions({visible:S.ind.vol}); return; }
   if(IND[k]) IND[k].applyOptions({visible:S.ind[k]});
 }
 function buildIndMenu(){
   const m = document.getElementById('menuInd');
   let h='';
-  for(const it of IND_META){
+  for(const it of IND_MENU){
+    if(it[0]==='_g'){ h += '<div class="mgroup">'+it[1]+'</div>'; continue; }
     h += '<div class="mi" data-k="'+it[0]+'">'
        + '<span class="chk'+(S.ind[it[0]]?' on':'')+'"></span>'
        + '<span class="dot" style="background:'+it[2]+'"></span><span>'+it[1]+'</span></div>';
@@ -626,18 +1092,26 @@ function buildIndMenu(){
     el.onclick = ()=>{ toggleInd(el.dataset.k); el.querySelector('.chk').classList.toggle('on', !!S.ind[el.dataset.k]); };
 }
 const TOOLS = [
-  ['cursor','🖱','نشانگر (حالت عادی)'],
-  ['trend','↗','خط روند'],
-  ['hline','➖','خط افقی'],
-  ['rect','▭','مستطیل'],
-  ['fib','📐','فیبوناچی بازگشتی'],
+  ['_g','حالت و خطوط'],
+  ['cursor','⌖','نشانگر (حالت عادی)'],
+  ['trend','↗','خط روند'], ['hline','─','خط افقی'],
+  ['hray','⟼','پرتو افقی'], ['vline','↕','خط عمودی'],
+  ['_g','اشکال'],
+  ['rect','▭','مستطیل'], ['fib','Ⓕ','فیبوناچی بازگشتی'],
+  ['_g','اندازه‌گیری و پوزیشن'],
   ['measure','📏','خط‌کش (اندازه‌گیری)'],
+  ['posL','🟢','پوزیشن خرید (ورود/ضرر/هدف)'], ['posS','🔴','پوزیشن فروش (ورود/ضرر/هدف)'],
+  ['_g','یادداشت'],
+  ['arrowU','⬆','فلش صعودی'], ['arrowD','⬇','فلش نزولی'],
+  ['text','ℹ','متن'], ['brush','✎','قلم آزاد'],
 ];
 function buildToolsMenu(){
   const m = document.getElementById('menuTools');
   let h='';
-  for(const t of TOOLS)
+  for(const t of TOOLS){
+    if(t[0]==='_g'){ h += '<div class="mgroup">'+t[1]+'</div>'; continue; }
     h += '<div class="mi'+(S.tool===t[0]?' sel':'')+'" data-t="'+t[0]+'"><span class="ti">'+t[1]+'</span><span>'+t[2]+'</span></div>';
+  }
   h += '<div class="msep"></div>'
      + '<div class="mi" data-t="undo"><span class="ti">↩</span><span>واگرد آخرین</span></div>'
      + '<div class="mi" data-t="clear"><span class="ti">🗑</span><span>پاک‌کردن همه</span></div>';
@@ -652,10 +1126,11 @@ function buildToolsMenu(){
     };
 }
 function setTool(t){
-  S.tool = t; pend=null;
+  S.tool = t; pend=null; brush=null; measure=null;
   ovl.classList.toggle('armed', t!=='cursor');
   const btn = document.getElementById('btnTools');
   btn.classList.toggle('active', t!=='cursor');
+  document.getElementById('txtIn').classList.toggle('show', t==='text');
 }
 function closeMenus(){
   for(const id of ['menuInd','menuTools','menuType'])
@@ -704,6 +1179,13 @@ btnFull.onclick = ()=>{
   if(document.fullscreenElement) document.exitFullscreen();
   else document.getElementById('wrap').requestFullscreen().catch(()=>toast('تمام‌صفحه در دسترس نیست'));
 };
+const btnLog = document.getElementById('btnLog');
+function applyLog(){
+  try{ chartMain.priceScale('right').applyOptions({ mode: S.ind.log?
+    LightweightCharts.PriceScaleMode.Logarithmic : LightweightCharts.PriceScaleMode.Normal }); }catch(e){}
+  btnLog.classList.toggle('active', !!S.ind.log);
+}
+btnLog.onclick = ()=>{ S.ind.log = !S.ind.log; saveInd(); applyLog(); };
 
 /* ---------- منوی نوع چارت -------------------------------------------- */
 (function(){
@@ -721,14 +1203,15 @@ buildIndMenu();
 buildToolsMenu();
 document.getElementById('typeLbl').textContent = TYPE_LBL[S.type]||S.type;
 setTool('cursor');
-DRAWINGS = loadDraw();
+DRAWINGS = loadDraw().map(normDraw);
 buildIdx();
 rebuildMain(false);
-rebuildSubs();
+rebuildAllPanes();
 updateTitle();
-(function initLegend(){ const c=CAND(); const a=c[c.length-1];
-  if(a){ setLegend({t:a[0],o:a[1],h:a[2],l:a[3],c:a[4],v:a[5]}); setIndLegend(a[0]); setSubLegends(a[0]); } })();
+(function(){ const c=CAND(); const a=c[c.length-1];
+  if(a){ setLegend({t:a[0],o:a[1],h:a[2],l:a[3],c:a[4],v:a[5]}); setIndLegend(a[0]); updatePaneLegends(a[0]); } })();
 applyPanes();
+applyLog();
 (function(){ const c=CAND(); const n=c.length;
   const win = Math.min(DATA.initial_bars, n);
   chartMain.timeScale().setVisibleLogicalRange({ from: Math.max(0, n-win-2), to: n+4 }); })();
@@ -750,12 +1233,15 @@ html,body{margin:0;padding:0;background:#0e1117;height:100%;overflow:hidden;}
 .tf{min-width:30px;text-align:center;}
 .tb-sep{width:1px;height:18px;background:rgba(148,163,184,0.22);flex:none;}
 .tb-spacer{flex:1;}
+#txtIn{display:none;background:#0e1117;border:1px solid rgba(148,163,184,0.35);border-radius:6px;
+  color:#e2e8f0;font:11.5px Tahoma,sans-serif;padding:5px 8px;width:132px;direction:rtl;flex:none;}
+#txtIn.show{display:inline-block;}
+#txtIn::placeholder{color:#78849e;}
 #panes{flex:1;position:relative;display:flex;flex-direction:column;min-height:0;}
 #mainPane{flex:1;position:relative;min-height:140px;}
 #chart{position:absolute;inset:0;}
 .subpane{position:relative;border-top:1px solid rgba(148,163,184,0.14);display:none;background:#0e1117;}
-#rsiPane{height:112px;} #macdPane{height:128px;}
-#rsiChart,#macdChart{position:absolute;inset:0;}
+.subpane .pch{position:absolute;inset:0;}
 .sublegend{position:absolute;top:4px;right:10px;z-index:7;pointer-events:none;direction:rtl;
   font:600 10.5px/1.6 ui-monospace,monospace;color:#8ea1c0;}
 .sublegend b{color:#cfd6e4;}
@@ -774,8 +1260,9 @@ html,body{margin:0;padding:0;background:#0e1117;height:100%;overflow:hidden;}
 #lind .ik{font-weight:600;}
 .menu{position:absolute;top:42px;left:8px;z-index:40;background:#1c2333;
   border:1px solid rgba(148,163,184,0.2);border-radius:10px;padding:6px;display:none;
-  min-width:210px;box-shadow:0 10px 28px rgba(0,0,0,0.5);direction:rtl;max-height:70%;overflow-y:auto;}
+  min-width:220px;box-shadow:0 10px 28px rgba(0,0,0,0.5);direction:rtl;max-height:72%;overflow-y:auto;}
 .menu.open{display:block;}
+.mgroup{font:600 10px/1.6 Tahoma,sans-serif;color:#78849e;padding:7px 9px 2px;letter-spacing:0.3px;}
 .mi{display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:6px;cursor:pointer;
   color:#cfd6e4;font:12px/1.6 Tahoma,sans-serif;white-space:nowrap;}
 .mi:hover{background:rgba(148,163,184,0.1);}
@@ -793,7 +1280,7 @@ html,body{margin:0;padding:0;background:#0e1117;height:100%;overflow:hidden;}
 #toast.show{opacity:1;}
 a[href*="tradingview.com"]{opacity:0.28; filter:grayscale(1);}
 a[href*="tradingview.com"]:hover{opacity:0.7;}
-@media (max-width:700px){ .tb-label{display:none;} .menu{min-width:180px;} }
+@media (max-width:700px){ .tb-label{display:none;} .menu{min-width:190px;} }
 """
 
 
@@ -803,7 +1290,7 @@ def build_tv_chart_html(*, candles: List[List[Any]], tfs: Dict[str, List[List[An
                         initial_bars: int = 160) -> str:
     """HTML خودکفای چارت TV کامل.
     candles:  [t_s, o, h, l, c, v]  (t ثانیه · NaN قبلاً None شده)
-    tfs:      {tf_key: candles} — تایم‌فریم‌های موجود برای سوئیچر
+    tfs:      {tf_key: candles} — تا ۱۳ تایم‌فریم برای سوئیچر
     zones:    {t0,top,bottom,kind,tag} — فقط برای تایم‌فریم پایه
     levels:   {price,name,color,dash} — فقط برای تایم‌فریم پایه
     """
@@ -829,6 +1316,8 @@ def build_tv_chart_html(*, candles: List[List[Any]], tfs: Dict[str, List[List[An
         '<button class="tb-btn" id="btnType">🕯 <span class="tb-label" id="typeLbl">کندل</span> ▾</button>'
         '<button class="tb-btn" id="btnInd">ƒ<span class="tb-label"> اندیکاتورها</span> ▾</button>'
         '<button class="tb-btn" id="btnTools">📐<span class="tb-label"> ابزارها</span> ▾</button>'
+        '<button class="tb-btn" id="btnLog" title="مقیاس لگاریتمی">log</button>'
+        '<input id="txtIn" placeholder="متن یادداشت…">'
         '<div class="tb-spacer"></div>'
         '<button class="tb-btn" id="btnFit" title="بازنشانی نما">⤢</button>'
         '<button class="tb-btn" id="btnNow" title="پرش به کندل آخر">▶▏</button>'
@@ -840,14 +1329,6 @@ def build_tv_chart_html(*, candles: List[List[Any]], tfs: Dict[str, List[List[An
         '<div id="chart"></div>'
         '<canvas id="ovl"></canvas>'
         '<div id="legend"><span id="ltitle"></span><span id="lbar"></span><div id="lind"></div></div>'
-        '</div>'
-        '<div class="subpane" id="rsiPane">'
-        '<div id="rsiChart"></div>'
-        '<div class="sublegend">RSI 14 · <b id="rsiVal">—</b></div>'
-        '</div>'
-        '<div class="subpane" id="macdPane">'
-        '<div id="macdChart"></div>'
-        '<div class="sublegend">MACD 12·26·9 · <b id="macdVal">—</b></div>'
         '</div>'
         '</div>'
         '<div class="menu" id="menuInd"></div>'

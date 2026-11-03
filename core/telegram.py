@@ -91,16 +91,22 @@ def send(text: str, silent: bool = False) -> bool:
 
 # ------------------------------------------------------------- قالب‌های پیام
 def notify_open(t: dict) -> bool:
-    """پیام بازشدن معامله."""
+    """پیام بازشدن معامله — اگر ایجنتِ سوددهِ در مسیر برد باشد، نشان داغ می‌گیرد."""
     d = int(t.get("direction") or 0)
     icon = "🟢" if d > 0 else "🔴"
+    hot = _hot_stats(t.get("agent"))
+    head = ("🔥 پوزیشن جدید باز شد — از بهترین ایجنت‌ها" if hot and hot["streak"] >= _HOT_STREAK
+            else f"{icon} پوزیشن جدید باز شد")
     lines = [
-        f"<b>{icon} پوزیشن جدید باز شد</b>",
+        f"<b>{head}</b>",
         "",
         f"💎 نماد: <b>{t.get('symbol', '—')}</b> · {_dir_icon(d)}",
         f"🤖 ایجنت: {t.get('agent', '—')}",
         f"💵 ورود: <b>{_fmt_num(t.get('entry'))}</b> · 🛑 استاپ: {_fmt_num(t.get('stop'))}",
     ]
+    hl = _hot_line(hot)
+    if hl:
+        lines.append(hl)
     if t.get("tp1"):
         lines.append(f"🎯 TP1: {_fmt_num(t.get('tp1'))}"
                      + (f" · R/R: {t.get('rr')}" if t.get("rr") else ""))
@@ -117,6 +123,65 @@ _RESULT_FA = {
     "timeout_be": "⏱️ تایم‌اوت (سربه‌سر)",
 }
 
+_HOT_STREAK = 2            # حداقل برد متوالی برای نشان «ایجنت داغ»
+_HOT_WIN_R = 1.0           # حداقل R برای نشان «سیگنال سودده»
+
+
+def _signed_streak(closed_sorted_list: list) -> int:
+    """زنجیره‌ی علامت‌دار از انتها (+۳ = سه برد متوالی، −۲ = دو باخت متوالی)
+    — همان منطق arena._streak ولی روی لیست مرتب بسته‌شده‌ها."""
+    s = 0
+    for t in reversed(closed_sorted_list):
+        try:
+            p = float(t.get("points") or 0.0)
+        except (TypeError, ValueError):
+            break
+        if p == 0:
+            break
+        sign = 1 if p > 0 else -1
+        if s == 0 or (s > 0) == (sign > 0):
+            s += sign
+        else:
+            break
+    return s
+
+
+def _hot_stats(agent: Any) -> Optional[dict]:
+    """کارنامه‌ی کوتاه ایجنت (برد/باخت/وین‌ریت/امتیاز/زنجیره) — best-effort.
+    خرابی دیتا = None؛ هرگز جریان اطلاع‌رسانی را نمی‌شکند."""
+    try:
+        from core import agent_lab as LAB  # noqa: PLC0415
+        from core import arena_store  # noqa: PLC0415
+        name = str(agent or "").strip()
+        if not name:
+            return None
+        mine = [t for t in arena_store.get_store().load_all()
+                if str(t.get("agent")) == name and t.get("status") == "closed"]
+        if not mine:
+            return None
+        closed = LAB.closed_sorted(mine)
+        rs = [float(t.get("realized_r") or 0.0) for t in closed]
+        wins = sum(1 for r in rs if r > 0)
+        losses = sum(1 for r in rs if r < 0)
+        pts = sum(float(t.get("points") or 0.0) for t in closed)
+        return {"wins": wins, "losses": losses,
+                "winrate": wins / max(1, wins + losses) * 100.0,
+                "points": pts, "streak": _signed_streak(closed),
+                "total_r": sum(rs)}
+    except Exception:  # noqa: BLE001 — نوتیفیکیشن هرگز نمی‌شکند
+        return None
+
+
+def _hot_line(h: Optional[dict]) -> str:
+    """یک خط کارنامه برای پیام — خالی یعنی دیتا نبود."""
+    if not h:
+        return ""
+    txt = (f"🏅 کارنامه: {h['wins']} برد / {h['losses']} باخت"
+           f" · وین‌ریت {h['winrate']:.0f}% · {h['points']:+.1f} امتیاز")
+    if h["streak"] >= _HOT_STREAK:
+        txt += f" · 🔥 {h['streak']} برد متوالی"
+    return txt
+
 
 def notify_close(t: dict) -> bool:
     """پیام بسته‌شدن معامله با نتیجه."""
@@ -132,14 +197,20 @@ def notify_close(t: dict) -> bool:
         mood = "🟥"
     else:
         mood = "⬜"
+    big_win = r is not None and r >= _HOT_WIN_R
+    head = ("🏆 سیگنال سودده — پوزیشن بسته شد" if big_win
+            else f"{mood} پوزیشن بسته شد")
     lines = [
-        f"<b>{mood} پوزیشن بسته شد</b>",
+        f"<b>{head}</b>",
         "",
         f"💎 نماد: <b>{t.get('symbol', '—')}</b> · {_dir_icon(t.get('direction'))}",
         f"🤖 ایجنت: {t.get('agent', '—')}",
         f"📊 نتیجه: <b>{_RESULT_FA.get(res, res or '—')}</b>"
         + (f" · <b>{r:+.2f}R</b>" if r is not None else ""),
     ]
+    hl = _hot_line(_hot_stats(t.get("agent")))
+    if hl:
+        lines.append(hl)
     if t.get("points") is not None:
         lines.append(f"🏆 امتیاز: {_fmt_num(t.get('points'))}")
     if t.get("entry"):

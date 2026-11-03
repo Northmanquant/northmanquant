@@ -30,7 +30,9 @@ TABLE = "arena_alerts"
 LOCAL_FILE = "arena_alerts.json"
 _LOCK = threading.RLock()
 
-KINDS = ("open", "close", "regime")
+# «bot» — نشانگرهای وضعیت بات تلگرام (مثل «خلاصه‌ی روزانه ارسال شد»)؛
+# فقط برای ضدتکرار — در فید اپ نمایش داده نمی‌شود و فقط یک‌بار درج می‌شود.
+KINDS = ("open", "close", "regime", "bot")
 REGIME_SYMBOL = "BTCUSDT"          # بدون «/» — با regex نمادها سازگار است
 MAX_TEXT = 400
 _MAX_ROWS = 300                    # سقف رکورد در fallback محلی

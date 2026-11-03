@@ -31,7 +31,7 @@ create index if not exists arena_trades_agent_idx  on arena_trades (agent);
 -- ============================================================
 create table if not exists arena_alerts (
   id         text primary key,          -- op:{trade_id} | cl:{trade_id} | rg:{dir}:{ts}
-  kind       text,                      -- open | close | regime
+  kind       text,                      -- open | close | regime | bot (bot = نشانگر ضدتکرار بات تلگرام)
   symbol     text,
   data       jsonb,                     -- تمام جزئیات هشدار
   created_at timestamptz default now(),

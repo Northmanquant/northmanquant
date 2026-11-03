@@ -508,6 +508,8 @@ with tab_alerts:
         except Exception:  # noqa: BLE001
             st.session_state["_arena_alerts_val"] = st.session_state.get("_arena_alerts_val") or []
     _alerts = st.session_state.get("_arena_alerts_val") or []
+    # نشانگرهای داخلی بات تلگرام (kind="bot") حالت نیستند — از فید حذف می‌شوند
+    _alerts = [a for a in _alerts if str(a.get("kind")) != "bot"]
     if not _alerts:
         st.info(L("هنوز هشداری ثبت نشده — بعد از اولین اسکن یا اولین معامله‌ی بسته‌شده اینجا پر می‌شود.",
                   "No alerts yet — the list fills after the first scan or first closed trade."))

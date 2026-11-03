@@ -1887,6 +1887,12 @@ def apply_direction() -> None:
                 direction: ltr;
             }}
             [data-testid="stSidebar"] * {{ direction: {direction}; }}
+            /* موبایل: بلاک‌های کد و URLهای بلند بشکنند تا افقی بریده نشوند */
+            .stApp pre, .stApp code {{
+                white-space: pre-wrap !important;
+                word-break: break-word !important;
+                overflow-wrap: anywhere !important;
+            }}
         </style>
         """,
         unsafe_allow_html=True,

@@ -8,7 +8,7 @@ import requests
 import streamlit as st
 from core.i18n import setup_i18n
 
-st.set_page_config(page_title="Live Prices", page_icon="📊", layout="wide")
+st.set_page_config(page_title="قیمت‌های زنده | Live Prices", page_icon="📊", layout="wide")
 setup_i18n(page="p1")   # زبان + منوی ترجمه‌شده + پچ ترجمه‌ی کل صفحه
 st.title("📊 قیمت‌های زنده بازار")
 st.caption("اول صرافی رو انتخاب کن، بعد ارز رو سرچ کن — مقایسه KCEX + KuCoin + Binance + Bybit + OKX + Lighter")

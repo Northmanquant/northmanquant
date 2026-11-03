@@ -14,7 +14,7 @@ import pandas as pd
 import streamlit as st
 from core.i18n import setup_i18n, get_lang
 
-st.set_page_config(page_title="Agent Arena", page_icon="🏟️", layout="wide")
+st.set_page_config(page_title="میدان ایجنت‌ها | Agent Arena", page_icon="🏟️", layout="wide")
 LANG = setup_i18n(page="p4")   # زبان + منوی ترجمه‌شده + پچ ترجمه‌ی کل صفحه
 
 

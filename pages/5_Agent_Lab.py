@@ -10,7 +10,7 @@ import pandas as pd
 import streamlit as st
 from core.i18n import setup_i18n, get_lang
 
-st.set_page_config(page_title="Agent Lab", page_icon="🔬", layout="wide")
+st.set_page_config(page_title="آزمایشگاه ایجنت‌ها | Agent Lab", page_icon="🔬", layout="wide")
 LANG = setup_i18n(page="p5")
 
 
@@ -88,13 +88,14 @@ _tab1, _tab2, _tab3, _tab4 = st.tabs([
 with _tab1:
     rows = []
     for nm, r in _report.items():
+        # ترتیب ستون‌ها مهم‌به-مهم است — در موبایل ستون‌های اول دیده می‌شوند
         rows.append({
             L("ایجنت", "Agent"): nm,
-            L("بسته‌شده", "Closed"): r["n"],
-            L("وین‌ریت", "Winrate"): (f"{r['winrate']}%" if r["winrate"] is not None else "—"),
             L("انتظاری", "Expectancy"): f"{r['exp']:+.2f}R",
-            "PF": r["pf"],
             L("جمع R", "Total R"): f"{r['total_r']:+.2f}",
+            L("وین‌ریت", "Winrate"): (f"{r['winrate']}%" if r["winrate"] is not None else "—"),
+            L("بسته‌شده", "Closed"): r["n"],
+            "PF": r["pf"],
             L("زنجیره‌ی باخت", "Loss streak"): r["streak"],
             L("فرم ۱۰تایی", "Last-10 form"): f"{r['form10_r']:+.2f}R",
             L("حکم لبه (بک‌تست)", "Edge verdict (backtest)"):

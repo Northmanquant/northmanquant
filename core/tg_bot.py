@@ -13,11 +13,15 @@
   help · راهنما            فهرست دستورها
 
 معماری بدون‌سرور (هم‌راستا با اتوپایلوت):
-  GitHub Actions هر ۵ دقیقه «python -m core.tg_bot» را اجرا می‌کند؛ بات
-  getUpdates را می‌خواند، به دستورهای تازه جواب می‌دهد و با offset تلگرام را
-  تأیید می‌کند — تلگرام خودش خوانده‌شده‌ها را به‌خاطر می‌سپارد، پس نیازی به
-  حافظه‌ی محلی نیست. پیام‌های کهنه‌تر از ۱۵ دقیقه بی‌جواب رد می‌شوند تا بات
-  هرگز به صف قدیمی اسپم نزند. یعنی تأخیر پاسخ حداکثر ~۵–۱۰ دقیقه.
+  GitHub Actions هر ۵ دقیقه «python -m core.tg_bot» را اجرا می‌کند؛ بات اول
+  «کل صف تأییدنشده» را یک‌جا می‌خواند و به همه‌ی دستورهای تازه جواب می‌دهد،
+  بعد تا ~۴ دقیقه با long-poll گوش می‌دهد — یعنی پیامی که وسط بازه برسد هم
+  تقریباً لحظه‌ای جواب می‌گیرد و هیچ دستوری قربانی «فقط آخرین پیام» نمی‌شود.
+  کمربند احتیاطی: اتوپایلوت (هر ۳۰ دقیقه) آخر کار یک «python -m core.tg_bot
+  --once» هم اجرا می‌کند تا حتی اگر کرون ۵ دقیقه‌ای گیت‌هاب عقب افتاد، هر
+  دستور حداکثر ~۳۰ دقیقه‌ای جواب بگیرد. پیام‌های کهنه‌تر از ۳۰ دقیقه بی‌جواب
+  تأیید می‌شوند تا بات هرگز به صف قدیمی اسپم نزند. تلگرام خودش خوانده‌شده‌ها
+  را با offset به‌خاطر می‌سپارد — نیازی به حافظه‌ی محلی نیست.
 
 خلاصه‌ی روزانه (push): یک‌بار در هر شبانه‌روز تهران، خلاصه‌ی میدان به چت
 مالک (TELEGRAM_CHAT_ID) می‌رود. ضدتکرار با نشانگر قطعی در جدول arena_alerts
@@ -43,8 +47,9 @@ from core.arena_store import _secrets_get, _utcnow_iso
 API = "https://api.telegram.org"
 MAX_TEXT = 3900
 _TIMEOUT = 15
-_MESSAGE_MAX_AGE_S = 15 * 60          # پیام کهنه‌تر از این جواب نمی‌گیرد
-_POLL_ROUNDS = 3                      # چند دور خواندن صف در هر اجرا
+_MESSAGE_MAX_AGE_S = 30 * 60          # پیام کهنه‌تر از این جواب نمی‌گیرد (= فاصله‌ی کمربند اتوپایلوت)
+_LONGPOLL_S = 25                      # طول هر long-poll تلگرام (ثانیه)
+_POLL_BUDGET_S = 240                  # بودجه‌ی گوش‌دادن هر اجرا (~۴ دقیقه؛ سقف وورک‌فلو ۶ دقیقه)
 REPLY_CAP = 20                        # سقف پاسخ در هر اجرا — ضداسپم
 _MIN_GAP = 0.7                        # حداقل فاصله بین دو ارسال (ضد 429)
 
@@ -77,7 +82,7 @@ _HELP = (
     "وین‌ریت، ایکوییتی، زنجیره‌ی برد و فرم ۱۰ معامله‌ی اخیر\n\n"
     "💸 /signals (یا «سیگنال») — بردهای ۷ روز اخیر + پوزیشن‌های بازِ در سود\n\n"
     "📊 /stats (یا «آمار») — انتظاری، سود فاکتور، وین‌ریت، بیشترین افت، رژیم بازار\n\n"
-    "🕐 پاسخ‌ها تا ~۵ دقیقه می‌رسند (اجرای سروری هر ۵ دقیقه).\n"
+    "🕐 پاسخ‌ها معمولاً چندثانیه تا چند دقیقه می‌رسند (long-poll هر ۵ دقیقه).\n"
     "🔴 پیام‌های لحظه‌ای باز/بسته‌شدن هم مستقیم به چت مالک می‌آید."
 )
 
@@ -457,30 +462,34 @@ def handle_update(u: dict, token: str, allowed: set[str]) -> int:
     return 1 if _send_chat(token, chat, reply) else 0
 
 
-def poll_once() -> int:
-    """یک چرخه‌ی کامل: خواندن آپدیت‌های تازه + پاسخ + تأیید. خروجی: تعداد پاسخ."""
+def poll_once(budget: Optional[float] = None) -> int:
+    """یک چرخه‌ی کامل: تخلیه‌ی کامل صف + long-poll تا پایان بودجه (~۴ دقیقه).
+    خروجی: تعداد پاسخ. budget=0 → فقط یک تخلیه‌ی سریع (کمربند اتوپایلوت)."""
     token = _secrets_get("TELEGRAM_BOT_TOKEN")
     if not token:
         _log("🤖 بات تلگرام: TELEGRAM_BOT_TOKEN ست نیست — رد شد")
         return 0
     allowed = allowed_chats()
-    # بوت‌استرپ: فقط تازه‌ترین آپدیت دیده می‌شود تا پیام‌های چندروزه جواب نگیرند
-    j = _call(token, "getUpdates", {"offset": -1, "timeout": 0, "limit": 1})
-    ups = (j or {}).get("result") or []
-    offset = int(ups[-1]["update_id"]) + 1 if ups else 0
+    t_end = time.monotonic() + (_POLL_BUDGET_S if budget is None else budget)
     total = 0
-    if ups:
-        total += handle_update(ups[-1], token, allowed)
-    for _ in range(_POLL_ROUNDS):
-        j = _call(token, "getUpdates", {"offset": offset, "timeout": 10, "limit": 100})
+    offset = 0                        # ۰ = کل صف تأییدنشده، حتی صف چندساعته
+    first = True
+    while first or (time.monotonic() < t_end and total < REPLY_CAP):
+        wait = 0 if first else max(1, min(_LONGPOLL_S, int(t_end - time.monotonic())))
+        first = False
+        j = _call(token, "getUpdates", {"offset": offset, "timeout": wait, "limit": 100},
+                  timeout=wait + 10)
         ups = (j or {}).get("result") or []
-        if not ups:
-            break
+        last_handled = None
         for u in ups:
             if total >= REPLY_CAP:
-                return total          # بقیه برای چرخه‌ی بعد — offset پیش نرفته
+                break                 # بقیه تأیید نمی‌شوند — دور بعد کهنه‌اند و بی‌جواب تأیید می‌شوند
             total += handle_update(u, token, allowed)
-        offset = int(ups[-1]["update_id"]) + 1
+            last_handled = int(u.get("update_id") or 0)
+        if last_handled is not None:
+            offset = last_handled + 1
+            # تأیید فوری صف خوانده‌شده — حتی اگر اجرا همین‌جا قطع شود، دوباره جواب نمی‌گیرند
+            _call(token, "getUpdates", {"offset": offset, "timeout": 0, "limit": 1})
     return total
 
 
@@ -539,17 +548,20 @@ def daily_digest() -> bool:
 
 
 # ------------------------------------------------------------- main
-def main() -> int:
+def main(argv: Optional[list[str]] = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    once = "--once" in argv           # فقط تخلیه‌ی سریع صف — کمربند احتیاطی اتوپایلوت
     t0 = time.time()
     try:
-        n = poll_once()
+        n = poll_once(budget=0.0 if once else None)
         _log(f"🤖 بات تلگرام: {n} پاسخ در {time.time() - t0:.1f}s")
     except Exception as e:  # noqa: BLE001 — بات هرگز Actions را نمی‌شکند
         _log(f"⚠️ چرخه‌ی بات ناموفق (غیربحرانی): {e}")
-    try:
-        daily_digest()
-    except Exception as e:  # noqa: BLE001
-        _log(f"⚠️ خلاصه‌ی روزانه ناموفق (غیربحرانی): {e}")
+    if not once:
+        try:
+            daily_digest()
+        except Exception as e:  # noqa: BLE001
+            _log(f"⚠️ خلاصه‌ی روزانه ناموفق (غیربحرانی): {e}")
     return 0
 
 

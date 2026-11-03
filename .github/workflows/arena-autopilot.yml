@@ -52,6 +52,16 @@ jobs:
           ARENA_SCAN: "1"
         run: python -m core.autopilot
 
+      - name: کمربند احتیاطی بات — تخلیه‌ی سریع صف دستورها
+        if: always()          # حتی اگر اتوپایلوت شکست خورد، دستورهای بات بی‌جواب نمانند
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_ALLOWED_CHATS: ${{ secrets.TELEGRAM_ALLOWED_CHATS }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python -m core.tg_bot --once
+
       - name: هشدار شکست — پیام تلگرام
         if: failure()
         env:

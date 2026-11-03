@@ -209,14 +209,27 @@ _orig_call = TB._call
 try:
     TB._call = lambda tok, m, p=None, timeout=15: (
         {"ok": True, "result": [upd("/top", uid=100, age_min=2)]}
-        if p and p.get("offset") == -1 else {"ok": True, "result": []})
+        if p and p.get("offset", 1) == 0 and p.get("timeout") == 0
+        else {"ok": True, "result": []})
     TB.build_reply = lambda key: f"REPLY[{key}]"
     _sent_chat.clear()
-    ok(TB.poll_once() == 1 and "REPLY[top]" in _sent_chat[-1][1], "چرخه: بوت‌استرپ + پاسخ")
+    ok(TB.poll_once(budget=0.05) == 1 and "REPLY[top]" in _sent_chat[-1][1],
+       "چرخه: تخلیه‌ی صف + پاسخ")
     TB._call = lambda tok, m, p=None, timeout=15: {"ok": True, "result": []}
-    ok(TB.poll_once() == 0, "صف خالی → صفر پاسخ")
+    ok(TB.poll_once(budget=0.05) == 0, "صف خالی → صفر پاسخ")
+    # صف چندتایی: همه‌ی تازه‌ها جواب می‌گیرند، نه فقط آخرین پیام (رفع باگ «زدم ولی چیزی نیامد»)
+    TB._call = lambda tok, m, p=None, timeout=15: (
+        {"ok": True, "result": [upd("/top", uid=100, age_min=1),
+                                upd("/stats", uid=101, age_min=1),
+                                upd("/signals", uid=102, age_min=90)]}
+        if p and p.get("offset", 1) == 0 and p.get("timeout") == 0
+        else {"ok": True, "result": []})
+    _sent_chat.clear()
+    n = TB.poll_once(budget=0.05)
+    ok(n == 2 and "REPLY[top]" in _sent_chat[-2][1] and "REPLY[stats]" in _sent_chat[-1][1],
+       "صف ۳تایی (یکی کهنه) → فقط ۲ تازه جواب می‌گیرند")
     TB._secrets_get = lambda k: None
-    ok(TB.poll_once() == 0, "بدون توکن → رد شدن بی‌صدا")
+    ok(TB.poll_once(budget=0.05) == 0, "بدون توکن → رد شدن بی‌صدا")
 finally:
     TB._secrets_get = _orig_sg
     TB._call = _orig_call

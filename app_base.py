@@ -1348,6 +1348,30 @@ def fetch_candles(exchange: str, symbol: str, interval: str, limit: int = 500) -
 _PAGE_CAP = {"KuCoin": 1400, "Binance": 1000, "Bybit": 1000, "Lighter": 500, "OKX": 300}
 
 
+@st.cache_data(ttl=120, show_spinner=False)
+def tf_bundle(exchange: str, symbol: str, tfs: tuple[str, ...], limit: int = 380) -> dict:
+    """کندل خام چند تایم‌فریمی برای سوئیچر تایم‌فریم چارت TradingView داشبورد.
+    خروجی: {tf: [[t_s, o, h, l, c, v], ...]} — TFهای ناموفق حذف می‌شوند."""
+    out: dict[str, list] = {}
+    for tf in tfs:
+        try:
+            _df = fetch_candles(exchange, symbol, tf, limit=limit)
+            if _df is None or _df.empty:
+                continue
+            out[tf] = [
+                [int(r.dt.timestamp()),
+                 None if pd.isna(r.open) else float(r.open),
+                 None if pd.isna(r.high) else float(r.high),
+                 None if pd.isna(r.low) else float(r.low),
+                 None if pd.isna(r.close) else float(r.close),
+                 None if pd.isna(r.volume) else float(r.volume)]
+                for r in _df.itertuples(index=False)
+            ]
+        except Exception:
+            continue
+    return out
+
+
 def _fetch_candles(exchange: str, symbol: str, interval: str, limit: int, end_ms: int | None = None) -> pd.DataFrame:
     """یک صفحه کندل — حداکثر `_PAGE_CAP[exchange]` ردیف. end_ms انتهای پنجره (میلی‌ثانیه)
     برای صفحه‌بندی به عقب است؛ None یعنی «الان» (همان رفتار قدیمی)."""
@@ -3375,9 +3399,8 @@ def main() -> None:
             st.divider()
 
             # ---- TradingView engine chart (lightweight-charts) ------------
-            # پن/زوم/کراس‌هیر روان موتور واقعی تریدینگ‌ویو + همه‌ی پوشش‌های سایت
-            dc = d.tail(candle_count).reset_index(drop=True)
-
+            # موتور واقعی تریدینگ‌ویو: تایم‌فریم‌سوئیچر · انواع چارت · اندیکاتورها
+            # (EMA/BB/VWAP/RSI/MACD) · ابزار رسم (روند/خط افقی/مستطیل/فیبو/خط‌کش)
             def _n(x):
                 try:
                     v = float(x)
@@ -3385,11 +3408,13 @@ def main() -> None:
                     return None
                 return None if v != v else v          # NaN → None
 
-            _cand = []
-            for r in dc.itertuples(index=False):
-                _cand.append([int(r.dt.timestamp()),
-                              _n(r.open), _n(r.high), _n(r.low), _n(r.close), _n(r.volume),
-                              _n(r.ema20), _n(r.ema50), _n(r.bb_up), _n(r.bb_lo)])
+            def _raw_candles(dd: pd.DataFrame) -> list:
+                return [[int(r.dt.timestamp()), _n(r.open), _n(r.high), _n(r.low),
+                         _n(r.close), _n(r.volume)] for r in dd.itertuples(index=False)]
+
+            _tfs = {interval: _raw_candles(d)}
+            _tfs.update(tf_bundle(exchange, symbol, tuple(
+                tf for tf in INTERVAL_MINUTES if tf != interval)))
 
             _tv_zones = []
             if show_fvg:
@@ -3410,9 +3435,11 @@ def main() -> None:
                                        "color": "#2962ff", "dash": True})
 
             components.html(
-                build_tv_chart_html(candles=_cand, zones=_tv_zones, levels=_tv_levels,
-                                    title=f"{symbol} · {interval}", dec=dec),
-                height=640, scrolling=False,
+                build_tv_chart_html(candles=_tfs[interval], tfs=_tfs, base_tf=interval,
+                                    symbol=symbol, zones=_tv_zones, levels=_tv_levels,
+                                    title=f"{symbol} · {interval}", dec=dec,
+                                    initial_bars=candle_count),
+                height=780, scrolling=False,
             )
 
             # (floating share button removed by request)

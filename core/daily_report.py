@@ -142,7 +142,7 @@ def aggregate(trades: List[Dict[str, Any]], now: datetime) -> Dict[str, Any]:
 # ------------------------------------------------------------------ قالب
 def fmt_report(agg: Dict[str, Any], open_trades: List[Dict[str, Any]],
                regime: Optional[Dict[str, Any]], now: datetime,
-               backend: str) -> str:
+               backend: str, lab: Optional[Dict[str, Any]] = None) -> str:
     """ساخت متن مارک‌داون گزارش — بدون I/O تا تست‌پذیر بماند."""
     L: List[str] = []
     L.append(f"## 📊 گزارش روزانه‌ی میدان — {now.astimezone(TEHRAN):%Y-%m-%d} (به وقت تهران)")
@@ -214,6 +214,24 @@ def fmt_report(agg: Dict[str, Any], open_trades: List[Dict[str, Any]],
         L.append("### 🌊 رژیم بازار — هنوز رژیمی ثبت نشده ⚪")
 
     L.append("")
+    if lab:                                  # فاز ۱۳ — وضعیت آزمایشگاه
+        c = lab.get("counts", {})
+        L.append("### 🔬 آزمایشگاه ایجنت‌ها")
+        L.append("")
+        L.append(f"- پنالتی فعال: 🧊 سرد‌شده {c.get('penalized', 0)} · "
+                 f"🧭 انضباط رژیم {c.get('regime_only', 0)} · ⛔ نماد ممنوع {c.get('bans', 0)}")
+        penal = [f"{nm} (×{a['cool_mult']:g})" for nm, a in (lab.get("agents") or {}).items()
+                 if float(a.get("cool_mult") or 1.0) > 1.0]
+        if penal:
+            L.append(f"- 🧊 سرد شدن: {' · '.join(penal)}")
+        bans = lab.get("symbol_bans") or []
+        if bans:
+            L.append("- ⛔ ممنوع: " + " · ".join(
+                f"{b.get('agent')}✕{b.get('symbol')}" for b in bans))
+        rego = [nm for nm, a in (lab.get("agents") or {}).items() if a.get("regime_only")]
+        if rego:
+            L.append(f"- 🧭 فقط هم‌جهت رژیم: {' · '.join(rego)}")
+        L.append("")
     L.append("### 🏆 کل میدان (تمام تاریخ)")
     L.append("")
     twr = f"{agg['total_winrate']}%" if agg["total_winrate"] is not None else "—"
@@ -231,7 +249,8 @@ def fmt_report(agg: Dict[str, Any], open_trades: List[Dict[str, Any]],
 
 # ------------------------------------------------------------------ قالب تلگرام
 def fmt_telegram(agg: Dict[str, Any], open_trades: List[Dict[str, Any]],
-                 regime: Optional[Dict[str, Any]], now: datetime) -> str:
+                 regime: Optional[Dict[str, Any]], now: datetime,
+                 lab: Optional[Dict[str, Any]] = None) -> str:
     """متن جمع‌وجور HTML برای تلگرام — بدون جدول (تلگرام جدول نمی‌فهمد)،
     بدون Markdown (تلگرام با MD ترکیبی مشکل دارد) — فقط HTML ساده.
     """
@@ -272,6 +291,11 @@ def fmt_telegram(agg: Dict[str, Any], open_trades: List[Dict[str, Any]],
         reg_fa = ("صعودی 🟢" if d > 0 else "نزولی 🔻" if d < 0 else "نامشخص ⚪")
         L.append(f"🌊 رژیم بازار: <b>{reg_fa}</b>"
                  f" (BTC {_fmt_price(regime.get('price'))} · MA {_fmt_price(regime.get('ma'))})")
+    if lab:                                  # فاز ۱۳ — یک خط آزمایشگاه
+        c = lab.get("counts", {})
+        if c.get("penalized") or c.get("bans") or c.get("regime_only"):
+            L.append(f"🔬 آزمایشگاه: 🧊 {c.get('penalized', 0)} سرد · "
+                     f"🧭 {c.get('regime_only', 0)} انضباط رژیم · ⛔ {c.get('bans', 0)} نماد ممنوع")
 
     twr = f"{agg['total_winrate']}%" if agg["total_winrate"] is not None else "—"
     L.append("")
@@ -302,10 +326,18 @@ def main() -> int:
 
     trades = store.load_all()
     open_trades = [t for t in trades if str(t.get("status")) == "open"]
-    regime = next((a for a in AL.recent_alerts(200) if a.get("kind") == "regime"), None)
+    alerts_all = AL.recent_alerts(200)
+    regime = next((a for a in alerts_all if a.get("kind") == "regime"), None)
 
     agg = aggregate(trades, now)
-    md = fmt_report(agg, open_trades, regime, now, backend)
+    # فاز ۱۳ — وضعیت آزمایشگاه (best-effort؛ خرابی فقط یعنی بدون این بخش)
+    lab: Optional[Dict[str, Any]] = None
+    try:
+        from core import agent_lab as LAB
+        lab = LAB.compute_adaptations(trades, now=now, regime_alerts=alerts_all)
+    except Exception as e:  # noqa: BLE001
+        print(f"⚠️ آزمایشگاه در گزارش نیامد (غیربحرانی): {e}", flush=True)
+    md = fmt_report(agg, open_trades, regime, now, backend, lab=lab)
     with open("daily_report.md", "w", encoding="utf-8") as f:
         f.write(md + "\n")
     print(md, flush=True)
@@ -322,7 +354,7 @@ def main() -> int:
     try:
         from core import telegram as TG
         if TG.enabled():
-            msg = fmt_telegram(agg, open_trades, regime, now)
+            msg = fmt_telegram(agg, open_trades, regime, now, lab=lab)
             print(f"🔔 تلگرام: {'ارسال شد ✅' if TG.send(msg) else 'ارسال نشد ⚠️'}", flush=True)
         else:
             print("ℹ️ تلگرام پیکربندی نشده — فقط فایل/Issue", flush=True)

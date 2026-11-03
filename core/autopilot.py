@@ -65,6 +65,7 @@ def _log(msg: str) -> None:
 # ------------------------------------------------------------------ مراحل
 def phase_update(store) -> dict:
     """پیش‌بردن پوزیشن‌های باز + هشدار بسته‌شدن — خروجی: خلاصه‌ی مرحله."""
+    from core import agent_lab as LAB
     from core import arena as A
     from core import alerts as AL
     from core import telegram as TG
@@ -85,15 +86,27 @@ def phase_update(store) -> dict:
         })
         _log(f"🏁 بسته شد: {t.get('agent')} · {t.get('symbol')} → {t.get('result')} "
              f"({float(t.get('realized_r') or 0):+.2f}R)")
+    # فاز ۱۳ — اگر ایجنتی به آستانه‌ی زنجیره‌ی باخت رسید، آزمایشگاه اعلام می‌شود
+    if just_closed:
+        try:
+            all_closed = LAB.closed_sorted(store.load_all())
+            for nm in sorted({str(t.get("agent")) for t in just_closed}):  
+                mine = [t for t in all_closed if str(t.get("agent")) == nm]
+                streak = LAB.current_streak(mine)
+                mult = LAB.cool_mult_for(streak)
+                if streak in (LAB.STREAK_L1, LAB.STREAK_L2, LAB.STREAK_L3):
+                    _log(f"🔬 آزمایشگاه: {nm} به {streak} باخت متوالی رسید — سرد شدن ×{mult:g}")
+                    TG.notify_streak(nm, streak, mult)
+        except Exception as e:  # noqa: BLE001
+            _log(f"⚠️ چک زنجیره‌ی آزمایشگاه ناموفق (غیربحرانی): {e}")
     return {"live_prices": len(live), "closed": closed_rows}
 
 
-def phase_regime() -> dict:
-    """چک رژیم بازار + هشدار تغییر رژیم (ضدتکرار — فقط جهش جهت ثبت می‌شود)."""
-    from core import arena as A
+def phase_regime(reg: dict) -> dict:
+    """هشدار تغییر رژیم از رژیمِ از پیش محاسبه‌شده (ضدتکرار — فقط جهش جهت ثبت می‌شود).
+    فاز ۱۳: market_regime فقط یک بار در main صدا زده می‌شود (صرفه‌ی شبکه) — این‌جا فقط ثبت."""
     from core import alerts as AL
     from core import telegram as TG
-    reg = A.market_regime(EXCHANGE)
     pushed = False
     try:
         pushed = bool(AL.push_regime_change(AL.get_alerts(), reg))
@@ -107,8 +120,9 @@ def phase_regime() -> dict:
     return {"dir": d, "price": reg.get("price"), "ma": reg.get("ma"), "alert_pushed": pushed}
 
 
-def phase_scan(store) -> dict:
-    """اسکن دومرحله‌ای + بازکردن معامله‌های تازه + هشدار بازشدن."""
+def phase_scan(store, regime_dir: int = 0) -> dict:
+    """اسکن دومرحله‌ای + بازکردن معامله‌های تازه + هشدار بازشدن + پنالتی‌های آزمایشگاه."""
+    from core import agent_lab as LAB
     from core import arena as A
     from core import alerts as AL
     from core import edge as EG
@@ -118,9 +132,23 @@ def phase_scan(store) -> dict:
         verdicts = (EG.load_edge(EG.EDGE_TTL_S) or {}).get("verdicts")  # گیت لبه فقط با حکم تازه مسلح می‌شود
     except Exception:  # noqa: BLE001
         verdicts = None
+    # فاز ۱۳ — آزمایشگاه: تطبیق stateless از تاریخچه‌ی زنده + برچسب‌های کالبدشکافی
+    lab: dict = {}
+    try:
+        regime_alerts = AL.recent_alerts(200)
+    except Exception:  # noqa: BLE001
+        regime_alerts = []
+    try:
+        lab = LAB.compute_adaptations(store.load_all(), regime_alerts=regime_alerts)
+        c = lab.get("counts", {})
+        _log(f"🔬 آزمایشگاه: سرد‌شده {c.get('penalized', 0)} · انضباط رژیم {c.get('regime_only', 0)} "
+             f"· نماد ممنوع {c.get('bans', 0)}")
+    except Exception as e:  # noqa: BLE001
+        _log(f"⚠️ محاسبه‌ی آزمایشگاه ناموفق (بدون پنالتی ادامه می‌دهیم): {e}")
     scans, errors, meta = A.run_scan(EXCHANGE, INTERVAL, appetite=APPETITE,
                                      verdicts=verdicts, edge_mode=EDGE_MODE)
-    opened, blocked = A.open_trades_from_scan(scans, EXCHANGE, INTERVAL, store, source="autopilot")
+    opened, blocked = A.open_trades_from_scan(scans, EXCHANGE, INTERVAL, store, source="autopilot",
+                                              lab=lab or None, regime_dir=regime_dir)
     opened_rows = []
     for t in opened:
         try:
@@ -182,15 +210,23 @@ def main() -> int:
         summary["update_error"] = str(e)[:300]
         _log(f"❌ مرحله‌ی پیش‌بردن معاملات شکست خورد: {e}\n{traceback.format_exc(limit=2)}")
         TG.notify_failure("پیش‌بردن معاملات", str(e))
+    # فاز ۱۳ — رژیم فقط یک بار محاسبه می‌شود و به رژیم/اسکن هر دو می‌رسد (صرفه‌ی شبکه)
+    reg: dict = {}
     try:
-        summary["regime"] = phase_regime()
+        from core import arena as A
+        reg = A.market_regime(EXCHANGE)
+    except Exception as e:  # noqa: BLE001
+        reg = {}
+        _log(f"⚠️ گرفتن رژیم بازار ناموفق (ادامه می‌دهیم): {e}")
+    try:
+        summary["regime"] = phase_regime(reg or {"dir": 0})
     except Exception as e:  # noqa: BLE001
         summary["regime_error"] = str(e)[:300]
         _log(f"⚠️ مرحله‌ی رژیم بازار شکست خورد (ادامه می‌دهیم): {e}")
         TG.notify_failure("رژیم بازار", str(e))
     if SCAN_ON:
         try:
-            summary["scan"] = phase_scan(store)
+            summary["scan"] = phase_scan(store, regime_dir=int((reg or {}).get("dir") or 0))
         except Exception as e:  # noqa: BLE001
             summary["scan_error"] = str(e)[:300]
             _log(f"⚠️ مرحله‌ی اسکن شکست خورد: {e}")

@@ -166,6 +166,19 @@ def notify_regime(a: dict) -> bool:
     return send("\n".join(lines))
 
 
+def notify_streak(agent: str, streak: int, cool_mult: float) -> bool:
+    """پیام زنجیره‌ی باخت متوالی ایجنت — لحظه‌ای که آزمایشگاه سرد شدن می‌گذارد."""
+    return send("\n".join([
+        f"<b>⚠️ زنجیره‌ی ضرر ایجنت {agent}</b>",
+        "",
+        f"📉 {streak} باخت متوالی — آزمایشگاه وارد عمل شد:",
+        f"🧊 سرد شدن ×{cool_mult:g} تا معامله‌ی بعدی (cooldown طولانی‌تر)",
+        "",
+        "🔬 هدف: شکستن چرخه‌ی باخت و حفظ سرمایه‌ی امتیازی ایجنت",
+        f"🕐 {_tehran_now()} تهران",
+    ]))
+
+
 def notify_failure(where: str, err: str = "") -> bool:
     """پیام شکست اتوپایلوت/مرحله."""
     lines = [

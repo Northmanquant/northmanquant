@@ -544,23 +544,41 @@ def threading_current():
 
 # ----------------------------------------------------------------------------- opening
 def open_trades_from_scan(scans: list[dict], exchange: str, interval: str, store,
-                          source: str = "manual") -> tuple[list[dict], int]:
+                          source: str = "manual", lab: dict | None = None,
+                          regime_dir: int = 0) -> tuple[list[dict], int]:
     """از نتایج اسکن، بهترین برگزیده‌ها را برای هر شرکت‌کننده (با سهمیه و cooldown) باز می‌کند.
     source: برچسب منبع بازکردن («autopilot» از اتوپایلوت / «manual» از اپ)
-    — فاز ۹: برای تفکیک دوره‌ها در گزارش روزانه و تحلیل سوددهی."""
+    — فاز ۹: برای تفکیک دوره‌ها در گزارش روزانه و تحلیل سوددهی.
+    فاز ۱۳ — lab (خروجی agent_lab.compute_adaptations) اختیاری است:
+      · cool_mult>۱ برای ایجنتِ زنجیره‌ضرر → cooldown نماد/جهت × ضریب
+      · ممنوعیت نماد (ایجنت، نماد) → هر جهتی
+      · regime_only → فقط ورود هم‌جهت رژیم فعلی
+    بدون lab همه‌چیز مثل قبل است (backward compatible)."""
     existing = store.load_all()
     opens = [t for t in existing if t.get("status") == "open"]
     counts = Counter(t["agent"] for t in opens)
     global_open = len(opens)
 
     cool_min = COOLDOWN_CANDLES * INTERVAL_MIN.get(interval, 60)
-    cutoff = pd.Timestamp.now(tz="UTC") - pd.Timedelta(minutes=cool_min)
-    recent = set()
+    now_ts = pd.Timestamp.now(tz="UTC")
+    cutoff = now_ts - pd.Timedelta(minutes=cool_min)
+
+    # فاز ۱۳ — آماده‌سازی پنالتی‌های آزمایشگاه
+    lab_agents: dict = (lab or {}).get("agents") or {}
+    sym_banned: set[tuple[str, str]] = {
+        (str(b.get("agent") or ""), str(b.get("symbol") or ""))
+        for b in (lab or {}).get("symbol_bans") or []}
+    lab_blocked = 0
+
+    recent: set = set()
     for t in existing:
         if t.get("status") == "closed":
+            nm = t.get("agent")
+            mult = float((lab_agents.get(nm) or {}).get("cool_mult") or 1.0)
+            cut_a = now_ts - pd.Timedelta(minutes=cool_min * max(1.0, mult))
             ca = to_ts(t.get("closed_at"))
-            if ca is not pd.NaT and ca >= cutoff:
-                recent.add((t.get("agent"), t.get("symbol"), int(t.get("direction") or 0)))
+            if ca is not pd.NaT and ca >= cut_a:
+                recent.add((nm, t.get("symbol"), int(t.get("direction") or 0)))
 
     cands = []
     for coin in scans:
@@ -583,6 +601,13 @@ def open_trades_from_scan(scans: list[dict], exchange: str, interval: str, store
             break
         if any(o["agent"] == name and o["symbol"] == coin["symbol"] for o in opens):
             continue
+        _la = lab_agents.get(name) or {}
+        if (name, coin["symbol"]) in sym_banned:
+            lab_blocked += 1        # فاز ۱۳: نماد ممنوع‌شده‌ی آزمایشگاه
+            continue
+        if _la.get("regime_only") and int(a["dir"]) != regime_dir:
+            lab_blocked += 1        # فاز ۱۳: انضباط رژیم — فقط هم‌جهت رژیم
+            continue
         if (name, coin["symbol"], int(a["dir"])) in recent:
             blocked_cool += 1
             continue
@@ -593,7 +618,7 @@ def open_trades_from_scan(scans: list[dict], exchange: str, interval: str, store
         counts[name] += 1
         global_open += 1
         opened.append(rec)
-    return opened, blocked_cool + blocked_full
+    return opened, blocked_cool + blocked_full + lab_blocked
 
 
 # ----------------------------------------------------------------------------- update loop

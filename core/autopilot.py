@@ -125,6 +125,7 @@ def phase_scan(store, regime_dir: int = 0) -> dict:
     from core import agent_lab as LAB
     from core import arena as A
     from core import alerts as AL
+    from core import dossier as DOS
     from core import edge as EG
     from core import telegram as TG
     verdicts = None
@@ -145,10 +146,20 @@ def phase_scan(store, regime_dir: int = 0) -> dict:
              f"· نماد ممنوع {c.get('bans', 0)}")
     except Exception as e:  # noqa: BLE001
         _log(f"⚠️ محاسبه‌ی آزمایشگاه ناموفق (بدون پنالتی ادامه می‌دهیم): {e}")
+    # فاز ۱۴ — پرونده‌ی بهبود: تشخیص + نسخه‌ی پژوهشی هر ایجنت ضعیف (بعد از اعتبارسنجی ضدواقعی)
+    dossier: dict = {}
+    try:
+        dossier = DOS.compute_dossier(store.load_all(), regime_alerts=regime_alerts)
+        dc = dossier.get("counts", {})
+        _log(f"📋 پرونده‌ی بهبود: تعلیق {dc.get('suspended', 0)} · سهمیه‌کاه {dc.get('quota_cut', 0)} "
+             f"· کیفیت‌فیلتر {dc.get('score_floor', 0)}")
+    except Exception as e:  # noqa: BLE001
+        _log(f"⚠️ محاسبه‌ی پرونده ناموفق (بدون نسخه ادامه می‌دهیم): {e}")
     scans, errors, meta = A.run_scan(EXCHANGE, INTERVAL, appetite=APPETITE,
                                      verdicts=verdicts, edge_mode=EDGE_MODE)
     opened, blocked = A.open_trades_from_scan(scans, EXCHANGE, INTERVAL, store, source="autopilot",
-                                              lab=lab or None, regime_dir=regime_dir)
+                                              lab=lab or None, regime_dir=regime_dir,
+                                              dossier=dossier or None)
     opened_rows = []
     for t in opened:
         try:

@@ -36,6 +36,7 @@ from core import agent_lab as LAB  # noqa: E402
 from core import alerts as AL  # noqa: E402
 from core import arena as A  # noqa: E402
 from core import arena_store  # noqa: E402
+from core import dossier as DOS  # noqa: E402
 from core import edge as EG  # noqa: E402
 from core.autopsy import TAG_FA  # noqa: E402
 
@@ -50,6 +51,7 @@ _regime_alerts = AL.recent_alerts(200)
 _closed = LAB.closed_sorted(_trades)
 _report = LAB.agent_report(_trades, _regime_alerts)
 _lab = LAB.compute_adaptations(_trades, regime_alerts=_regime_alerts)
+_dossier = DOS.compute_dossier(_trades, regime_alerts=_regime_alerts)
 _edge = EG.load_edge() or {}
 
 if not _closed:
@@ -75,10 +77,11 @@ k4.metric(L("ضعیف‌ترین (n≥2)", "Weakest (n≥2)"),
           (_worst[0] or "—") if _worst else "—",
           f"{_worst[1]['exp']:+.2f}R" if _worst else "")
 
-_tab1, _tab2, _tab3 = st.tabs([
+_tab1, _tab2, _tab3, _tab4 = st.tabs([
     "🎓 " + L("کارنامه‌ی ایجنت‌ها", "Agent report cards"),
     "🔬 " + L("کالبدشکافی ضعف‌ها", "Weakness autopsy"),
     "🧊 " + L("تطبیق فعال", "Active adaptations"),
+    "📋 " + L("پرونده‌ی بهبود", "Improvement dossier"),
 ])
 
 # ================================================================ تب ۱ — کارنامه
@@ -192,6 +195,94 @@ with _tab3:
         st.success(L("فعلاً هیچ پنالتی‌ای فعال نیست — همه‌ی ایجنت‌ها در آستانه‌های سالم‌اند. ✅",
                      "No penalties active — all agents are within healthy thresholds. ✅"))
 
+# ================================================================ تب ۴ — پرونده‌ی بهبود (فاز ۱۴)
+with _tab4:
+    st.info(L(
+        "پرونده‌ی پزشکی هر ایجنت: تشخیص (از کالبدشکافی) → نسخه (سه درمان محافظه‌کارانه) → "
+        "اعتبارسنجی ضدواقعی (اگر نسخه از اول بود، چند ضرر حذف می‌شد و چند سود از دست می‌رفت؟). "
+        "گیت علمی: نسخه فقط وقتی کار می‌شود که «ضرر حذف‌شده ≥ سود ازدست‌رفته». "
+        "تعلیق خود-التیام است: بدون ترید تازه، پنجره‌ی ۲۱ روزه کهنه می‌شود و ایجنت خودش برمی‌گردد.",
+        "A medical chart per agent: diagnosis (from autopsy) → prescription (three conservative "
+        "treatments) → counterfactual validation (had it been active, how many losses avoided vs "
+        "wins missed?). Scientific gate: a prescription only activates if saved ≥ missed. "
+        "Suspension self-heals: with no new trades the 21-day window ages out and the agent returns."))
+
+    dc = _dossier.get("counts", {})
+    d1, d2, d3, d4 = st.columns(4)
+    d1.metric("🚫 " + L("تعلیق مشروط", "Suspended"), dc.get("suspended", 0))
+    d2.metric("🎯 " + L("سهمیه‌ی تک‌پوزیشن", "Single-slot quota"), dc.get("quota_cut", 0))
+    d3.metric("🎚️ " + L("فیلتر کیفیت", "Quality filter"), dc.get("score_floor", 0))
+    d4.metric("👁️ " + L("در حال پایش", "Monitoring"),
+              sum(1 for a in _dossier.get("agents", {}).values() if a.get("status") == "monitoring"))
+
+    VAL_FA = {"suspension": "🚫 تعلیق", "quota": "🎯 سهمیه", "quality": "🎚️ کیفیت"}
+    VAL_EN = {"suspension": "🚫 Suspension", "quota": "🎯 Quota", "quality": "🎚️ Quality"}
+    VERDICT_FA = {"ok": "مناسب ✅", "reject": "رد ❌"}
+
+    _active = [(nm, a) for nm, a in _dossier.get("agents", {}).items()
+               if a.get("limits")]
+    _weak = [(nm, a) for nm, a in _dossier.get("agents", {}).items()
+             if not a.get("limits") and a.get("status") == "monitoring"]
+
+    if _active:
+        st.subheader("📋 " + L("پرونده‌های فعال", "Active dossiers"))
+        for nm, a in sorted(_active, key=lambda kv: kv[1]["exp"]):
+            mine = [t for t in _closed if str(t.get("agent")) == nm]
+            diag = DOS.diagnose(mine, _regime_alerts, lang=LANG)
+            head = (f"{nm} · انتظاری {a['exp']:+.2f}R · PF {a['pf']:g} · n={a['n']}")
+            with st.expander(head):
+                st.markdown("**🩺 " + L("تشخیص", "Diagnosis") + "**")
+                _note = diag.get("note_fa") or diag.get("note_en") or "—"
+                st.markdown(f"- {_note}")
+                if a.get("weakness"):
+                    st.markdown("- " + " · ".join(
+                        f"{TAG_FA.get(c, c) if LANG == 'fa' else c}: {n}"
+                        for c, n in list(a["weakness"].items())[:4]))
+
+                st.markdown("**💊 " + L("نسخه‌ی فعال", "Active prescription") + "**")
+                lim = a.get("limits") or {}
+                lines = []
+                if lim.get("suspended"):
+                    lines.append("🚫 " + L("تعلیق مشروط — ورود جدید ممنوع تا رفع شرط",
+                                           "Conditional suspension — no new entries"))
+                if lim.get("max_pos"):
+                    lines.append("🎯 " + L(f"سهمیه: حداکثر {lim['max_pos']} پوزیشن هم‌زمان",
+                                           f"Quota: max {lim['max_pos']} concurrent position(s)"))
+                if lim.get("score_floor"):
+                    lines.append("🎚️ " + L(f"فیلتر کیفیت: |score| ≥ {lim['score_floor']:g}",
+                                           f"Quality filter: |score| ≥ {lim['score_floor']:g}"))
+                for ln in lines:
+                    st.markdown(f"- {ln}")
+
+                st.markdown("**🧪 " + L("اعتبارسنجی ضدواقعی (روی تاریخچه‌ی خود ایجنت)",
+                                        "Counterfactual validation (on the agent's own history)") + "**")
+                vrows = []
+                for k, v in (a.get("validation") or {}).items():
+                    lbl = (VAL_FA if LANG == "fa" else VAL_EN).get(k, k)
+                    verd = VERDICT_FA.get(v.get("verdict"), v.get("verdict")) if LANG == "fa" \
+                        else ("pass ✅" if v.get("verdict") == "ok" else "reject ❌")
+                    vrows.append({
+                        L("نسخه", "Rx"): lbl,
+                        L("بلاک‌شده", "Blocked"): v.get("blocked_n", 0),
+                        L("ضرر حذف‌شده", "Saved loss"): f"{v.get('saved_loss_r', 0):+.2f}R",
+                        L("سود ازدست‌رفته", "Missed win"): f"-{v.get('missed_win_r', 0):.2f}R",
+                        "net": f"{v.get('net', 0):+.2f}R",
+                        L("حکم", "Verdict"): verd,
+                    })
+                if vrows:
+                    st.dataframe(pd.DataFrame(vrows), width="stretch", hide_index=True)
+    if _weak:
+        st.subheader("👁️ " + L("در حال پایش (شواهد کافی نیست)", "Monitoring (not enough evidence)"))
+        rows = [{"🤖": nm, "n": a["n"], "انتظاری" if LANG == "fa" else "Exp": f"{a['exp']:+.2f}R",
+                 "PF": a["pf"]} for nm, a in sorted(_weak, key=lambda kv: kv[1]["exp"])]
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+    if not _active and not _weak:
+        st.success(L("هیچ پرونده‌ی فعالی نیست — همه‌ی ایجنت‌ها در محدوده‌ی سالم‌اند. ✅",
+                     "No active dossiers — all agents are healthy. ✅"))
+
+    st.caption(L("قواعد نسخه‌ها در core/dossier.py — آستانه‌ها بالای فایل و شفاف‌اند.",
+                 "Prescription rules live in core/dossier.py — thresholds at the top, fully transparent."))
+
 st.divider()
-st.caption(L(f"🔬 محاسبه‌ی زنده از {_store.backend} · قواعد آزمایشگاه در core/agent_lab.py",
-             f"🔬 Live computation from {_store.backend} · lab rules in core/agent_lab.py"))
+st.caption(L(f"🔬 محاسبه‌ی زنده از {_store.backend} · قواعد آزمایشگاه در core/agent_lab.py · نسخه‌های بهبود در core/dossier.py",
+             f"🔬 Live computation from {_store.backend} · lab rules in core/agent_lab.py · prescriptions in core/dossier.py"))

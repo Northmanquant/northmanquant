@@ -545,7 +545,8 @@ def threading_current():
 # ----------------------------------------------------------------------------- opening
 def open_trades_from_scan(scans: list[dict], exchange: str, interval: str, store,
                           source: str = "manual", lab: dict | None = None,
-                          regime_dir: int = 0) -> tuple[list[dict], int]:
+                          regime_dir: int = 0,
+                          dossier: dict | None = None) -> tuple[list[dict], int]:
     """از نتایج اسکن، بهترین برگزیده‌ها را برای هر شرکت‌کننده (با سهمیه و cooldown) باز می‌کند.
     source: برچسب منبع بازکردن («autopilot» از اتوپایلوت / «manual» از اپ)
     — فاز ۹: برای تفکیک دوره‌ها در گزارش روزانه و تحلیل سوددهی.
@@ -553,7 +554,11 @@ def open_trades_from_scan(scans: list[dict], exchange: str, interval: str, store
       · cool_mult>۱ برای ایجنتِ زنجیره‌ضرر → cooldown نماد/جهت × ضریب
       · ممنوعیت نماد (ایجنت، نماد) → هر جهتی
       · regime_only → فقط ورود هم‌جهت رژیم فعلی
-    بدون lab همه‌چیز مثل قبل است (backward compatible)."""
+    فاز ۱۴ — dossier (خروجی dossier.compute_dossier) اختیاری است — نسخه‌های پژوهشی:
+      · suspended → ورود جدید ممنوع تا وقتی شرط پنجره برقرار است (خود-التیام)
+      · max_pos → سقف پوزیشن هم‌زمان این ایجنت (کمتر از سقف عمومی)
+      · score_floor → فقط سیگنال با |score| ≥ آستانه‌ی خودش
+    بدون lab/dossier همه‌چیز مثل قبل است (backward compatible)."""
     existing = store.load_all()
     opens = [t for t in existing if t.get("status") == "open"]
     counts = Counter(t["agent"] for t in opens)
@@ -569,6 +574,10 @@ def open_trades_from_scan(scans: list[dict], exchange: str, interval: str, store
         (str(b.get("agent") or ""), str(b.get("symbol") or ""))
         for b in (lab or {}).get("symbol_bans") or []}
     lab_blocked = 0
+
+    # فاز ۱۴ — آماده‌سازی نسخه‌های پرونده‌ی بهبود
+    ds_agents: dict = (dossier or {}).get("agents") or {}
+    ds_blocked = 0
 
     recent: set = set()
     for t in existing:
@@ -594,7 +603,12 @@ def open_trades_from_scan(scans: list[dict], exchange: str, interval: str, store
 
     opened, blocked_cool, blocked_full = [], 0, 0
     for _q, name, coin, a in cands:
-        if counts.get(name, 0) >= MAX_POS_PER_AGENT:
+        _ds = ds_agents.get(name) or {}
+        _lim = _ds.get("limits") or _ds
+        if _lim.get("suspended"):
+            ds_blocked += 1         # فاز ۱۴: تعلیق مشروط — ورود جدید ممنوع
+            continue
+        if counts.get(name, 0) >= min(MAX_POS_PER_AGENT, int(_lim.get("max_pos") or MAX_POS_PER_AGENT)):
             blocked_full += 1
             continue
         if global_open >= GLOBAL_CAP:
@@ -608,6 +622,10 @@ def open_trades_from_scan(scans: list[dict], exchange: str, interval: str, store
         if _la.get("regime_only") and int(a["dir"]) != regime_dir:
             lab_blocked += 1        # فاز ۱۳: انضباط رژیم — فقط هم‌جهت رژیم
             continue
+        _floor = float(_lim.get("score_floor") or 0.0)
+        if _floor > 0 and abs(float(a.get("score") or 0)) < _floor:
+            ds_blocked += 1         # فاز ۱۴: فیلتر کیفیت — سیگنال ضعیف‌تر از میانه‌ی خودش
+            continue
         if (name, coin["symbol"], int(a["dir"])) in recent:
             blocked_cool += 1
             continue
@@ -618,7 +636,7 @@ def open_trades_from_scan(scans: list[dict], exchange: str, interval: str, store
         counts[name] += 1
         global_open += 1
         opened.append(rec)
-    return opened, blocked_cool + blocked_full + lab_blocked
+    return opened, blocked_cool + blocked_full + lab_blocked + ds_blocked
 
 
 # ----------------------------------------------------------------------------- update loop

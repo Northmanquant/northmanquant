@@ -2,12 +2,11 @@
 """
 core/lighter.py — کلاینت عمومیِ صرافی Lighter (perp DEX)
 =========================================================
-فقط API عمومیِ بدون‌کلید: /api/v1/orderBookDetails (بازارها + قیمت آخر).
-مستندات رسمی: https://apidocs.lighter.xyz/reference/orderBookdetails
+فقط API عمومیِ بدون‌کلید: /api/v1/orderBookDetails (بازارها + قیمت آخر)،
+/api/v1/orderBookOrders (بهترین bid/ask واقعی)، متادیتای بازارها.
 
-نکته‌ی صادقانه: ارسال سفارشِ واقعی روی لایتر این‌جا نیست — آن مسیر به
-امضای L2 و SDK رسمی نیاز دارد و بعداً به صفحه‌ی «ترید مستقیم» اضافه می‌شود.
-الان لایتر در ترید مستقیم فقط Paper است (قیمت واقعیِ پرپ، سفارش مجازی).
+نکته: ارسال سفارشِ واقعی روی لایتر در «core/lighter_real.py» است — با SDK رسمی
+(lighter-sdk) و کلید API (نه کلید کیف‌پول). این ماژول عمومی و بدون‌کلید می‌ماند.
 
 الگوی پروژه: هیچ تابعی exception به UI نمی‌اندازد — ورودی/شبکه‌ی خراب =
 None / [] / 0.0. همه‌ی توابع با fetch تزریقی بدون شبکه تست‌پذیرند.
@@ -35,6 +34,7 @@ def _reset_for_tests() -> None:
     global _cache, last_error
     _cache = {"rows": None, "ts": 0.0}
     last_error = None
+    _book_cache.clear()
 
 
 # ---------------------------------------------------------------- نرمال‌سازی نماد
@@ -51,6 +51,13 @@ def normalize(symbol: str) -> str:
 
 
 # ---------------------------------------------------------------- بازارها
+def _int_or(v: Any, default: int) -> int:
+    try:
+        return int(float(v))
+    except (TypeError, ValueError):
+        return default
+
+
 def _parse_markets(data: Any) -> List[Dict[str, Any]]:
     """ردیف‌های خام orderBookDetails → ردیف تمیز. ردیف خراب رد می‌شود."""
     rows: List[Dict[str, Any]] = []
@@ -76,6 +83,11 @@ def _parse_markets(data: Any) -> List[Dict[str, Any]]:
                 "change_pct": float(r.get("daily_price_change") or 0),
                 "high": float(r.get("daily_price_high") or 0),
                 "low": float(r.get("daily_price_low") or 0),
+                # برای سفارش واقعی: مقیاس‌بندی و کف سفارش هر بازار
+                "size_decimals": _int_or(r.get("supported_size_decimals"), 0),
+                "price_decimals": _int_or(r.get("supported_price_decimals"), 0),
+                "min_base": float(r.get("min_base_amount") or 0),
+                "min_quote": float(r.get("min_quote_amount") or 0),
             })
         except Exception:
             continue
@@ -156,3 +168,73 @@ def ticker(symbol: str, _fetch: Optional[_Fetch] = None) -> Optional[Dict[str, A
                 "change_pct": float(row.get("change_pct") or 0),
             }
     return None
+
+
+def market_meta(symbol: str, _fetch: Optional[_Fetch] = None) -> Optional[Dict[str, Any]]:
+    """متادیتای کامل بازار برای سفارش واقعی: market_id، مقیاس‌بندی و کف سفارش.
+    نماد ناشناخته/شبکه‌ی خراب = None."""
+    sym = normalize(symbol)
+    if not sym:
+        return None
+    for row in markets(_fetch):
+        if row.get("symbol") == sym:
+            mid = row.get("market_id")
+            if mid is None:
+                return None
+            return {
+                "symbol": sym,
+                "market_id": int(mid),
+                "size_decimals": int(row.get("size_decimals") or 0),
+                "price_decimals": int(row.get("price_decimals") or 0),
+                "min_base": float(row.get("min_base") or 0),
+                "min_quote": float(row.get("min_quote") or 0),
+                "status": str(row.get("status") or ""),
+            }
+    return None
+
+
+# ---------------------------------------------------------------- دفتر سفارش (bid/ask واقعی)
+BOOK_TTL_SEC = 8.0
+_book_cache: Dict[str, Any] = {}          # market_id → {"bid","ask","ts"}
+
+
+def _parse_book_top(data: Any) -> Optional[Dict[str, float]]:
+    """پاسخ /api/v1/orderBookOrders → بهترین bid/ask. asks صعودی، bids نزولی."""
+    try:
+        ob = data if isinstance(data, dict) else {}
+        asks = [float(a.get("price") or 0) for a in (ob.get("asks") or []) if isinstance(a, dict)]
+        bids = [float(b.get("price") or 0) for b in (ob.get("bids") or []) if isinstance(b, dict)]
+        asks = [p for p in asks if p > 0]
+        bids = [p for p in bids if p > 0]
+        if not asks or not bids:
+            return None
+        return {"bid": max(bids), "ask": min(asks)}
+    except Exception:
+        return None
+
+
+def book_top(symbol: str, _fetch: Optional[_Fetch] = None, *, now: Optional[float] = None,
+             ttl: float = BOOK_TTL_SEC) -> Optional[Dict[str, float]]:
+    """بهترین bid/ask واقعی دفتر سفارش لایتر (نه last). خرابی = None — هرگز عدد ساختگی."""
+    sym = normalize(symbol)
+    if not sym:
+        return None
+    mid = market_id(sym, _fetch)
+    if mid is None:
+        return None
+    fetch = _fetch or get_json
+    n = float(now) if now is not None else time.monotonic()
+    hit = _book_cache.get(str(mid))
+    if hit and (n - float(hit.get("ts") or 0)) < ttl:
+        return {"bid": float(hit["bid"]), "ask": float(hit["ask"])}
+    try:
+        data = fetch(f"{BASE}/api/v1/orderBookOrders",
+                     params={"market_id": mid, "limit": 8},
+                     headers=HEADERS, timeout=FETCH_TIMEOUT)
+    except Exception:
+        return None
+    top = _parse_book_top(data)
+    if top is None:
+        return None
+    _book_cache[str(mid)] = {**top, "ts": n}
+    return top

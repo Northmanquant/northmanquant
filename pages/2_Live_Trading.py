@@ -12,6 +12,8 @@ try:
 except Exception:                     # noqa: BLE001
     LIT = None
 
+from core import lighter_real as LREAL   # سفارش واقعی لایتر با SDK رسمی (لازی؛ خودش import امن است)
+
 st.set_page_config(page_title="ترید مستقیم | Live Trading", page_icon="💹", layout="wide")
 setup_i18n(page="p2")   # زبان + منوی ترجمه‌شده + پچ ترجمه‌ی کل صفحه
 st.title("💹 ترید مستقیم — بدون رفتن به صرافی")
@@ -136,12 +138,14 @@ if not cfg:
                 "فقط صرافی‌هایی که واقعاً پشتیبانی می‌شوند در فهرست‌اند.",
                 "Only exchanges that are actually supported are listed."))
         is_real_new = mode.startswith("Real")
-        if is_real_new and ex_name == "Lighter":
-            st.warning(tr(
-                "Lighter فعلاً فقط Paper است (سفارش واقعی‌اش به SDK رسمی نیاز دارد) — برای Real صرافی دیگری انتخاب کن.",
-                "Lighter is Paper-only for now (real orders need the official SDK) — pick another exchange for Real."))
         api_key = api_secret = passphrase = ""
-        if is_real_new:
+        lit_account = lit_key = ""
+        lit_key_index = 0
+        if is_real_new and ex_name == "Lighter":
+            st.info(tr(
+                "سفارش واقعی لایتر با **کلید API** کار می‌کند، نه کلید کیف‌پول: در lighter.xyz به Account ← API Keys برو، کلید بساز و «private key» نمایش‌داده‌شده را این‌جا بگذار. کلید API سفارش می‌گذارد ولی **برداشت نمی‌تواند** — برداشت فقط با امضای کیف‌پول است. تا وقتی صفحه باز است، کلید فقط در حافظه‌ی همین نشست می‌ماند.",
+                "Real orders on Lighter use an **API key**, not the wallet key: on lighter.xyz go to Account ← API Keys, create one and paste the shown private key here. An API key can place orders but **cannot withdraw** (withdrawals need wallet signature). While this page is open, the key stays only in this session's memory."))
+        if is_real_new and ex_name != "Lighter":
             k1, k2, k3 = st.columns(3)
             with k1:
                 api_key = st.text_input("API Key", type="password")
@@ -151,6 +155,28 @@ if not cfg:
                 passphrase = st.text_input(
                     tr("Passphrase (KuCoin/OKX لازم دارند)", "Passphrase (required by KuCoin/OKX)"),
                     type="password")
+        if is_real_new and ex_name == "Lighter":
+            l1, l2, l3 = st.columns([1, 2, 1])
+            with l1:
+                lit_account = st.text_input(
+                    tr("شماره‌ی حساب (Account Index)", "Account Index"),
+                    help=tr("عدد کنار نام حساب در lighter.xyz — یا آدرس کیف‌پول را پایین بزن تا پیدایش کنیم.",
+                            "The number next to your account name on lighter.xyz — or use the wallet-address lookup below."))
+            with l2:
+                lit_key = st.text_input("API Private Key", type="password")
+            with l3:
+                lit_key_index = st.number_input("Key Index", min_value=0, max_value=15, value=0, step=1)
+            find_addr = st.text_input(
+                tr("پیدا کردن شماره‌ی حساب از آدرس کیف‌پول (اختیاری)", "Find account index from wallet address (optional)"),
+                placeholder="0x…")
+            if st.button(tr("🔍 پیدا کردن شماره‌ی حساب", "🔍 Find account index")):
+                found = LREAL.find_account_by_address(find_addr)
+                if found is None:
+                    st.warning(tr("حسابی برای این آدرس پیدا نشد.", "No account found for this address."))
+                else:
+                    st.success(tr(
+                        f"حساب مادر: {found} — همین عدد را در «شماره‌ی حساب» بگذار.",
+                        f"Master account: {found} — put this number in «Account Index»."))
         if ex_name == "Lighter":
             st.caption(tr(
                 "Lighter پرپ DEX است — نمادها بدون USDT (مثل BTC، ETH).",
@@ -167,24 +193,36 @@ if not cfg:
             "⚠️ قانون طلایی: کلیدی که اجازه‌ی برداشت دارد را هرگز وارد نکن — فقط کلیدِ فقط-ترید در یک زیرحساب با موجودی کم.",
             "⚠️ Golden rule: never enter a key with withdrawal permission — use a trade-only key on a sub-account with a small balance."))
         if st.button("🔌 اتصال", type="primary"):
-            if is_real_new and ex_name == "Lighter":
-                st.error(tr(
-                    "تریدِ واقعی روی Lighter هنوز فعال نیست — فعلاً با Paper امتحانش کن.",
-                    "Real trading on Lighter is not enabled yet — try it with Paper for now."))
+            _sym = (symbol or ("BTC" if ex_name == "Lighter" else "BTC/USDT")).strip()
+            _sym_ok = True
+            if ex_name == "Lighter" and LIT is not None:
+                _sym = LIT.normalize(_sym)
+                _known = LIT.symbols()
+                if _known and _sym not in _known:
+                    st.error(tr(
+                        f"نماد «{_sym}» روی Lighter پیدا نشد — یکی از این‌ها: " + " · ".join(_known[:12]),
+                        f"Symbol «{_sym}» was not found on Lighter — use one of: " + " · ".join(_known[:12])))
+                    _sym_ok = False
+            if not _sym_ok:
+                pass
+            elif is_real_new and ex_name == "Lighter":
+                _ok, _msg = LREAL.check_connection(lit_account, lit_key, int(lit_key_index))
+                if not _ok:
+                    st.error(_msg)
+                else:
+                    st.session_state.trade_cfg = {
+                        "ex": "Lighter", "key": "", "secret": "", "pass": "",
+                        "symbol": _sym, "mode": "Real",
+                        "account_index": int(lit_account),
+                        "lit_key": lit_key.strip(), "lit_key_index": int(lit_key_index),
+                    }
+                    st.session_state.ts_activity = time.time()
+                    st.session_state.pending_order = None
+                    st.rerun()
             elif is_real_new and (not api_key or not api_secret):
                 st.error(tr("برای حالت Real، کلید و رمز لازم است.",
                             "Real mode requires an API key and secret."))
             else:
-                _sym = (symbol or ("BTC" if ex_name == "Lighter" else "BTC/USDT")).strip()
-                _sym_ok = True
-                if ex_name == "Lighter" and LIT is not None:
-                    _sym = LIT.normalize(_sym)
-                    _known = LIT.symbols()
-                    if _known and _sym not in _known:
-                        st.error(tr(
-                            f"نماد «{_sym}» روی Lighter پیدا نشد — یکی از این‌ها: " + " · ".join(_known[:12]),
-                            f"Symbol «{_sym}» was not found on Lighter — use one of: " + " · ".join(_known[:12])))
-                        _sym_ok = False
                 if _sym_ok:
                     st.session_state.trade_cfg = {
                         "ex": ex_name, "key": api_key, "secret": api_secret,
@@ -218,10 +256,16 @@ if cfg["ex"] == "Lighter":
     else:
         tick = {"last": float(_tk["last"]), "bid": None, "ask": None}
         _chg = float(_tk.get("change_pct") or 0.0)
+        _top = LIT.book_top(cfg["symbol"]) if LIT is not None else None
+        _sub = f"{_chg:+.2f}% · Mark {float(_tk.get('mark') or 0.0):,.4f}"
+        if _top:
+            tick["bid"], tick["ask"] = float(_top["bid"]), float(_top["ask"])
+            _sub += tr(f" · بهترین Bid {float(_top['bid']):,.2f} / Ask {float(_top['ask']):,.2f}",
+                       f" · best Bid {float(_top['bid']):,.2f} / Ask {float(_top['ask']):,.2f}")
         st.metric(tr(f"قیمت {cfg['symbol']} پرپ در Lighter",
                       f"{cfg['symbol']} perp price on Lighter"),
                   f"{_tk['last']:,.4f}",
-                  f"{_chg:+.2f}% · Mark {float(_tk.get('mark') or 0.0):,.4f}")
+                  _sub)
 else:
     try:
         import ccxt
@@ -272,6 +316,15 @@ if is_real:
 # ---------------------------------------------------------------- فرم سفارش
 st.divider()
 st.subheader("🛒 ثبت سفارش")
+_lit_meta = None
+if cfg.get("ex") == "Lighter" and LIT is not None:
+    _lit_meta = LIT.market_meta(cfg["symbol"])
+if _lit_meta:
+    st.caption(tr(
+        f"نماد {cfg['symbol']} در لایتر: حداقل مقدار {float(_lit_meta['min_base']):g} · حداقل ارزش {float(_lit_meta['min_quote']):g} USDT"
+        + (tr(" · سفارش بازار با سپر لغزش ۰٫۵٪ فرستاده می‌شود (بدترین قیمت قابل‌قبول).",
+              " · market orders are sent with a 0.5% slippage guard (worst acceptable price).")
+           if is_real else "")))
 o1, o2, o3, o4 = st.columns(4)
 with o1:
     side = st.selectbox(tr("جهت", "Side"), ["buy", "sell"])
@@ -323,6 +376,16 @@ else:
                     st.error(tr(
                         "برای سفارش market باید قیمت زنده در دسترس باشد؛ برای limit قیمت را وارد کن.",
                         "Market orders need a live price; for limit orders enter the price."))
+                elif _lit_meta and otype == "limit" and price <= 0:
+                    st.error(tr("برای سفارش limit قیمت را وارد کن.", "Enter a price for limit orders."))
+                elif _lit_meta and amount < float(_lit_meta["min_base"]):
+                    st.error(tr(
+                        f"مقدار کمتر از حداقل بازار لایتر است: {cfg['symbol']} ≥ {float(_lit_meta['min_base']):g}",
+                        f"Amount is below the Lighter market minimum: {cfg['symbol']} ≥ {float(_lit_meta['min_base']):g}"))
+                elif _lit_meta and amount * price_est < float(_lit_meta["min_quote"]):
+                    st.error(tr(
+                        f"ارزش سفارش کمتر از حداقل بازار لایتر است: ≥ {float(_lit_meta['min_quote']):g} USDT",
+                        f"Order value is below the Lighter market minimum: ≥ {float(_lit_meta['min_quote']):g} USDT"))
                 else:
                     ok, why = G.check_order(amount, price_est, cap=cap, daily_spent=spent)
                     if ok:
@@ -354,6 +417,46 @@ else:
             if not ok:
                 st.session_state.pending_order = None
                 st.error(why)
+            elif cfg["ex"] == "Lighter":
+                # مسیر اختصاصی لایتر: SDK رسمی + کلید API (بدون ccxt)
+                _meta = LIT.market_meta(p["symbol"]) if LIT is not None else None
+                if _meta is None:
+                    st.error(tr(
+                        "متادیتای بازار لایتر گرفته نشد — دوباره «بررسی سفارش» بزن.",
+                        "Could not fetch Lighter market metadata — press «Review order» again."))
+                else:
+                    _res = LREAL.submit_order(
+                        account_index=cfg.get("account_index"),
+                        api_key_private=cfg.get("lit_key") or "",
+                        api_key_index=int(cfg.get("lit_key_index") or 0),
+                        market_index=int(_meta["market_id"]),
+                        size_decimals=int(_meta["size_decimals"]),
+                        price_decimals=int(_meta["price_decimals"]),
+                        order_kind=p["otype"], side=p["side"],
+                        amount=float(p["amount"]),
+                        price=float(p["price"] or 0.0),
+                        last_price=float(tick["last"]) if tick else 0.0,
+                    )
+                    if not _res.get("ok"):
+                        st.session_state.pending_order = None
+                        st.error(_res.get("err") or tr("ارسال ناموفق بود.", "Submission failed."))
+                    else:
+                        _oid = str(_res.get("tx_hash") or f"cli-{_res.get('client_order_index')}")
+                        st.success(tr("ثبت شد در لایتر: ", "Placed on Lighter: ") + (_oid[:66] or "—"))
+                        st.json({"tx_hash": _res.get("tx_hash"),
+                                 "client_order_index": _res.get("client_order_index"),
+                                 "symbol": p["symbol"], "side": p["side"], "otype": p["otype"],
+                                 "amount": p["amount"], "price_est": p["price"]})
+                        logged = TL.log_real_order(
+                            exchange="Lighter", symbol=p["symbol"], side=p["side"],
+                            otype=p["otype"], amount=p["amount"], price=p["price"],
+                            notional_usd=p["notional"], order_id=_oid)
+                        if not logged:
+                            st.error(tr(
+                                "سفارش ثبت شد ولی در دفتر نیفتاد — تا رفع نشود، سفارش واقعی بعدی بسته می‌ماند (سقف قابل راستی‌آزمایی نیست).",
+                                "The order was placed but could not be logged — until this is fixed, the next real order stays locked (caps can't be verified)."))
+                            _store_setup_expander()
+                        st.session_state.pending_order = None
             else:
                 try:
                     client = get_client()
@@ -381,7 +484,37 @@ else:
 # ---------------------------------------------------------------- سفارشات باز / بالانس (Real)
 st.divider()
 st.subheader("📋 سفارشات باز / بالانس (Real)")
-if is_real and cfg.get("key"):
+if is_real and cfg.get("ex") == "Lighter":
+    _acc = LREAL.account_summary(cfg.get("account_index"))
+    if _acc is None:
+        st.warning(tr(
+            "حساب لایتر از API عمومی خوانده نشد — شماره‌ی حساب را چک کن یا دوباره بیا.",
+            "Could not read the Lighter account from the public API — check the account index and retry."))
+    else:
+        m1, m2, m3 = st.columns(3)
+        with m1:
+            st.metric(tr("وثیقه (Collateral)", "Collateral"), f"{_acc['collateral']:,.2f} USDT")
+        with m2:
+            st.metric(tr("قابل‌برداشت/آزاد", "Available"), f"{_acc['available']:,.2f} USDT")
+        with m3:
+            st.metric(tr("سفارش بازی", "Open orders"), f"{_acc['open_orders']}")
+        st.caption(tr(
+            "این داده از API عمومی لایتر خوانده می‌شود — بدون هیچ کلیدی (اطلاعات حساب روی لایتر عمومی است).",
+            "Read from Lighter's public API — with no keys at all (account data on Lighter is public)."))
+        if _acc["positions"]:
+            st.dataframe(_acc["positions"], use_container_width=True)
+        else:
+            st.info(tr("پوزیشن بازی نداری.", "No open positions."))
+        if st.button("🛑 لغو همه‌ی سفارش‌های باز در لایتر", type="secondary"):
+            _cres = LREAL.cancel_all_orders(
+                account_index=cfg.get("account_index"),
+                api_key_private=cfg.get("lit_key") or "",
+                api_key_index=int(cfg.get("lit_key_index") or 0))
+            if _cres.get("ok"):
+                st.success(tr("دستور لغو همه ثبت شد.", "Cancel-all submitted."))
+            else:
+                st.error(_cres.get("err") or tr("لغو ناموفق بود.", "Cancellation failed."))
+elif is_real and cfg.get("key"):
     cc1, cc2 = st.columns(2)
     with cc1:
         if st.button("💰 موجودی"):

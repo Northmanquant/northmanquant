@@ -165,7 +165,16 @@ def fetch_price(target: str, base: str) -> dict | None:
         elif target == "Lighter":
             last = _lighter_book().get(base.upper(), 0.0)
             if last > 0:
-                return {"exchange": target, "last": last, "bid": last, "ask": last}
+                # bid/ask واقعی از دفتر سفارش؛ اگر دفتر نیامد، None — هرگز عدد ساختگی
+                try:
+                    from core import lighter as _lit
+                    _top = _lit.book_top(base)
+                except Exception:
+                    _top = None
+                if _top and _top.get("bid", 0) > 0 and _top.get("ask", 0) > 0:
+                    return {"exchange": target, "last": last,
+                            "bid": float(_top["bid"]), "ask": float(_top["ask"])}
+                return {"exchange": target, "last": last, "bid": 0.0, "ask": 0.0}
     except Exception as e:  # noqa: BLE001
         print(f"price {target}/{base} err: {e}")
     return None
@@ -245,7 +254,10 @@ def _render_prices(selected: list[str], main_ex: str) -> None:
                 if d:
                     ch = d.get("change", 0)
                     st.metric(f"🏦 {exn}", f"${d['last']:,.4f}", delta=f"{ch:.2f}%" if ch else None)
-                    st.caption(f"Bid ${d['bid']:,.4f} | Ask ${d['ask']:,.4f}")
+                    if d.get("bid") and d.get("ask"):
+                        st.caption(f"Bid ${d['bid']:,.4f} | Ask ${d['ask']:,.4f}")
+                    else:
+                        st.caption("Bid/Ask —")
                 else:
                     st.warning(f"{exn}: —")
         st.markdown("---")

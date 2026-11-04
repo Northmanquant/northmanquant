@@ -498,5 +498,91 @@ finally:
 print("— main دودی (بدون توکن واقعی) —")
 ok(TB.main() == 0, "main بدون شبکه سالم تمام می‌شود")
 
+print("— سه‌ستونه در بات: مسیریابی /fx و /tse و /calendar —")
+ok(TB.route("/fx") == "fx" and TB.route("فارکس") == "fx" and TB.route("دلار") == "fx",
+   "/fx و «فارکس» و «دلار»")
+ok(TB.route("/tse") == "tse" and TB.route("بورس") == "tse" and TB.route("بورس ایران") == "tse",
+   "/tse و «بورس»")
+ok(TB.route("/calendar") == "calendar" and TB.route("تقویم اقتصادی") == "calendar"
+   and TB.route("رویداد") == "calendar", "/calendar و «تقویم»")
+ok("/fx" in TB._HELP and "/tse" in TB._HELP and "/calendar" in TB._HELP
+   and "/fx" in TB._WELCOME, "راهنما و خوش‌آمد: سه دستور تازه")
+
+print("— /fx فارکس (یاهو فایننس) —")
+_FAKE_Q = {
+    "EURUSD": {"pair": "EURUSD", "name_fa": "یورو / دلار آمریکا", "price": 1.08452,
+               "prev_close": 1.08107, "change_pct": 0.32, "currency": "USD"},
+    "USDJPY": {"pair": "USDJPY", "name_fa": "دلار آمریکا / ین ژاپن", "price": 154.123,
+               "prev_close": 154.912, "change_pct": -0.51, "currency": "JPY"},
+}
+fx_txt = TB.fmt_fx(_FAKE_Q)
+ok("یورو / دلار آمریکا" in fx_txt and "1.08452" in fx_txt, "/fx: نام فارسی + اعشار ۵ رقمی")
+ok("154.123" in fx_txt, "/fx: اعشار ۳ رقمی برای جفت‌های بالای ۵۰")
+ok("+0.32%" in fx_txt and "-0.51%" in fx_txt and "📈" in fx_txt and "📉" in fx_txt,
+   "/fx: جهت‌نمای تغییر")
+ok("یاهو فایننس" in fx_txt and "تأخیر" in fx_txt and "🇪🇺" in fx_txt and "🇯🇵" in fx_txt,
+   "/fx: منبع + هشدار تأخیر + پرچم‌ها")
+ok("نگرفتم" in TB.fmt_fx({}) and "یاهو" in TB.fmt_fx({}), "/fx: خالی → پیام صادقانه")
+
+print("— /tse بورس تهران (TSETMC) —")
+_FAKE_ROWS = [
+    {"symbol": "شپنا", "name": "پالایش نفت اصفهان", "last": 12050, "yesterday": 11500,
+     "value": 1.9e12, "volume": 4.0e7, "change_pct": 4.8},
+    {"symbol": "فولاد", "name": "فولاد مبارکه", "last": 8450, "yesterday": 8300,
+     "value": 8.4e11, "volume": 1.2e8, "change_pct": 1.8},
+    {"symbol": "فملی", "name": "ملی صنایع مس", "last": 5120, "yesterday": 5150,
+     "value": 6.1e11, "volume": 9.0e7, "change_pct": -0.6},
+    {"symbol": "خودرو", "name": "ایران خودرو", "last": 0, "yesterday": 0,
+     "value": 0, "volume": 0, "change_pct": 0},          # ردیف بی‌قیمت — باید حذف شود
+]
+tse_txt = TB.fmt_tse(_FAKE_ROWS)
+ok("<b>2</b> مثبت" in tse_txt and "<b>1</b> منفی" in tse_txt, "/tse: فضای بازار")
+ok("شپنا" in tse_txt and "1.9 هزار میلیارد" in tse_txt, "/tse: پرمعامله + عدد خوانا")
+ok("شپنا +4.8%" in tse_txt and tse_txt.index("شپنا +4.8%") < tse_txt.index("فولاد +1.8%"),
+   "/tse: رشدها مرتب نزولی")
+ok("فملی -0.6%" in tse_txt, "/tse: بیشترین افت")
+ok("خودرو" not in tse_txt, "/tse: ردیف بی‌قیمت نمایش نمی‌آید")
+ok("TSETMC" in tse_txt and "تهران" in tse_txt, "/tse: منبع + ساعت تهران")
+ok("نگرفتم" in TB.fmt_tse([]), "/tse: خالی → پیام صادقانه")
+
+print("— /calendar تقویم اقتصادی (BLS/BEA) —")
+_FAKE_EV = [
+    {"id": "BLS:cpi", "title": "Consumer Price Index",
+     "title_fa": "شاخص قیمت مصرف‌کننده (CPI)",
+     "datetime_utc": "2026-11-10T13:30:00+00:00", "tehran": "2026-11-10 17:00",
+     "source": "BLS", "all_day": False, "priority": "key"},
+    {"id": "BEA:gdp", "title": "Gross Domestic Product",
+     "title_fa": "تولید ناخالص داخلی (GDP)",
+     "datetime_utc": "", "tehran": "", "source": "BEA", "all_day": True, "priority": "key"},
+]
+cal_txt = TB.fmt_calendar(_FAKE_EV, days=7)
+ok("شاخص قیمت مصرف‌کننده (CPI)" in cal_txt and "17:00 تهران" in cal_txt,
+   "/calendar: ترجمه‌ی فارسی + زمان تهران")
+ok("BLS" in cal_txt and "BEA" in cal_txt, "/calendar: نام منبع هر رویداد")
+ok("تمام‌روز" in cal_txt, "/calendar: تمام‌روز بدون ساعت ساختگی")
+ok("هیچ تاریخِ حدسی" in cal_txt, "/calendar: اصل منبع رسمی در متن")
+ok("پیدا نکردم" in TB.fmt_calendar([]), "/calendar: خالی → پیام صادقانه")
+
+print("— build_reply و handle_update سه‌ستونه (بدون شبکه) —")
+import core.forex as FXM  # noqa: E402
+import core.tse as TSEM  # noqa: E402
+import core.econ_calendar as ECM  # noqa: E402
+_orig_fxq, _orig_mw, _orig_ke = FXM.fx_quotes, TSEM.market_watch, ECM.key_events_upcoming
+try:
+    FXM.fx_quotes = lambda force=False: _FAKE_Q
+    ok("یورو" in TB.build_reply("fx"), "build_reply('fx') → قیمت‌ها")
+    TSEM.market_watch = lambda *_a, **_k: _FAKE_ROWS
+    ok("پرمعامله" in TB.build_reply("tse"), "build_reply('tse') → دیده‌بان")
+    ECM.key_events_upcoming = lambda **_k: _FAKE_EV
+    ok("CPI" in TB.build_reply("calendar"), "build_reply('calendar') → رویدادها")
+    sent = []
+    TB._send_chat = lambda token, chat, text, **_k: sent.append(text) or True
+    up = {"update_id": 1, "message": {"chat": {"id": 7}, "text": "/fx",
+          "date": int(datetime.now(timezone.utc).timestamp())}}
+    ok(TB.handle_update(up, "TOKEN", {"7"}) == 1 and "یورو" in sent[0],
+       "handle_update('/fx') → یک پاسخ با قیمت")
+finally:
+    FXM.fx_quotes, TSEM.market_watch, ECM.key_events_upcoming = _orig_fxq, _orig_mw, _orig_ke
+
 print(f"\n✅ همه‌ی {PASS} تست سبز — tg_bot آماده است")
 sys.exit(0)

@@ -75,6 +75,7 @@ OPEN_CHECK_CAP = 12                   # سقف چک قیمت زنده برای �
 # تازگی سیگنال زنده — برای «به درد معامله‌ی لحظه‌ای می‌خورد؟»
 FRESH_MIN = 10                        # تا این عمر (دقیقه): 🟢 تازه — ورود نزدیک قیمت ایجنت
 STALE_MIN = 30                        # بعد از این عمر: 🟠 کهنه — ورود یعنی قیمت/ریسک متفاوت
+CALENDAR_DAYS = 7                     # پنجره‌ی /calendar — رویدادهای کلیدی پیشِ رو (روز)
 
 # تمرکز ربات روی یک صرافی — پیش‌فرض «Lighter»: فقط معاملات لایتر نمایش/ارسال می‌شود
 # (خالی یا «*» = همه‌ی صرافی‌ها). اتوپایلوت هم روی همین صرافی معامله می‌کند (ARENA_EXCHANGE).
@@ -94,6 +95,9 @@ _WELCOME = (
     "💸 /signals — سیگنال‌های سودده\n"
     "📊 /positions — پوزیشن‌های باز (قیمت زنده)\n"
     "💰 /price BTC — قیمت لحظه‌ای هر ارز\n"
+    "💱 /fx — قیمت زنده‌ی فارکس\n"
+    "🇮🇷 /tse — نمای بورس تهران\n"
+    "🗓 /calendar — رویدادهای کلیدی اقتصادی\n"
     "📊 /stats — آمار کل میدان\n"
     "ℹ️ /help — راهنما\n\n"
     "⚠️ آموزش، نه توصیه‌ی مالی — ایجنت‌ها با پول کاغذی رقابت می‌کنند."
@@ -110,6 +114,11 @@ _HELP = (
     "💰 /price BTC (یا «قیمت بیت‌کوین») — قیمت لحظه‌ای هر ارز از لایتر "
     "+ تغییر ۲۴ ساعت\n\n"
     "📊 /stats (یا «آمار») — انتظاری، سود فاکتور، وین‌ریت، بیشترین افت، رژیم بازار\n\n"
+    "💱 /fx (یا «فارکس») — قیمت زنده‌ی ۵ مِیجر از یاهو فایننس با تغییر روز\n\n"
+    "🇮🇷 /tse (یا «بورس») — نمای کلی بورس تهران: فضای بازار، پرمعامله‌ترین‌ها، "
+    "بیشترین رشد و افت (TSETMC)\n\n"
+    "🗓 /calendar (یا «تقویم») — رویدادهای کلیدی اقتصادی در ۷ روز پیشِ رو، "
+    "فقط از منابع رسمی BLS/BEA با ترجمه‌ی فارسی و زمان تهران\n\n"
     "💎 هر معامله با نام ارز و نماد (BTC/USDT) و صرافی و تایم‌فریم نمایش داده می‌شود.\n"
     "🕐 پاسخ‌ها معمولاً چندثانیه تا چند دقیقه می‌رسند (long-poll هر ۵ دقیقه).\n"
     "🔴 پیام‌های لحظه‌ای باز/بسته‌شدن هم مستقیم به چت مالک می‌آید."
@@ -688,6 +697,111 @@ _REL_FA = {"low": "کم — نمونه کوچک، عدد قضاوت‌کننده
            "mid": "متوسط — فقط جهت‌گیری", "ok": "قابل‌اتکا"}
 
 
+# ------------------------------------- ستون‌های دیگر: فارکس / بورس ایران / تقویم
+_FX_FLAGS = {"EURUSD": "🇪🇺", "GBPUSD": "🇬🇧", "USDJPY": "🇯🇵",
+             "AUDUSD": "🇦🇺", "USDCAD": "🇨🇦"}
+
+
+def _compact_fa(v: Any) -> str:
+    """عدد بزرگ خوانا — هزار میلیارد / میلیارد / میلیون (ارزش معاملات ریالی)."""
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return "—"
+    a = abs(v)
+    if a >= 1e12:
+        return f"{v / 1e12:,.1f} هزار میلیارد"
+    if a >= 1e9:
+        return f"{v / 1e9:,.1f} میلیارد"
+    if a >= 1e6:
+        return f"{v / 1e6:,.1f} میلیون"
+    return _fmt_num(v)
+
+
+def fmt_fx(quotes: Optional[dict], decimals_fn: Optional[Callable] = None) -> str:
+    """جواب /fx — قیمت زنده‌ی ۵ مِیجر از یاهو فایننس با تغییر روز.
+    quotes خالی = منبع در دسترس نیست → پیام صادقانه، نه عدد ساختگی."""
+    from core import forex as FX        # noqa: PLC0415
+    dec = decimals_fn or FX.fmt_price
+    lines = ["<b>💱 فارکس — قیمت زنده‌ی مِیجرها</b>", ""]
+    if not quotes:
+        return "\n".join(lines + [
+            "قیمت‌ها را نگرفتم — یاهو فایننس موقتاً در دسترس نیست؛ چند دقیقه بعد امتحان کن.",
+            "", f"🕐 {_tehran_now()} تهران"])
+    for pair, q in quotes.items():
+        flag = _FX_FLAGS.get(pair, "💱")
+        name = q.get("name_fa") or FX.PAIRS.get(pair, (pair, pair))[0]
+        chg = q.get("change_pct")
+        chg_txt = ""
+        if chg is not None:
+            chg_txt = f" · {'📈' if chg >= 0 else '📉'} {chg:+.2f}%"
+        lines.append(f"{flag} <b>{name}</b> ({pair}) — {dec(q.get('price'))}{chg_txt}")
+    lines += ["", "📡 منبع: یاهو فایننس · ممکن است تأخیر داشته باشد",
+              f"🕐 {_tehran_now()} تهران"]
+    return "\n".join(lines)
+
+
+def fmt_tse(rows: list) -> str:
+    """جواب /tse — نمای کلی بورس تهران از دیده‌بان TSETMC:
+    فضای بازار + پرمعامله‌ترین‌ها + بیشترین رشد/افت. ردیف بی‌قیمت هرگز نمایش نمی‌آید."""
+    lines = ["<b>🇮🇷 بورس تهران — نمای کلی</b>", ""]
+    if not rows:
+        return "\n".join(lines + [
+            "داده‌ی TSETMC را نگرفتم — شاید منبع موقتاً در دسترس نیست؛ چند دقیقه بعد امتحان کن.",
+            "", f"🕐 {_tehran_now()} تهران"])
+    live = [r for r in rows if float(r.get("last") or 0) > 0 and float(r.get("yesterday") or 0) > 0]
+    if not live:
+        return "\n".join(lines + [
+            "الان ردیف معتبری در دیده‌بان نبود — بعداً امتحان کن.",
+            "", f"🕐 {_tehran_now()} تهران"])
+    up = sum(1 for r in live if float(r.get("change_pct") or 0) > 0)
+    down = sum(1 for r in live if float(r.get("change_pct") or 0) < 0)
+    lines.append(f"📊 فضای بازار: 🟢 <b>{up}</b> مثبت · 🔴 <b>{down}</b> منفی "
+                 f"· ⚪️ {len(live) - up - down} بی‌تغییر")
+    by_value = sorted(live, key=lambda r: float(r.get("value") or 0), reverse=True)[:5]
+    lines.append("")
+    lines.append("<b>🔥 پرمعامله‌ترین‌ها (ارزش):</b>")
+    for r in by_value:
+        lines.append(f"   • <b>{r.get('symbol', '—')}</b> — {_fmt_num(r.get('last'))} ریال · "
+                     f"{float(r.get('change_pct') or 0):+.1f}% · "
+                     f"{_compact_fa(r.get('value'))} ریال")
+    tradable = [r for r in live if float(r.get("volume") or 0) > 0]
+    for head, rev in (("📈 بیشترین رشد:", True), ("📉 بیشترین افت:", False)):
+        top = sorted(tradable, key=lambda r: float(r.get("change_pct") or 0),
+                     reverse=rev)[:3]
+        if top:
+            lines.append("")
+            lines.append(f"<b>{head}</b> " + " · ".join(
+                f"{r.get('symbol', '—')} {float(r.get('change_pct') or 0):+.1f}%" for r in top))
+    lines += ["", "📡 منبع: TSETMC · ماکت کاغذی در اپ: صفحه‌ی «ماکت بورس»",
+              f"🕐 {_tehran_now()} تهران"]
+    return "\n".join(lines)
+
+
+def fmt_calendar(events: list, days: int = CALENDAR_DAYS) -> str:
+    """جواب /calendar — رویدادهای کلیدی اقتصادی، فقط از فایل‌های رسمی BLS/BEA.
+    رویداد تمام‌روز هرگز ساعت ساختگی نمی‌گیرد (اصل «هیچ تاریخِ حدسی»)."""
+    lines = [f"<b>🗓 رویدادهای کلیدی اقتصادی — {days} روز پیشِ رو</b>", ""]
+    if not events:
+        return "\n".join(lines + [
+            "در این بازه رویداد کلیدی‌ای پیدا نکردم یا منابع رسمی موقتاً در دسترس نیستند.",
+            "📡 منابع: BLS و BEA (فایل‌های رسمی ICS)",
+            f"🕐 {_tehran_now()} تهران"])
+    for e in events:
+        title = e.get("title_fa") or e.get("title") or "—"
+        if e.get("tehran"):
+            when = f"{e['tehran']} تهران"
+        elif e.get("all_day"):
+            when = str(e.get("datetime_utc") or "")[:10] + " (تمام‌روز)"
+        else:
+            when = str(e.get("datetime_utc") or "")[:16].replace("T", " ") + " UTC"
+        lines.append(f"• <b>{when}</b> — {title} ({e.get('source') or '—'})")
+    lines += ["", "📡 منابع رسمی: BLS + BEA · زمان تهران (+۳:۳۰)",
+              "⚠️ تاریخ‌ها فقط از فایل رسمی — هیچ تاریخِ حدسی در کار نیست.",
+              f"🕐 {_tehran_now()} تهران"]
+    return "\n".join(lines)
+
+
 def fmt_stats(closed: list[dict], opens: list[dict],
               regime_alert: Optional[dict] = None) -> str:
     from core import arena as A  # noqa: PLC0415
@@ -766,6 +880,13 @@ def route(text: str) -> Optional[str]:
             if t.startswith(pre + " "):
                 arg = t[len(pre) + 1:].strip()
         return f"price:{arg}"
+    if t in ("fx", "forex", "فارکس", "فورکس", "ارز", "دلار"):
+        return "fx"
+    if t in ("tse", "بورس", "بورس ایران", "تهران", "سهام"):
+        return "tse"
+    if t in ("calendar", "event", "events", "تقویم", "تقویم اقتصادی",
+             "رویداد", "رویدادها"):
+        return "calendar"
     if t in ("help", "راهنما", "کمک"):
         return "help"
     return "unknown" if str(text or "").strip().startswith("/") else None
@@ -799,6 +920,27 @@ def build_reply(key: str) -> str:
         except Exception:  # noqa: BLE001
             reg = None
         return fmt_stats(closed, opens, reg)
+    if key == "fx":
+        from core import forex as FX   # noqa: PLC0415
+        try:
+            quotes = FX.fx_quotes()
+        except Exception:  # noqa: BLE001 — شبکه/۴۰۳: جواب مهربان، نه مرگ
+            quotes = {}
+        return fmt_fx(quotes)
+    if key == "tse":
+        from core import tse as TSE    # noqa: PLC0415
+        try:
+            rows = TSE.market_watch()
+        except Exception:  # noqa: BLE001
+            rows = []
+        return fmt_tse(rows)
+    if key == "calendar":
+        from core import econ_calendar as EC  # noqa: PLC0415
+        try:
+            events = EC.key_events_upcoming(days=CALENDAR_DAYS)
+        except Exception:  # noqa: BLE001
+            events = []
+        return fmt_calendar(events, days=CALENDAR_DAYS)
     return _HELP
 
 

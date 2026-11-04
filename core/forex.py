@@ -17,6 +17,8 @@ from __future__ import annotations
 import time
 from typing import Any, Dict, List, Optional
 
+import pandas as pd
+
 from core.net import get_json
 
 # ---------------------------------------------------------------------------
@@ -119,6 +121,148 @@ def fx_quotes(force: bool = False) -> Dict[str, dict]:
         if q:
             out[pair] = q
     return out
+
+
+# ---------------------------------------------------------------------------
+# کندل چندتایم‌فریمی — همان اندپوینت chart یاهو با interval/range دیگر
+# (سقف‌های مستند یاهو: 1m≤۷روز · 5m/15m/30m≤۶۰روز · 60m≤۷۳۰روز · 1d/1wk بلندمدت)
+# ---------------------------------------------------------------------------
+FX_TFS: Dict[str, tuple[str, str, int]] = {
+    # tf_key: (interval یاهو, range یاهو, ضریب تجمیع) — تجمیع فقط برای ۴ساعت از ۶۰m
+    "1min":  ("1m",  "1d",  1),
+    "5min":  ("5m",  "5d",  1),
+    "15min": ("15m", "5d",  1),
+    "1hour": ("60m", "1mo", 1),
+    "4hour": ("60m", "2mo", 4),
+    "1day":  ("1d",  "1y",  1),
+    "1week": ("1wk", "2y",  1),
+}
+_BASE_SEC = {"1m": 60, "2m": 120, "5m": 300, "15m": 900, "30m": 1800, "60m": 3600,
+             "90m": 5400, "1h": 3600, "1d": 86400, "1wk": 604800}
+_CANDLE_TTL = 120.0                          # کش کندل — جدا از کشِ ۶۰ثانیه‌ای quote
+_CANDLE_CACHE: Dict[tuple, Any] = {}         # (pair, tf) -> (ts, rows | None)
+
+
+def _parse_chart_candles(payload: Optional[dict], pair: str) -> Optional[List[List[Any]]]:
+    """JSON chart یاهو → ردیف‌های [t,o,h,l,c,v] مرتب و تمیز. هر نقص = None (هرگز raise نمی‌کند).
+    کندلِ ناقص (any OHLC خالی/غیرمثبت یا high<low) حذف می‌شود؛ ولوم غایب = ۰ (فارکس معمولاً ولوم ندارد)."""
+    if not isinstance(payload, dict):
+        return None
+    chart = payload.get("chart") or {}
+    if (chart.get("error") or {}).get("code"):
+        return None
+    results = chart.get("result") or []
+    if not results:
+        return None
+    res = results[0] or {}
+    ts = res.get("timestamp") or []
+    q = ((res.get("indicators") or {}).get("quote") or [{}])[0] or {}
+    o, h = q.get("open") or [], q.get("high") or []
+    low, c = q.get("low") or [], q.get("close") or []
+    v = q.get("volume") or []
+    rows: Dict[int, List[Any]] = {}
+    for i, t in enumerate(ts):
+        try:
+            ti = int(t)
+            oi, hi, li, ci = o[i], h[i], low[i], c[i]
+        except (IndexError, TypeError, ValueError):
+            continue
+        if oi is None or hi is None or li is None or ci is None:
+            continue
+        try:
+            of, hf, lf, cf = float(oi), float(hi), float(li), float(ci)
+        except (TypeError, ValueError):
+            continue
+        if min(of, hf, lf, cf) <= 0 or hf < lf:
+            continue
+        try:
+            vf = float(v[i]) if i < len(v) and v[i] is not None else 0.0
+        except (TypeError, ValueError):
+            vf = 0.0
+        rows[ti] = [ti, of, hf, lf, cf, vf]      # ts تکراری = نگه‌داشتنِ آخرین
+    if not rows:
+        return None
+    return [rows[k] for k in sorted(rows)]
+
+
+def _agg_candles(rows: List[List[Any]], base_sec: int, factor: int) -> List[List[Any]]:
+    """تجمیع سمت سرور (۴ساعت از ۶۰m) — سبدبندی به مرز UTC (t - t % step) مثل resample داشبورد:
+    open اولین · high بیشینه · low کمینه · close آخرین · volume جمع."""
+    if factor <= 1 or not rows:
+        return rows
+    step = int(base_sec) * int(factor)
+    out: Dict[int, List[Any]] = {}
+    for t, o, h, l, c, v in rows:
+        b = t - (t % step)
+        cur = out.get(b)
+        if cur is None:
+            out[b] = [b, o, h, l, c, float(v or 0.0)]
+        else:
+            if h is not None and h > cur[2]:
+                cur[2] = h
+            if l is not None and l < cur[3]:
+                cur[3] = l
+            cur[4] = c
+            cur[5] = float(cur[5] or 0.0) + float(v or 0.0)
+    return [out[k] for k in sorted(out)]
+
+
+def fetch_fx_candles(pair: str, tf: str, *, retries: int = 1, timeout: float = 10.0) -> Optional[List[List[Any]]]:
+    """کندل یک تایم‌فریم — بدون کش. خطای شبکه/پارس/داده‌ی خالی = None (هرگز raise نمی‌کند)."""
+    p, key = pair.upper().strip(), str(tf).lower().strip()
+    if p not in PAIRS or key not in FX_TFS:
+        return None
+    interval, rng, agg = FX_TFS[key]
+    url = "https://query1.finance.yahoo.com/v8/finance/chart/" + yahoo_symbol(p)
+    try:
+        payload = get_json(url, params={"interval": interval, "range": rng},
+                           headers=_HEADERS, timeout=timeout, retries=retries)
+    except Exception:  # noqa: BLE001 — شبکه/۴۰۳/پارس خراب: همه = بیداده
+        return None
+    rows = _parse_chart_candles(payload, p)
+    if rows and agg > 1:
+        rows = _agg_candles(rows, _BASE_SEC.get(interval, 3600), agg)
+    return rows or None
+
+
+def fx_candles(pair: str, force: bool = False, tfs: Optional[tuple] = None) -> Dict[str, list]:
+    """بسته‌ی کندل چندتایم‌فریمی یک جفت‌ارز — کش ۱۲۰ثانیه‌ای per (pair, tf)، fetch موازی.
+    خروجی: {tf: rows} — تایم‌فریم‌های ناموفق حذف می‌شوند (همان قرارداد tf_bundle داشبورد)."""
+    p = pair.upper().strip()
+    if p not in PAIRS:
+        return {}
+    want = tuple(tf for tf in (tfs or tuple(FX_TFS)) if tf in FX_TFS)
+    now = time.time()
+    out: Dict[str, list] = {}
+    stale: List[str] = []
+    for tf in want:
+        hit = _CANDLE_CACHE.get((p, tf))
+        if not force and hit and now - hit[0] < _CANDLE_TTL:
+            if hit[1]:
+                out[tf] = hit[1]
+        else:
+            stale.append(tf)
+    if stale:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=min(6, len(stale))) as pool:
+            got = dict(zip(stale, pool.map(lambda tf: fetch_fx_candles(p, tf), stale)))
+        for tf, rws in got.items():
+            _CANDLE_CACHE[(p, tf)] = (now, rws)      # شکست هم کش می‌شود (ضد rate-limit)
+            if rws:
+                out[tf] = rws
+    return out
+
+
+def candles_to_df(rows: List[List[Any]]) -> pd.DataFrame:
+    """ردیف‌های [t,o,h,l,c,v] → DataFrame استاندارد داشبورد (dt/open/high/low/close/volume)
+    برای موتور تحلیل (add_indicators/confluence/agents/plan)."""
+    df = pd.DataFrame([list(r) for r in rows],
+                      columns=["time", "open", "high", "low", "close", "volume"])
+    for col in ("time", "open", "high", "low", "close", "volume"):
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+    df["volume"] = df["volume"].fillna(0.0)
+    df["dt"] = pd.to_datetime(df["time"], unit="s")
+    return df[["time", "open", "high", "low", "close", "volume", "dt"]]
 
 
 # ---------------------------------------------------------------------------

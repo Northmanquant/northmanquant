@@ -88,7 +88,7 @@ const TF_LBL = {'1s':'1s','5s':'5s','10s':'10s','15s':'15s','30s':'30s','45s':'4
 const TF_QUICK = ['1min','5min','15min','1hour','4hour','1day','1week'];
 
 /* ---- منوی بازه‌ی زمانی به سبک تریدینگ‌ویو (گروه‌ها: ثانیه/دقیقه/ساعت/روز/هفته/ماه) ---- */
-const TF_GROUPS = [
+const TF_GROUPS_SRC = [
   ['ثانیه‌ها · منبع Binance', ['1s','5s','10s','15s','30s','45s']],
   ['دقیقه‌ها', ['1min','2min','3min','5min','10min','15min','30min','45min']],
   ['ساعت‌ها', ['1hour','2hour','3hour','4hour','6hour','8hour','12hour']],
@@ -96,6 +96,8 @@ const TF_GROUPS = [
   ['هفته‌ها', ['1week']],
   ['ماه‌ها', ['1month']],
 ];
+/* فارکس: کندل ثانیه‌ای از Binance بی‌معناست — گروه ثانیه‌ها از منو حذف می‌شود */
+const TF_GROUPS = DATA.fx ? TF_GROUPS_SRC.filter(g => g[0].indexOf('Binance') < 0) : TF_GROUPS_SRC;
 const SECS = {'1s':1,'5s':5,'10s':10,'15s':15,'30s':30,'45s':45};
 const SECS_CACHE = {};
 let SECS_BUSY = false;
@@ -188,6 +190,8 @@ const IND_DEF = {
   bb:true, vwap:false, volma:false, psar:false, st:false, ichi:false, piv:false,
   rsi:false, macd:false, stoch:false, srsi:false, cci:false, wr:false,
   adx:false, atr:false, obv:false, mfi:false, log:false, leg:true };
+/* فارکس: ولوم یاهو همیشه صفر/تهی است — هیستوگرام حجم پیش‌فرض خاموش (کاربر می‌تواند روشن کند) */
+if (DATA.fx) IND_DEF.vol = false;
 
 let S = {
   tf:   localStorage.getItem(SK('tf'))  || DATA.base_tf,
@@ -1497,18 +1501,20 @@ a[href*="tradingview.com"]:hover{opacity:0.7;}
 def build_tv_chart_html(*, candles: List[List[Any]], tfs: Dict[str, List[List[Any]]],
                         base_tf: str, symbol: str, zones: List[Dict[str, Any]],
                         levels: List[Dict[str, Any]], title: str, dec: int,
-                        initial_bars: int = 160) -> str:
+                        initial_bars: int = 160, fx: bool = False) -> str:
     """HTML خودکفای چارت TV کامل.
     candles:  [t_s, o, h, l, c, v]  (t ثانیه · NaN قبلاً None شده)
     tfs:      {tf_key: candles} — تا ۲۶ تایم‌فریم برای سوئیچر (بومی + تجمیعی سرور، ثانیه‌ای مرورگر)
     zones:    {t0,top,bottom,kind,tag} — فقط برای تایم‌فریم پایه
     levels:   {price,name,color,dash} — فقط برای تایم‌فریم پایه
+    fx:       True = نماد فارکس — گروه «ثانیه‌های Binance» از منو حذف و حجم پیش‌فرض خاموش می‌شود
     """
     if base_tf not in tfs:
         tfs = {base_tf: candles}
     data = json.dumps({"candles": candles, "tfs": tfs, "base_tf": base_tf,
                        "symbol": symbol, "levels": levels, "dec": dec,
-                       "title": title, "initial_bars": int(initial_bars)},
+                       "title": title, "initial_bars": int(initial_bars),
+                       "fx": bool(fx)},
                       ensure_ascii=False, allow_nan=False)
     zones_js = json.dumps(zones, ensure_ascii=False, allow_nan=False)
     js = (_MAIN_JS

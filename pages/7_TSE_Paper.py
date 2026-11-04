@@ -9,6 +9,7 @@ import streamlit as st
 
 from core import tse as T
 from core import tse_paper as P
+from core import xlsx_export as XE
 from core.i18n import get_lang, setup_i18n, tr
 
 st.set_page_config(page_title="ماکت بورس | TSE Paper", page_icon="🧾", layout="wide")
@@ -151,6 +152,13 @@ if tbl.empty:
                "No positions yet — find a symbol above and place your first virtual buy."))
 else:
     st.dataframe(tbl, use_container_width=True, hide_index=True)
+
+st.download_button("📗 " + tr("خروجی اکسل پرتفوی (مبلغ‌ها + خلاصه + دفتر سفارش‌ها)",
+                              "Portfolio Excel export (positions + summary + order ledger)"),
+                   data=XE.tse_paper_workbook(port),
+                   file_name="tse_paper_portfolio.xlsx", mime=XE.MIME, key="tse_paper_xlsx",
+                   help=tr("فایل اکسل بدون فرمول — متن‌ها امن‌اند؛ برای آرشیو شخصی و یادداشت‌برداری.",
+                           "Formula-free Excel — safe inline text; for personal archiving and notes."))
 
 # ---------------------------------------------------------------- دفتر سفارش‌ها
 st.divider()

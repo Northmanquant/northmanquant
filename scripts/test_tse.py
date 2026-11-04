@@ -395,7 +395,7 @@ def t_nav_groups_consistency():
     assert len(I.NAV_GROUPS) == 3
     assert I.NAV_GROUPS[0][2] == ["main", "p1", "p2", "p4", "p5"]     # کریپتو
     assert I.NAV_GROUPS[1][2] == ["p6", "p7"]                          # بورس ایران
-    assert I.NAV_GROUPS[2][2] == ["p3"]                                # فارکس
+    assert I.NAV_GROUPS[2][2] == ["p3", "p8"]                          # فارکس + تقویم اقتصادی
 
 
 def t_compile():

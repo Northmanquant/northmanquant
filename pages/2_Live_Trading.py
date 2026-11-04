@@ -5,6 +5,7 @@ import streamlit as st
 from core.i18n import setup_i18n, tr
 from core import trade_guard as G
 from core import trade_log as TL
+from core import xlsx_export as XE
 
 try:
     from core import lighter as LIT   # لایتر: عمومیِ بدون‌کلید (پرپ DEX)
@@ -414,6 +415,11 @@ st.caption(tr(
 _rows = TL.recent(20)
 if _rows:
     st.dataframe(_rows, use_container_width=True)
+    st.download_button("📗 " + tr("خروجی اکسل دفتر سفارش‌ها", "Ledger Excel export"),
+                       data=XE.trade_log_workbook(_rows),
+                       file_name="trade_log.xlsx", mime=XE.MIME, key="trade_log_xlsx",
+                       help=tr("همه‌ی ستون‌ها (سقف روزانه و گرم‌کردن روی همین دفتر راستی‌آزمایی می‌شود) بدون فرمول.",
+                               "Every column (daily cap and warm-up are audited from this ledger) — formula-free."))
 elif TL.last_error:
     st.info(tr("دفتر در دسترس نیست؛ جزئیات بالا آمده است.",
                "The ledger is unavailable; details are shown above."))

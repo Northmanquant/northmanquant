@@ -26,6 +26,7 @@
 """
 from __future__ import annotations
 
+import math
 import time
 import uuid
 from collections import Counter
@@ -682,6 +683,22 @@ SAMPLE_MIN = 30
 SAMPLE_OK = 100
 
 
+def wilson_ci(wins: int, n: int) -> tuple[float, float]:
+    """بازه‌ی اطمینان ۹۵٪ نرخ برد (فاصله‌ی امتیاز ویلسون) — پورت از TITAN.
+    صداقت آماری: «وین‌ریت ۵۴٪» تنها با نمونه‌ی بزرگ معنی دارد؛ این بازه
+    نشان می‌دهد با همین نمونه، نرخ برد واقعی بین چند تا چند درصد است.
+    خروجی: (کمینه٪، بیشینه٪) — n=0 → (0.0, 100.0) یعنی «هنوز نمی‌دانیم»."""
+    if n <= 0:
+        return (0.0, 100.0)
+    w = max(0, min(int(wins), int(n)))
+    p = w / float(n)
+    z = 1.96
+    den = 1.0 + z * z / n
+    center = (p + z * z / (2.0 * n)) / den
+    half = z * math.sqrt(p * (1.0 - p) / n + z * z / (4.0 * n * n)) / den
+    return (max(0.0, center - half) * 100.0, min(100.0, center + half) * 100.0)
+
+
 def _maxdd_from_rs(rs: list[float]) -> float:
     """بیشترین افت سرمایه (٪) روی منحنی مرکب با ریسک ثابت ۱٪ — خالص R پشت سر هم."""
     eq = peak = 1.0
@@ -718,6 +735,7 @@ def arena_summary(closed: list[dict]) -> dict:
         "payoff": min(payoff, 99.0),
         "winrate": len(wins) / max(1, len(wins) + len(losses)) * 100.0,
         "wins": len(wins), "losses": len(losses),
+        "winrate_ci": wilson_ci(len(wins), len(wins) + len(losses)),
         "maxdd": _maxdd_from_rs(rs),
         "reliability": "low" if n < SAMPLE_MIN else "mid" if n < SAMPLE_OK else "ok",
     }
@@ -765,6 +783,7 @@ def leaderboard(closed: list[dict], opens: list[dict]) -> list[dict]:
             "agent": name, "color": part["color"], "kind": part["kind"],
             "equity": eq, "trades": len(ts), "open": len(os_),
             "wins": wins, "losses": losses, "winrate": wr,
+            "winrate_ci": wilson_ci(wins, wins + losses),
             "total_r": sum(rs),
             "pf": min(pf, 99.0), "points": sum(pts), "streak": _streak(pts),
             "avg_r": (sum(rs) / len(rs)) if rs else 0.0,

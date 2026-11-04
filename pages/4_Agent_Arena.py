@@ -37,6 +37,7 @@ from core import alerts as AL  # noqa: E402
 from core import news as NW  # noqa: E402
 from core import replay as RP  # noqa: E402
 from core import edge as EG  # noqa: E402
+from core import xlsx_export as XE  # noqa: E402
 from core import arena_store  # noqa: E402
 from core.duel_engine import _dec_for  # noqa: E402
 
@@ -585,7 +586,9 @@ with tab_board:
     _b1, _b2, _b3, _b4, _b5 = st.columns(5)
     _b1.metric(L("معاملات بسته", "Closed trades"), _summ["n"])
     _b2.metric(L("انتظاری هر معامله", "Expectancy / trade"), f"{_summ['expectancy']:+.2f}R")
-    _b3.metric(L("وین‌ریت", "Winrate"), f"{_summ['winrate']:.0f}%")
+    _b3.metric(L("وین‌ریت", "Winrate"), f"{_summ['winrate']:.0f}%",
+               help=("بازه‌ی اطمینان ۹۵٪ (ویلسون): " if LANG != "en" else "95% Wilson CI: ")
+                    + f"{_summ['winrate_ci'][0]:.0f}%–{_summ['winrate_ci'][1]:.0f}%")
     _b4.metric("PF", f"{_summ['pf']:.2f}")
     _b5.metric(L("بیشترین افت", "Max drawdown"), f"{_summ['maxdd']:.1f}%")
     _rel = _summ["reliability"]
@@ -621,6 +624,8 @@ with tab_board:
             L("⚖️ حکم", "⚖️ Edge"): (EG.VERDICT_FA if LANG != "en" else EG.VERDICT_EN).get((_verdicts or {}).get(r["agent"]), "—"),
             L("ایکوییتی $", "Equity $"): f"{r['equity']:,.0f}",
             L("وین‌ریت", "Winrate"): f"{r['winrate']:.0f}%" if r["trades"] else "—",
+            L("بازه‌ی وین‌ریت ۹۵٪", "Winrate 95% CI"): (f"{r['winrate_ci'][0]:.0f}–{r['winrate_ci'][1]:.0f}%"
+                                                     if r["trades"] else "—"),
             L("امتیاز", "Points"): f"{r['points']:+.1f}" if r["trades"] else "—",
             "R کل": f"{r['total_r']:+.2f}" if r["trades"] else "—",
             "PF": f"{r['pf']:.2f}" if r["trades"] else "—",
@@ -674,9 +679,16 @@ with tab_board:
             })
         hdf = pd.DataFrame(hrows)
         st.dataframe(hdf, width="stretch", hide_index=True)
-        st.download_button("💾 " + L("دانلود تاریخچه (CSV)", "Download history (CSV)"),
-                           data=hdf.to_csv(index=False).encode("utf-8"),
-                           file_name="arena_history.csv", mime="text/csv", key="arena_csv")
+        _d1, _d2 = st.columns(2)
+        _d1.download_button("💾 " + L("دانلود تاریخچه (CSV)", "Download history (CSV)"),
+                            data=hdf.to_csv(index=False).encode("utf-8"),
+                            file_name="arena_history.csv", mime="text/csv", key="arena_csv")
+        _d2.download_button("📗 " + L("خروجی اکسل کامل", "Full Excel export"),
+                            data=XE.arena_workbook(_all_trades),
+                            file_name="arena_trades.xlsx", mime=XE.MIME,
+                            key="arena_xlsx",
+                            help=L("همه‌ی معاملات با همه‌ی ستون‌ها (سطوح TP، استاپ فعلی، دلیل و…) در دو برگه — بدون فرمول، امن.",
+                                   "All trades with every column (TP levels, current stop, reason…) in two sheets — no formulas, safe."))
 
     _st_icon = "🟢" if _hc.get("reason") == "ok" else "🟡"
     st.caption(_st_icon + " " + L(f"بک‌اند: {_hc.get('backend')} · جدول: arena_trades",
@@ -736,7 +748,9 @@ with tab_replay:
         _q1.metric(L("معاملات بسته", "Closed trades"), _rs["n"])
         _q2.metric(L("انتظاری هر معامله", "Expectancy / trade"), f"{_rs['expectancy']:+.2f}R")
         _q3.metric("PF", f"{_rs['pf']:.2f}")
-        _q4.metric(L("وین‌ریت", "Winrate"), f"{_rs['winrate']:.0f}%")
+        _q4.metric(L("وین‌ریت", "Winrate"), f"{_rs['winrate']:.0f}%",
+                   help=("بازه‌ی اطمینان ۹۵٪ (ویلسون): " if LANG != "en" else "95% Wilson CI: ")
+                        + f"{_rs['winrate_ci'][0]:.0f}%–{_rs['winrate_ci'][1]:.0f}%")
         _q5.metric(L("بیشترین افت", "Max drawdown"), f"{_rs['maxdd']:.1f}%")
         _q6.metric(L("بازه‌ی زمانی", "Time span"), f"{_rm.get('span_days', 0):.0f} " + L("روز", "days"))
         _rel = _rs["reliability"]
@@ -785,6 +799,8 @@ with tab_replay:
                 L("ایکوییتی $", "Equity $"): f"{r['equity']:,.0f}",
                 L("معاملات", "Trades"): r["trades"],
                 L("وین‌ریت", "Winrate"): f"{r['winrate']:.0f}%" if r["trades"] else "—",
+                L("بازه‌ی وین‌ریت ۹۵٪", "Winrate 95% CI"): (f"{r['winrate_ci'][0]:.0f}–{r['winrate_ci'][1]:.0f}%"
+                                                         if r["trades"] else "—"),
                 "R کل": f"{r['total_r']:+.2f}" if r["trades"] else "—",
                 L("انتظاری R", "Exp. R"): f"{r['avg_r']:+.2f}" if r["trades"] else "—",
                 "PF": f"{r['pf']:.2f}" if r["trades"] else "—",

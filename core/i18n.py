@@ -1818,27 +1818,53 @@ NAV_PAGES: list[tuple[str, str, str, str, str]] = [
     ("p3", "pages/3_Forex_Brokers.py", "💱", "فارکس و بروکرها", "Forex & Brokers"),
     ("p4", "pages/4_Agent_Arena.py", "🏟️", "میدان ایجنت‌ها", "Agent Arena"),
     ("p5", "pages/5_Agent_Lab.py", "🔬", "آزمایشگاه ایجنت‌ها", "Agent Lab"),
+    ("p6", "pages/6_TSE_Market.py", "🇮🇷", "دیده‌بان بورس", "TSE Watch"),
+    ("p7", "pages/7_TSE_Paper.py", "🧾", "ماکت بورس", "TSE Paper"),
+]
+
+# سه بخشِ جدا: کریپتو / بورس ایران / فارکس — منو با سرگروه رندر می‌شود
+NAV_GROUPS: list[tuple[str, str, list[str]]] = [
+    # (fa, en, [page_id,…])
+    ("₿ کریپتو", "₿ Crypto", ["main", "p1", "p2", "p4", "p5"]),
+    ("🏛️ بورس ایران", "🏛️ Tehran Stock Exchange", ["p6", "p7"]),
+    ("💱 فارکس", "💱 Forex", ["p3"]),
 ]
 
 _HIDE_NAV_CSS = (
     "<style>[data-testid='stSidebarNav']{display:none !important;}</style>"
 )
 
+_GROUP_CSS = (
+    "<style>"
+    ".nq-nav-group{margin:.35rem 0 .15rem;font-weight:700;font-size:.86rem;"
+    "letter-spacing:.2px;opacity:.92;}"
+    "</style>"
+)
+
 
 def nav_menu(current: str = "main") -> None:
-    """منوی صفحه‌ها با برچسب ترجمه‌شده — روی همه‌ی صفحه‌ها یکسان رندر می‌شود."""
+    """منوی صفحه‌ها با برچسب ترجمه‌شده و سرگروهِ سه‌بخشی — روی همه‌ی صفحه‌ها یکسان رندر می‌شود."""
     st.markdown(_HIDE_NAV_CSS, unsafe_allow_html=True)
+    st.markdown(_GROUP_CSS, unsafe_allow_html=True)
+    _by_id = {pid: (pid, path, ico, fa, en) for pid, path, ico, fa, en in NAV_PAGES}
     with st.sidebar:
-        for pid, path, ico, fa, en in NAV_PAGES:
-            label = f"{ico} {tr(fa, en)}"
-            if pid == current:
-                st.button(label, key=f"nq_nav_{pid}", disabled=True,
-                          type="primary", width="stretch")
-            elif st.button(label, key=f"nq_nav_{pid}", width="stretch"):
-                try:
-                    st.switch_page(path)
-                except Exception as e:  # noqa: BLE001
-                    st.error(f"Navigation failed ({e}) — use the page list in the sidebar.")
+        for g_fa, g_en, pids in NAV_GROUPS:
+            st.markdown(f"<div class='nq-nav-group'>{tr(g_fa, g_en)}</div>",
+                        unsafe_allow_html=True)
+            for pid in pids:
+                item = _by_id.get(pid)
+                if item is None:
+                    continue
+                _pid, path, ico, fa, en = item
+                label = f"{ico} {tr(fa, en)}"
+                if pid == current:
+                    st.button(label, key=f"nq_nav_{pid}", disabled=True,
+                              type="primary", width="stretch")
+                elif st.button(label, key=f"nq_nav_{pid}", width="stretch"):
+                    try:
+                        st.switch_page(path)
+                    except Exception as e:  # noqa: BLE001
+                        st.error(f"Navigation failed ({e}) — use the page list in the sidebar.")
 
 
 def language_switcher(sidebar: bool = True) -> str:

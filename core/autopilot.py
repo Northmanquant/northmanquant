@@ -13,7 +13,7 @@
     python -m core.autopilot
 
 متغیرهای محیطی (همه اختیاری):
-    ARENA_EXCHANGE   صرافی           (پیش‌فرض KuCoin)
+    ARENA_EXCHANGE   صرافی           (پیش‌فرض Lighter — تمرکز میدان روی لایتر)
     ARENA_INTERVAL   تایم‌فریم        (پیش‌فرض 1hour)
     ARENA_APPETITE   فیلتر ورود       (پیش‌فرض hunter)
     ARENA_EDGE_MODE  گیت لبه          (پیش‌فرض bench_losers)
@@ -36,7 +36,7 @@ import traceback
 from datetime import datetime, timezone
 
 # ------------------------------------------------------------------ پیکربندی
-EXCHANGE = os.environ.get("ARENA_EXCHANGE", "KuCoin").strip()
+EXCHANGE = os.environ.get("ARENA_EXCHANGE", "Lighter").strip()
 INTERVAL = os.environ.get("ARENA_INTERVAL", "1hour").strip()
 APPETITE = os.environ.get("ARENA_APPETITE", "hunter").strip()
 EDGE_MODE = os.environ.get("ARENA_EDGE_MODE", "bench_losers").strip()

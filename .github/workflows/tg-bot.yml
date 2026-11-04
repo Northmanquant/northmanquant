@@ -1,8 +1,11 @@
 # بات تلگرام میدان — فاز ۱۵ + تعمیر پایداری
-# هر ۵ دقیقه: تخلیه‌ی کامل صف دستورها (/top · /signals · /stats · /help)
+# هر ۵ دقیقه: تخلیه‌ی کامل صف دستورها (/top · /signals · /positions · /price · /stats · /help)
 # + long-poll ~۴ دقیقه‌ای یعنی پاسخ معمولاً چندثانیه‌ای؛ حتی اگر کرون گیت‌هاب
 #   عقب افتاد، اتوپایلوت هر ۳۰ دقیقه یک «--once» کمربندی هم اجرا می‌کند
 # + خلاصه‌ی روزانه‌ی میدان (یک‌بار در شبانه‌روز تهران، ضدتکرار با arena_alerts)
+#
+# تمرکز ربات: BOT_EXCHANGE=Lighter — فقط معاملات صرافی لایتر نمایش/ارسال می‌شود
+# (اتوپایلوت هم با ARENA_EXCHANGE=Lighter روی همان صرافی معامله می‌کند).
 #
 # الزامات (Secrets):
 #   TELEGRAM_BOT_TOKEN   توکن بات از @BotFather
@@ -45,4 +48,5 @@ jobs:
           TELEGRAM_ALLOWED_CHATS: ${{ secrets.TELEGRAM_ALLOWED_CHATS }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          BOT_EXCHANGE: Lighter      # فقط معاملات لایتر در پیام‌های بات
         run: python -m core.tg_bot

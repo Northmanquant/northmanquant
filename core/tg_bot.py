@@ -17,6 +17,12 @@
 هر معامله با «نام خوانای ارز + نماد تمیز (BTC/USDT) + صرافی + تایم‌فریم»
 نمایش داده می‌شود (core/coins.py) — تا کاربر همیشه بداند کجای بازار است.
 
+تمرکز صرافی: BOT_EXCHANGE (پیش‌فرض «Lighter») — فقط معاملات لایتر در
+/top و /signals و /positions و /stats و خلاصه‌ی روزانه دیده می‌شود و
+پیام‌های لحظه‌ای باز/بسته‌شدن هم فقط برای همان صرافی می‌آید (core/telegram).
+قیمت زنده هم اول از لایتر (orderBookDetails با کش ۶۰ثانیه‌ای) گرفته می‌شود
+و اگر لایتر جواب نداد، فال‌بک کوکوین/بایننس/OKX. خالی یا «*» = همه‌ی صرافی‌ها.
+
 معماری بدون‌سرور (هم‌راستا با اتوپایلوت):
   GitHub Actions هر ۵ دقیقه «python -m core.tg_bot» را اجرا می‌کند؛ بات اول
   «کل صف تأییدنشده» را یک‌جا می‌خواند و به همه‌ی دستورهای تازه جواب می‌دهد،
@@ -70,6 +76,10 @@ OPEN_CHECK_CAP = 12                   # سقف چک قیمت زنده برای �
 FRESH_MIN = 10                        # تا این عمر (دقیقه): 🟢 تازه — ورود نزدیک قیمت ایجنت
 STALE_MIN = 30                        # بعد از این عمر: 🟠 کهنه — ورود یعنی قیمت/ریسک متفاوت
 
+# تمرکز ربات روی یک صرافی — پیش‌فرض «Lighter»: فقط معاملات لایتر نمایش/ارسال می‌شود
+# (خالی یا «*» = همه‌ی صرافی‌ها). اتوپایلوت هم روی همین صرافی معامله می‌کند (ARENA_EXCHANGE).
+BOT_EXCHANGE = os.environ.get("BOT_EXCHANGE", "Lighter").strip()
+
 TEHRAN = timezone(timedelta(hours=3, minutes=30))   # UTC+03:30 — مثل core/telegram
 
 _MEDALS = ("🥇", "🥈", "🥉")
@@ -77,7 +87,8 @@ _MEDALS = ("🥇", "🥈", "🥉")
 _WELCOME = (
     "👋 <b>به بات NorthmanQuant خوش آمدی!</b>\n\n"
     "اینجا آشیانه‌ی ایجنت‌های معامله‌گر است — هر ۳۰ دقیقه میدان خودش را "
-    "می‌گردد، معامله می‌زند و کارنامه می‌سازد.\n\n"
+    "می‌گردد، معامله می‌زند و کارنامه می‌سازد.\n"
+    "🏦 میدان روی صرافی <b>لایتر (Lighter)</b> اجرا می‌شود — سیگنال‌ها فقط از همان‌جاست.\n\n"
     "دستورها:\n"
     "🏆 /top — بهترین ایجنت‌های سودده\n"
     "💸 /signals — سیگنال‌های سودده\n"
@@ -96,7 +107,7 @@ _HELP = (
     " با عمر و تازگی (🟢 تازه / 🟡 نیمه‌تازه / 🟠 کهنه) و سطح‌های SL/TP\n\n"
     "📊 /positions (یا «پوزیشن») — همه‌ی پوزیشن‌های باز با قیمت زنده: "
     "سود و ضرر، فاصله تا استاپ و عمر هر پوزیشن\n\n"
-    "💰 /price BTC (یا «قیمت بیت‌کوین») — قیمت لحظه‌ای هر ارز از کوکوین "
+    "💰 /price BTC (یا «قیمت بیت‌کوین») — قیمت لحظه‌ای هر ارز از لایتر "
     "+ تغییر ۲۴ ساعت\n\n"
     "📊 /stats (یا «آمار») — انتظاری، سود فاکتور، وین‌ریت، بیشترین افت، رژیم بازار\n\n"
     "💎 هر معامله با نام ارز و نماد (BTC/USDT) و صرافی و تایم‌فریم نمایش داده می‌شود.\n"
@@ -286,9 +297,65 @@ def allowed_chats() -> set[str]:
     return {p for p in parts if p}
 
 
+# ------------------------------------------------------- قیمت زنده‌ی لایتر
+_LIGHTER_API = "https://mainnet.zklighter.elliot.ai"
+_LIGHTER_TTL = 60.0                     # کش تیکر کل مارکت‌ها — یک فراخوانی برای همه‌ی ارزها
+_lighter_cache: dict = {"ts": 0.0, "rows": {}}
+
+
+def _lighter_base(symbol: str) -> str:
+    """نماد کوتاه لایتر: «BTC» از «BTC» / «BTC-USDT» / «BTC-PERP»."""
+    s = str(symbol or "").upper().strip()
+    for suf in ("-USDT", "-USDC", "-USD", "-PERP", "PERP"):
+        if s.endswith(suf) and len(s) > len(suf):
+            s = s[: -len(suf)]
+    return s
+
+
+def _lighter_rows() -> dict[str, dict]:
+    """کل مارکت‌های لایتر با کش ۶۰ ثانیه‌ای — نماد → ردیف تیکر.
+    یک فراخوانی، قیمت همه‌ی ارزها (مثل app_base.lighter_markets ولی بدون استریم‌لیت)."""
+    now = time.monotonic()
+    if _lighter_cache["rows"] and now - _lighter_cache["ts"] <= _LIGHTER_TTL:
+        return _lighter_cache["rows"]
+    from core.net import get_json  # noqa: PLC0415
+    try:
+        data = get_json(f"{_LIGHTER_API}/api/v1/orderBookDetails", timeout=12, retries=0)
+        rows = {}
+        for r in ((data or {}).get("order_book_details") or []):
+            sym = str(r.get("symbol") or "").upper()
+            if sym:
+                rows[sym] = r
+        if rows:
+            _lighter_cache["ts"] = now
+            _lighter_cache["rows"] = rows
+    except Exception as e:  # noqa: BLE001 — کش قبلی/خالی برمی‌گردد
+        _log(f"⚠️ لایتر: گرفتن مارکت‌ها ناموفق: {e}")
+    return _lighter_cache["rows"]
+
+
+def lighter_ticker(symbol: str) -> tuple[Optional[float], Optional[float]]:
+    """(آخرین قیمت، تغییر ٪ ۲۴ساعت) از لایتر — فال‌بک به mark_price؛
+    (None, None) = پیدا نشد."""
+    r = _lighter_rows().get(_lighter_base(symbol))
+    if not r:
+        return None, None
+    try:
+        px = float(r.get("last_trade_price") or 0) or float(r.get("mark_price") or 0)
+    except (TypeError, ValueError):
+        px = 0.0
+    chg = None
+    try:
+        if r.get("daily_price_change") not in (None, ""):
+            chg = float(r.get("daily_price_change"))
+    except (TypeError, ValueError):
+        chg = None
+    return (px or None), chg
+
+
 def live_price(exchange: str, symbol: str) -> Optional[float]:
-    """آخرین قیمت یک نماد — تیکر سبک (نه کندل). اول کوکوین، بعد فال‌بک‌ها.
-    خروجی None = نگرفت (بدون دردسر)."""
+    """آخرین قیمت یک نماد — تیکر سبک (نه کندل). اول لایتر (اگر صرافی هدف باشد)،
+    بعد کوکوین و فال‌بک‌ها. خروجی None = نگرفت (بدون دردسر)."""
     sym = str(symbol or "").upper().replace("/", "-")
     base = sym.split("-")[0]
     if not sym or not base:
@@ -297,6 +364,10 @@ def live_price(exchange: str, symbol: str) -> Optional[float]:
     bn = f"https://api.binance.com/api/v3/ticker/price?symbol={base}USDT"
     okx = f"https://api.okx.com/api/v5/market/ticker?instId={base}-USDT"
     ex = str(exchange or "").lower()
+    if "lighter" in ex:
+        px, _chg = lighter_ticker(symbol)
+        if px:
+            return px
     if "binance" in ex:
         order = [bn, ku, okx]
     elif "okx" in ex:
@@ -325,13 +396,17 @@ def live_price(exchange: str, symbol: str) -> Optional[float]:
 
 
 def price_info(exchange: str, symbol: str) -> Optional[dict]:
-    """قیمت + تغییر ۲۴ساعته — از آمار کوکوین (پُرداده) و فال‌بک به تیکر ساده.
-    خروجی {"price": float, "change_pct": float|None} یا None."""
+    """قیمت + تغییر ۲۴ساعته — اول لایتر (اگر صرافی هدف باشد)، بعد آمار کوکوین
+    (پُرداده) و فال‌بک به تیکر ساده. خروجی {"price", "change_pct"} یا None."""
     sym = str(symbol or "").upper().replace("/", "-")
     if not sym:
         return None
-    from core.net import get_json  # noqa: PLC0415
     ex = str(exchange or "").lower()
+    if "lighter" in ex:
+        px, chg = lighter_ticker(symbol)
+        if px:
+            return {"price": px, "change_pct": chg}
+    from core.net import get_json  # noqa: PLC0415
     if "kucoin" in ex or not ex:
         try:
             j = get_json(f"https://api.kucoin.com/api/v1/market/stats?symbol={sym}",
@@ -351,12 +426,21 @@ def price_info(exchange: str, symbol: str) -> Optional[dict]:
 
 
 def resolve_symbol(arg: str) -> str:
-    """«BTC» / «btc-usdt» / «بیت‌کوین» / «Bitcoin» / «DOGEUSDT» → نماد KuCoin
-    مثل «BTC-USDT». خالی = ورودی نامفهوم."""
+    """«BTC» / «btc-usdt» / «بیت‌کوین» / «Bitcoin» / «DOGEUSDT» → نمادِ صرافی هدف.
+    روی لایتر نمادها کوتاه‌اند («BTC»)، بقیه‌جا جفت USDT («BTC-USDT»)."""
     a = str(arg or "").strip()
     if not a:
         return ""
     up = a.upper().replace("/", "-").replace("_", "-")
+    if str(BOT_EXCHANGE or "").strip().lower() == "lighter":
+        if "-" in up:
+            up = up.split("-", 1)[0]          # BTC-USDT → BTC (پرپ لایتر)
+        if up in C.NAMES:
+            return up
+        for k, (fa, en) in C.NAMES.items():   # نام فارسی/انگلیسی
+            if a == fa or a.lower() == en.lower():
+                return k
+        return C.base(up)
     if "-" in up:
         return up                                   # جفتِ صریح مثل ETH-BTC
     if up in C.NAMES:                               # تیکر شناخته‌شده
@@ -365,6 +449,22 @@ def resolve_symbol(arg: str) -> str:
         if a == fa or a.lower() == en.lower():
             return f"{k}-USDT"
     return f"{C.base(up)}-USDT"                     # بهترین تلاش: BTCUSDT → BTC-USDT
+
+
+# ------------------------------------------------------- فیلتر تمرکز صرافی
+def _only_bot_ex(rows: list[dict]) -> list[dict]:
+    """فیلتر تمرکز ربات — فقط معاملات BOT_EXCHANGE؛ خالی/«*» = همه."""
+    ex = str(BOT_EXCHANGE or "").strip()
+    if not ex or ex == "*":
+        return rows
+    ex = ex.lower()
+    return [t for t in rows if str(t.get("exchange") or "").strip().lower() == ex]
+
+
+def _ex_line() -> str:
+    """خط «فقط صرافی …» برای سرِ پیام — وقتی ربات روی یک صرافی قفل است."""
+    ex = str(BOT_EXCHANGE or "").strip()
+    return f"🏦 فقط صرافی <b>{ex}</b>" if ex and ex != "*" else ""
 
 
 # ------------------------------------------------------------- دیتاسازها
@@ -443,12 +543,13 @@ def _streak_txt(streak: int) -> str:
 
 
 def fmt_top(best: list[dict], total_rows: list[dict]) -> str:
+    head = "🏆 <b>بهترین ایجنت‌های میدان</b>"
+    exl = _ex_line()
     if not best:
-        return ("🏆 <b>بهترین ایجنت‌های میدان</b>\n\n"
+        return "\n".join([head] + ([exl] if exl else []) + ["",
                 "هنوز هیچ ایجنتی به سود خالص نرسیده — میدان تازه شروع شده. "
-                "بعد از اولین بردها این‌جا پر می‌شود.")
-    lines = ["<b>🏆 بهترین ایجنت‌های میدان</b>",
-             "<i>سودده و در مسیر ادامه</i>", ""]
+                "بعد از اولین بردها این‌جا پر می‌شود."])
+    lines = [head] + ([exl] if exl else []) + ["<i>سودده و در مسیر ادامه</i>", ""]
     for i, r in enumerate(best):
         medal = _MEDALS[i] if i < len(_MEDALS) else f"{i + 1}."
         lines.append(f"{medal} <b>{r.get('agent', '—')}</b>")
@@ -557,14 +658,16 @@ def fmt_positions(rows: list[dict], now: Optional[datetime] = None) -> str:
 
 
 def fmt_price_lookup(arg: str, info_fn: Optional[Callable] = None) -> str:
-    """جواب /price — قیمت لحظه‌ای + تغییر ۲۴ ساعت؛ نام ارز را هم می‌فهمد."""
+    """جواب /price — قیمت لحظه‌ای + تغییر ۲۴ ساعت؛ نام ارز را هم می‌فهمد.
+    منبع قیمت = صرافی هدف ربات (BOT_EXCHANGE؛ پیش‌فرض لایتر، فال‌بک کوکوین)."""
     fn = info_fn or price_info
     sym = resolve_symbol(arg)
     if not sym:
         return ("💰 نماد بده — مثل «/price BTC» یا «/price ETH-USDT» یا حتی "
                 "«قیمت بیت‌کوین».")
+    target = str(BOT_EXCHANGE or "").strip() or "KuCoin"
     try:
-        info = fn("KuCoin", sym) or {}
+        info = fn(target, sym) or {}
     except Exception:  # noqa: BLE001 — قیمت نگرفت = جواب مهربان
         info = {}
     p = info.get("price")
@@ -577,7 +680,7 @@ def fmt_price_lookup(arg: str, info_fn: Optional[Callable] = None) -> str:
              f"💵 قیمت الان: <b>{_fmt_num(p)}</b> {C.quote(sym)}"]
     if chg is not None:
         lines.append(f"📅 تغییر ۲۴ ساعت: {'📈' if chg >= 0 else '📉'} {chg:+.2f}%")
-    lines += ["", "🏦 KuCoin", f"🕐 {_tehran_now()} تهران"]
+    lines += ["", f"🏦 {target}", f"🕐 {_tehran_now()} تهران"]
     return "\n".join(lines)
 
 
@@ -589,7 +692,11 @@ def fmt_stats(closed: list[dict], opens: list[dict],
               regime_alert: Optional[dict] = None) -> str:
     from core import arena as A  # noqa: PLC0415
     s = A.arena_summary(closed)
-    lines = ["<b>📊 آمار کل میدان</b>", "",
+    lines = ["<b>📊 آمار کل میدان</b>"]
+    exl = _ex_line()
+    if exl:
+        lines.append(exl)
+    lines += ["",
              f"🎯 معاملات بسته‌شده: <b>{s['n']}</b> ({s['wins']} برد / {s['losses']} باخت)",
              f"📈 وین‌ریت: <b>{s['winrate']:.0f}%</b> · انتظاری: <b>{s['expectancy']:+.2f}R</b>",
              f"⚖️ سود فاکتور: {s['pf']:.2f} · پی‌آف: {s['payoff']:.2f}",
@@ -607,7 +714,11 @@ def fmt_stats(closed: list[dict], opens: list[dict],
 
 def fmt_digest(day: str, best: list[dict], wins_24h: list[dict],
                n_open: int) -> str:
-    lines = [f"<b>🌅 خلاصه‌ی روزانه‌ی میدان — {day}</b>", ""]
+    lines = [f"<b>🌅 خلاصه‌ی روزانه‌ی میدان — {day}</b>"]
+    exl = _ex_line()
+    if exl:
+        lines.append(exl)
+    lines.append("")
     if best:
         lines.append("<b>🥇 بهترین‌های امروز:</b>")
         for i, r in enumerate(best[:3]):
@@ -661,12 +772,12 @@ def route(text: str) -> Optional[str]:
 
 
 def build_reply(key: str) -> str:
-    """ساخت متن جواب از داده‌ی زنده‌ی میدان."""
+    """ساخت متن جواب از داده‌ی زنده‌ی میدان — فقط صرافیِ هدف (BOT_EXCHANGE)."""
     from core import arena as A        # noqa: PLC0415
     from core import alerts as AL      # noqa: PLC0415
     from core import arena_store       # noqa: PLC0415
     store = arena_store.get_store()
-    trades = store.load_all()
+    trades = _only_bot_ex(store.load_all())
     closed = [t for t in trades if t.get("status") == "closed"]
     opens = [t for t in trades if t.get("status") == "open"]
     if key == "welcome":
@@ -774,7 +885,7 @@ def build_digest(now: Optional[datetime] = None) -> str:
     from core import arena_store       # noqa: PLC0415
     now = now or datetime.now(TEHRAN)
     day = now.strftime("%Y-%m-%d")
-    trades = arena_store.get_store().load_all()
+    trades = _only_bot_ex(arena_store.get_store().load_all())
     closed = [t for t in trades if t.get("status") == "closed"]
     opens = [t for t in trades if t.get("status") == "open"]
     best = top_rows(closed, opens)

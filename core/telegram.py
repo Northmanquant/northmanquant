@@ -34,6 +34,23 @@ _last_sent = 0.0
 
 TEHRAN = timezone(timedelta(hours=3, minutes=30))   # UTC+03:30
 
+# تمرکز اطلاع‌رسانی روی یک صرافی — هم‌راستا با BOT_EXCHANGE بات (پیش‌فرض لایتر).
+# معاملات صرافی‌های دیگر (مثل پوزیشن‌های قدیمی KuCoin) بی‌صدا رد می‌شوند.
+NOTIFY_EXCHANGE = os.environ.get("BOT_EXCHANGE", "Lighter").strip()
+
+
+def _exchange_ok(t: dict) -> bool:
+    """فیلتر تمرکز صرافی — فقط معاملات صرافی هدف پیام می‌شوند (خالی/«*» = همه)."""
+    ex = str(NOTIFY_EXCHANGE or "").strip()
+    if not ex or ex == "*":
+        return True
+    tex = str((t or {}).get("exchange") or "").strip().lower()
+    if tex == ex.lower():
+        return True
+    print(f"🔇 فیلتر صرافی {ex}: پیام «{(t or {}).get('symbol')}» از "
+          f"«{tex or 'نامعلوم'}» ارسال نشد", flush=True)
+    return False
+
 
 def _cfg() -> tuple[Optional[str], Optional[str]]:
     return _secrets_get("TELEGRAM_BOT_TOKEN"), _secrets_get("TELEGRAM_CHAT_ID")
@@ -106,6 +123,8 @@ def _ctx_line(t: dict) -> str:
 
 def notify_open(t: dict) -> bool:
     """پیام بازشدن معامله — اگر ایجنتِ سوددهِ در مسیر برد باشد، نشان داغ می‌گیرد."""
+    if not _exchange_ok(t):
+        return True                     # بی‌صدا رد شد — نه خطا، فقط خارج از تمرکز
     d = int(t.get("direction") or 0)
     icon = "🟢" if d > 0 else "🔴"
     hot = _hot_stats(t.get("agent"))
@@ -207,6 +226,8 @@ def _hot_line(h: Optional[dict]) -> str:
 
 def notify_close(t: dict) -> bool:
     """پیام بسته‌شدن معامله با نتیجه."""
+    if not _exchange_ok(t):
+        return True                     # بی‌صدا رد شد — نه خطا، فقط خارج از تمرکز
     r = None
     try:
         r = float(t.get("realized_r"))

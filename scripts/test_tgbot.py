@@ -15,6 +15,11 @@ from core import arena_store  # noqa: E402
 from core import telegram as TG  # noqa: E402
 from core import tg_bot as TB  # noqa: E402
 
+# تست‌های قدیمی با معاملات KuCoin کار می‌کنند — فیلتر تمرکز صرافی را خنثی می‌کنیم؛
+# رفتار «فقط لایتر» در بخش‌های اختصاصی خودش تست می‌شود.
+TB.BOT_EXCHANGE = ""
+TG.NOTIFY_EXCHANGE = ""
+
 NOW = datetime.now(timezone.utc)
 PASS = 0
 
@@ -403,6 +408,92 @@ ok("اتریوم (ETH/USDT)" in _out4[-1] and "🏦 KuCoin" in _out4[-1],
 TG.notify_open({"agent": "A", "symbol": "XYZUSDT", "direction": 1, "entry": 1.0, "stop": 0.9})
 ok("XYZ/USDT" in _out4[-1] and "🏦" not in _out4[-1],
    "بازشدن: بدون صرافی/تایم‌فریم → سطر بافتار حذف می‌شود")
+
+print("— تمرکز ربات روی لایتر: فیلتر صرافی در پیام‌ها —")
+mixed = [mk("lw1", NAMES[0], "BTCUSDT", 1.5, d=1, closed_min=60, exchange="Lighter"),
+         mk("kw1", NAMES[0], "SOLUSDT", 1.2, d=1, closed_min=70, exchange="KuCoin"),
+         mk("lo1", NAMES[0], "XRPUSDT", 0.0, status="open", d=1, exchange="Lighter"),
+         mk("ko1", NAMES[0], "ADAUSDT", 0.0, status="open", d=1, exchange="KuCoin")]
+_orig_ex = TB.BOT_EXCHANGE
+_orig_oip = TB.open_in_profit
+_orig_store2 = arena_store.get_store
+TB.BOT_EXCHANGE = "Lighter"
+TB.open_in_profit = lambda opens: []          # بدون شبکه — فقط بخش بردها چک می‌شود
+try:
+    ok([t["id"] for t in TB._only_bot_ex(mixed)] == ["lw1", "lo1"],
+       "فیلتر: فقط معاملات لایتر، ترتیب حفظ می‌شود")
+    ok("Lighter" in TB._ex_line() and TB._ex_line() == "🏦 فقط صرافی <b>Lighter</b>",
+       "خط «فقط صرافی» در سر پیام")
+    arena_store.get_store = lambda: FakeStore(mixed)
+    r_sig = TB.build_reply("signals")
+    ok("بیت‌کوین (BTC/USDT)" in r_sig and "سولانا" not in r_sig,
+       "سیگنال: فقط معاملات لایتر — KuCoin بی‌صدا حذف")
+    r_top = TB.build_reply("top")
+    ok("فقط صرافی <b>Lighter</b>" in r_top, "بهترین‌ها: خط تمرکز صرافی")
+    r_st = TB.build_reply("stats")
+    ok("فقط صرافی" in r_st and "معاملات بسته‌شده: <b>1</b>" in r_st,
+       "آمار: فقط معاملات لایتر شمرده می‌شود")
+    dg = TB.build_digest(now=datetime.now(TB.TEHRAN))
+    ok("سولانا" not in dg and "بیت‌کوین (BTC/USDT)" in dg,
+       "خلاصه‌ی روزانه: فقط بردهای لایتر")
+finally:
+    TB.BOT_EXCHANGE = _orig_ex
+    TB.open_in_profit = _orig_oip
+    arena_store.get_store = _orig_store2
+
+print("— قیمت زنده‌ی لایتر —")
+try:
+    NET.get_json = lambda url, **kw: {"order_book_details": [
+        {"symbol": "BTC", "last_trade_price": "103250.5", "mark_price": "103000",
+         "daily_price_change": "-2.31"},
+        {"symbol": "ETH", "last_trade_price": "", "mark_price": "3900.5"}]}
+    TB._lighter_cache["ts"], TB._lighter_cache["rows"] = 0.0, {}   # کش تست را خالی کن
+    ok(TB.live_price("Lighter", "BTC") == 103250.5, "لایتر: last_trade_price")
+    ok(TB.live_price("Lighter", "BTC-USDT") == 103250.5, "لایتر: پسوند سته می‌خورد")
+    ok(TB.price_info("Lighter", "BTC") == {"price": 103250.5, "change_pct": -2.31},
+       "لایتر: قیمت + تغییر ٪ ۲۴ساعت")
+    ok(TB.live_price("Lighter", "ETH") == 3900.5, "لایتر: فال‌بک به mark_price")
+    ok(TB.live_price("Lighter", "PEPE") is None, "لایتر: نماد غایب → None")
+    ok(TB._lighter_cache["rows"] and TB._lighter_cache["ts"] > 0, "لایتر: کش پر شد")
+finally:
+    NET.get_json = _orig_gj
+
+print("— لایتر در حالت تمرکز: resolve و /price —")
+TB.BOT_EXCHANGE = "Lighter"
+try:
+    ok(TB.resolve_symbol("BTC") == "BTC" and TB.resolve_symbol("بیت‌کوین") == "BTC"
+       and TB.resolve_symbol("BTC-USDT") == "BTC", "resolve لایتر: نماد کوتاه")
+    ok(TB.resolve_symbol("ETH") == "ETH" and TB.resolve_symbol("اتریوم") == "ETH",
+       "resolve لایتر: تیکر و نام فارسی")
+    NET.get_json = lambda url, **kw: {"order_book_details": [
+        {"symbol": "BTC", "last_trade_price": "103250.5", "daily_price_change": "-2.31"}]}
+    TB._lighter_cache["ts"], TB._lighter_cache["rows"] = 0.0, {}
+    pt = TB.fmt_price_lookup("BTC")
+    ok("بیت‌کوین (BTC/USDT)" in pt and "103,250" in pt and "-2.31%" in pt
+       and "🏦 Lighter" in pt, "/price روی لایتر: قیمت + تغییر + صرافی")
+finally:
+    NET.get_json = _orig_gj
+    TB.BOT_EXCHANGE = _orig_ex
+
+print("— فیلتر صرافی در پیام‌های لحظه‌ای —")
+_orig_nx = TG.NOTIFY_EXCHANGE
+TG.NOTIFY_EXCHANGE = "Lighter"
+_out5 = []
+TG.send = lambda text, silent=False: _out5.append(text) or True
+try:
+    TG.notify_open(mk("lx", "NOBODY", "BTCUSDT", 0.0, status="open", d=1, exchange="Lighter"))
+    ok(len(_out5) == 1 and "بیت‌کوین" in _out5[-1], "بازشدن لایتر → ارسال شد")
+    TG.notify_open(mk("kx", "NOBODY", "SOLUSDT", 0.0, status="open", d=1, exchange="KuCoin"))
+    ok(len(_out5) == 1, "بازشدن KuCoin → رد شد (فقط لایتر)")
+    TG.notify_close(mk("kc", "NOBODY", "SOLUSDT", -0.6, d=1, exchange="KuCoin"))
+    ok(len(_out5) == 1, "بسته‌شدن KuCoin → رد شد")
+    TG.notify_close(mk("lc", "NOBODY", "ETHUSDT", 1.2, d=1, exchange="Lighter"))
+    ok(len(_out5) == 2 and "اتریوم" in _out5[-1], "بسته‌شدن لایتر → ارسال شد")
+    TG.NOTIFY_EXCHANGE = "*"
+    TG.notify_close(mk("kc2", "NOBODY", "SOLUSDT", -0.6, d=1, exchange="KuCoin"))
+    ok(len(_out5) == 3, "حالت «*» = همه‌ی صرافی‌ها")
+finally:
+    TG.NOTIFY_EXCHANGE = _orig_nx
 
 print("— main دودی (بدون توکن واقعی) —")
 ok(TB.main() == 0, "main بدون شبکه سالم تمام می‌شود")

@@ -44,7 +44,7 @@ jobs:
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          ARENA_EXCHANGE: KuCoin
+          ARENA_EXCHANGE: Lighter    # تمرکز میدان روی صرافی لایتر (پرپ DEX)
           ARENA_INTERVAL: 1hour
           ARENA_APPETITE: hunter
           ARENA_EDGE_MODE: bench_losers
@@ -60,6 +60,7 @@ jobs:
           TELEGRAM_ALLOWED_CHATS: ${{ secrets.TELEGRAM_ALLOWED_CHATS }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          BOT_EXCHANGE: Lighter      # فقط معاملات لایتر در پیام‌های بات
         run: python -m core.tg_bot --once
 
       - name: هشدار شکست — پیام تلگرام

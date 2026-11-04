@@ -6,6 +6,11 @@ from core.i18n import setup_i18n, tr
 from core import trade_guard as G
 from core import trade_log as TL
 
+try:
+    from core import lighter as LIT   # لایتر: عمومیِ بدون‌کلید (پرپ DEX)
+except Exception:                     # noqa: BLE001
+    LIT = None
+
 st.set_page_config(page_title="ترید مستقیم | Live Trading", page_icon="💹", layout="wide")
 setup_i18n(page="p2")   # زبان + منوی ترجمه‌شده + پچ ترجمه‌ی کل صفحه
 st.title("💹 ترید مستقیم — بدون رفتن به صرافی")
@@ -15,10 +20,13 @@ st.caption(tr(
 
 EX_MAP = {"KuCoin": "kucoin", "Binance": "binance", "Bybit": "bybit", "OKX": "okx",
           "XT": "xt", "LBank": "lbank", "Kraken": "kraken", "Gate": "gateio",
-          "MEXC": "mexc", "Bitget": "bitget", "KCEX": "kcex"}
+          "MEXC": "mexc", "Bitget": "bitget", "KCEX": "kcex", "Lighter": "lighter"}
 
 
-def _ccxt_has(cid: str) -> bool:
+def _venue_has(cid: str) -> bool:
+    """ccxt واقعاً می‌شناسد، یا لایترِ اختصاصی ما در دسترس است (عمومیِ بدون‌کلید)."""
+    if cid == "lighter":
+        return LIT is not None
     try:
         import ccxt
         return hasattr(ccxt, cid)
@@ -26,7 +34,7 @@ def _ccxt_has(cid: str) -> bool:
         return False
 
 
-REAL_EX = G.filter_real_exchanges(EX_MAP, _ccxt_has)   # فقط صرافی‌هایی که واقعاً کار می‌کنند
+REAL_EX = G.filter_real_exchanges(EX_MAP, _venue_has)   # فقط صرافی‌هایی که واقعاً کار می‌کنند
 if not REAL_EX:
     st.error(tr("کتابخانه‌ی ccxt در دسترس نیست؛ ترید مستقیم فعلاً غیرفعال است.",
                 "The ccxt library is unavailable; direct trading is disabled for now."))
@@ -72,6 +80,10 @@ is_real = bool(cfg) and str(cfg.get("mode", "")).startswith("Real")
 
 def get_client():
     import ccxt
+    if cfg.get("ex") == "Lighter":   # دفاعی: لایتر فقط Paper است
+        st.error(tr("ترید واقعی روی Lighter فعال نیست؛ Paper آزاد است.",
+                    "Real trading on Lighter is not enabled; Paper stays open."))
+        st.stop()
     cid = EX_MAP.get(cfg["ex"])
     if not cid or not hasattr(ccxt, cid):
         st.error(tr("این صرافی در ccxt نیست؛ آن را قطع کن و صرافی دیگری انتخاب کن.",
@@ -123,6 +135,10 @@ if not cfg:
                 "فقط صرافی‌هایی که واقعاً پشتیبانی می‌شوند در فهرست‌اند.",
                 "Only exchanges that are actually supported are listed."))
         is_real_new = mode.startswith("Real")
+        if is_real_new and ex_name == "Lighter":
+            st.warning(tr(
+                "Lighter فعلاً فقط Paper است (سفارش واقعی‌اش به SDK رسمی نیاز دارد) — برای Real صرافی دیگری انتخاب کن.",
+                "Lighter is Paper-only for now (real orders need the official SDK) — pick another exchange for Real."))
         api_key = api_secret = passphrase = ""
         if is_real_new:
             k1, k2, k3 = st.columns(3)
@@ -132,25 +148,51 @@ if not cfg:
                 api_secret = st.text_input("API Secret", type="password")
             with k3:
                 passphrase = st.text_input(
-                    "Passphrase (اگه صرافی می‌خواد مثل KCEX/KuCoin/OKX)", type="password")
-        symbol = st.text_input("نماد (ccxt فرمت)", value="BTC/USDT", help="مثل BTC/USDT")
+                    tr("Passphrase (KuCoin/OKX لازم دارند)", "Passphrase (required by KuCoin/OKX)"),
+                    type="password")
+        if ex_name == "Lighter":
+            st.caption(tr(
+                "Lighter پرپ DEX است — نمادها بدون USDT (مثل BTC، ETH).",
+                "Lighter is a perp DEX — symbols have no USDT (e.g. BTC, ETH)."))
+            _lit_syms = LIT.symbols() if LIT is not None else []
+            if _lit_syms:
+                st.caption("🟢 " + " · ".join(_lit_syms[:12]))
+        symbol = st.text_input(
+            tr("نماد پرپ (مثل BTC)", "Perp symbol (e.g. BTC)") if ex_name == "Lighter"
+            else tr("نماد (ccxt فرمت)", "Symbol (ccxt format)"),
+            value="BTC" if ex_name == "Lighter" else "BTC/USDT")
         _caps_caption()
         st.caption(tr(
             "⚠️ قانون طلایی: کلیدی که اجازه‌ی برداشت دارد را هرگز وارد نکن — فقط کلیدِ فقط-ترید در یک زیرحساب با موجودی کم.",
             "⚠️ Golden rule: never enter a key with withdrawal permission — use a trade-only key on a sub-account with a small balance."))
         if st.button("🔌 اتصال", type="primary"):
-            if is_real_new and (not api_key or not api_secret):
+            if is_real_new and ex_name == "Lighter":
+                st.error(tr(
+                    "تریدِ واقعی روی Lighter هنوز فعال نیست — فعلاً با Paper امتحانش کن.",
+                    "Real trading on Lighter is not enabled yet — try it with Paper for now."))
+            elif is_real_new and (not api_key or not api_secret):
                 st.error(tr("برای حالت Real، کلید و رمز لازم است.",
                             "Real mode requires an API key and secret."))
             else:
-                st.session_state.trade_cfg = {
-                    "ex": ex_name, "key": api_key, "secret": api_secret,
-                    "pass": passphrase, "symbol": (symbol or "BTC/USDT").strip(),
-                    "mode": "Real" if is_real_new else "Paper",
-                }
-                st.session_state.ts_activity = time.time()
-                st.session_state.pending_order = None
-                st.rerun()
+                _sym = (symbol or ("BTC" if ex_name == "Lighter" else "BTC/USDT")).strip()
+                _sym_ok = True
+                if ex_name == "Lighter" and LIT is not None:
+                    _sym = LIT.normalize(_sym)
+                    _known = LIT.symbols()
+                    if _known and _sym not in _known:
+                        st.error(tr(
+                            f"نماد «{_sym}» روی Lighter پیدا نشد — یکی از این‌ها: " + " · ".join(_known[:12]),
+                            f"Symbol «{_sym}» was not found on Lighter — use one of: " + " · ".join(_known[:12])))
+                        _sym_ok = False
+                if _sym_ok:
+                    st.session_state.trade_cfg = {
+                        "ex": ex_name, "key": api_key, "secret": api_secret,
+                        "pass": passphrase, "symbol": _sym,
+                        "mode": "Real" if is_real_new else "Paper",
+                    }
+                    st.session_state.ts_activity = time.time()
+                    st.session_state.pending_order = None
+                    st.rerun()
     _store_setup_expander()
     st.stop()
 
@@ -167,24 +209,38 @@ with b2:
 
 # ---------------------------------------------------------------- قیمت زنده
 tick = None
-try:
-    import ccxt
-    _cid = EX_MAP.get(cfg["ex"])
-    if not _cid or not hasattr(ccxt, _cid):
-        raise RuntimeError(tr("این صرافی در ccxt پشتیبانی نمی‌شود",
-                              "this exchange is not supported by ccxt"))
-    pub = getattr(ccxt, _cid)({"enableRateLimit": True, "timeout": 15000})
-    tick = pub.fetch_ticker(cfg["symbol"])
-    _last = tick.get("last") or tick.get("close") or 0
-    if not _last:
-        raise RuntimeError(tr("قیمت آخر خالی برگشت", "empty last price"))
-    tick["last"] = float(_last)
-    st.metric(f"قیمت {cfg['symbol']} در {cfg['ex']}", f"{tick['last']:,.4f}",
-              f"Bid {tick.get('bid')} / Ask {tick.get('ask')}")
-except Exception as e:
-    tick = None
-    st.warning(tr("قیمت گرفته نشد: ", "Live price failed: ")
-               + G.scrub(e, cfg.get("key"), cfg.get("secret")))
+if cfg["ex"] == "Lighter":
+    _tk = LIT.ticker(cfg["symbol"]) if LIT is not None else None
+    if _tk is None:
+        st.warning(tr("قیمت لایتر گرفته نشد؛ نماد را چک کن (مثل BTC) یا دوباره «اتصال» بزن.",
+                      "Lighter price failed; check the symbol (e.g. BTC) or press «Connect» again."))
+    else:
+        tick = {"last": float(_tk["last"]), "bid": None, "ask": None}
+        _chg = float(_tk.get("change_pct") or 0.0)
+        st.metric(tr(f"قیمت {cfg['symbol']} پرپ در Lighter",
+                      f"{cfg['symbol']} perp price on Lighter"),
+                  f"{_tk['last']:,.4f}",
+                  f"{_chg:+.2f}% · Mark {float(_tk.get('mark') or 0.0):,.4f}")
+else:
+    try:
+        import ccxt
+        _cid = EX_MAP.get(cfg["ex"])
+        if not _cid or not hasattr(ccxt, _cid):
+            raise RuntimeError(tr("این صرافی در ccxt پشتیبانی نمی‌شود",
+                                  "this exchange is not supported by ccxt"))
+        pub = getattr(ccxt, _cid)({"enableRateLimit": True, "timeout": 15000})
+        tick = pub.fetch_ticker(cfg["symbol"])
+        _last = tick.get("last") or tick.get("close") or 0
+        if not _last:
+            raise RuntimeError(tr("قیمت آخر خالی برگشت", "empty last price"))
+        tick["last"] = float(_last)
+        st.metric(tr(f"قیمت {cfg['symbol']} در {cfg['ex']}",
+                      f"{cfg['symbol']} price on {cfg['ex']}"), f"{tick['last']:,.4f}",
+                  f"Bid {tick.get('bid')} / Ask {tick.get('ask')}")
+    except Exception as e:
+        tick = None
+        st.warning(tr("قیمت گرفته نشد: ", "Live price failed: ")
+                   + G.scrub(e, cfg.get("key"), cfg.get("secret")))
 
 # ---------------------------------------------------------------- گیت واقعی: دفتر + سقف‌ها
 cap = 0.0

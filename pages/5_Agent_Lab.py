@@ -47,6 +47,24 @@ except Exception as e:  # noqa: BLE001
     st.error(L(f"خواندن میدان ناموفق: {e}", f"Failed to load arena: {e}"))
     st.stop()
 
+# ---------------------------------------------------------------- فیلتر صرافی (Lighter اول)
+_total_all = len(_trades)
+_exs = sorted({str(t.get("exchange") or "").strip()
+               for t in _trades if isinstance(t, dict)} - {""})
+_all_label = "همه" if LANG == "fa" else "All"
+_ex_opts = [_all_label] + sorted(_exs, key=lambda e: (e != "Lighter", e))
+_lb1, _lb2 = st.columns([1, 2])
+with _lb1:
+    _ex_sel = st.selectbox(L("صرافی", "Exchange"), _ex_opts, index=0, key="lab_ex")
+with _lb2:
+    _n_ex = _total_all if _ex_sel in ("همه", "All") else sum(
+        1 for t in _trades if isinstance(t, dict)
+        and str(t.get("exchange") or "").strip() == _ex_sel)
+    st.caption(L(
+        f"نمایش {_n_ex} از {_total_all} معامله · Lighter صرافیِ فعلی اتوپایلوت است (پرپ DEX).",
+        f"Showing {_n_ex} of {_total_all} trades · Lighter is the current autopilot venue (perp DEX)."))
+_trades = LAB.filter_by_exchange(_trades, _ex_sel)
+
 _regime_alerts = AL.recent_alerts(200)
 _closed = LAB.closed_sorted(_trades)
 _report = LAB.agent_report(_trades, _regime_alerts)

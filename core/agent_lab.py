@@ -58,6 +58,25 @@ def closed_sorted(trades: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                   or datetime.min.replace(tzinfo=timezone.utc))
 
 
+ALL_EXCHANGES = ("همه", "all", "ALL", "All", "")
+
+
+def filter_by_exchange(trades: List[Any], exchange: str) -> List[Any]:
+    """فیلتر معاملات بر اساس صرافی (برای آزمایشگاه و هر گزارشی).
+
+    exchange خالی یا «همه» = بدون فیلتر (رفتار قبلی، دست‌نخورده).
+    ورودی خراب امن: trades غیرلیست = []؛ ردیف غیرdict در حالت فیلتر رد می‌شود.
+    Lighter صرافیِ فعلی اتوپایلوت است و در منو اول می‌آید (UI این را می‌چیند).
+    """
+    if not isinstance(trades, list):
+        return []
+    ex = str(exchange or "").strip()
+    if ex in ALL_EXCHANGES:
+        return list(trades)
+    return [t for t in trades
+            if isinstance(t, dict) and str(t.get("exchange") or "").strip() == ex]
+
+
 def current_streak(agent_closed: List[Dict[str, Any]]) -> int:
     """طول زنجیره‌ی باخت فعلی ایجنت (از انتها) — برد/سربه‌سر زنجیره را قطع می‌کند."""
     n = 0

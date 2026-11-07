@@ -29,6 +29,7 @@ from typing import Any, Dict, List, Optional
 
 TEHRAN = timezone(timedelta(hours=3, minutes=30))   # ایران بدون DST (از ۱۴۰۱)
 WINDOW_H = 24
+RECAL_TARGET = 50   # هدف ریکالیبراسیون آزمایشگاه: ~۵۰ معامله‌ی بسته‌ی لایتر
 
 RESULT_FA = {
     "win": "برد ✅", "loss": "باخت ❌", "be": "سر‌به‌سر ⚪",
@@ -94,7 +95,9 @@ def _src_key(t: Dict[str, Any]) -> str:
 
 # ------------------------------------------------------------------ تجمیع
 def aggregate(trades: List[Dict[str, Any]], now: datetime) -> Dict[str, Any]:
-    """تجمیع گزارش از رکوردهای معامله — خالص و بدون I/O تا تست‌پذیر بماند."""
+    """تجمیع گزارش از رکوردهای معامله — خالص و بدون I/O تا تست‌پذیر بماند.
+    ردیف غیر dict (دیتای خراب) بی‌صدا دور ریخته می‌شود — هرگز raise نمی‌کند."""
+    trades = [t for t in (trades or []) if isinstance(t, dict)]
     w0 = now - timedelta(hours=WINDOW_H)
     closed_all = [t for t in trades if str(t.get("status")) == "closed"]
 
@@ -136,6 +139,8 @@ def aggregate(trades: List[Dict[str, Any]], now: datetime) -> Dict[str, Any]:
         "total_winrate": round(100.0 * aw / (aw + al), 1) if (aw + al) else None,
         "total_r": round(sum(float(t.get("realized_r") or 0.0) for t in closed_all), 2),
         "by_source": by_source,
+        "closed_lighter": sum(1 for t in closed_all
+                              if str(t.get("exchange") or "").strip().lower() == "lighter"),
     }
 
 
@@ -253,6 +258,11 @@ def fmt_report(agg: Dict[str, Any], open_trades: List[Dict[str, Any]],
     L.append("")
     twr = f"{agg['total_winrate']}%" if agg["total_winrate"] is not None else "—"
     L.append(f"- بسته‌شده: {agg['total_closed']} · وین‌ریت {twr} · جمع R: {agg['total_r']:+.2f}R")
+    _cl = agg.get("closed_lighter")
+    if _cl:
+        _pct = min(100.0, 100.0 * _cl / RECAL_TARGET)
+        L.append(f"- 🔬 مسیر ریکالیبراسیون آزمایشگاه: {_cl}/{RECAL_TARGET} معامله‌ی بسته‌ی لایتر ({_pct:.0f}٪) —"
+                 + (" تقریباً آماده!" if _pct >= 80.0 else " جمع‌شدن داده ادامه دارد."))
     if agg.get("by_source"):
         labels = (("autopilot", "🤖 اتوپایلوت"), ("manual", "👤 دستی"), ("legacy", "قدیمی (بدون برچسب)"))
         parts = [f"{lab} {agg['by_source'][k]['n']} معامله ({agg['by_source'][k]['r']:+.2f}R)"
@@ -323,6 +333,9 @@ def fmt_telegram(agg: Dict[str, Any], open_trades: List[Dict[str, Any]],
     twr = f"{agg['total_winrate']}%" if agg["total_winrate"] is not None else "—"
     L.append("")
     L.append(f"🏆 کل میدان: {agg['total_closed']} بسته‌شده · وین‌ریت {twr} · {agg['total_r']:+.2f}R")
+    _cl = agg.get("closed_lighter")
+    if _cl:
+        L.append(f"🔬 ریکالیبراسیون لاب: {_cl}/{RECAL_TARGET} معامله‌ی بسته‌ی لایتر")
     if agg.get("by_source"):
         labels = (("autopilot", "🤖"), ("manual", "👤"), ("legacy", "⭕"))
         parts = [f"{lab} {agg['by_source'][k]['n']} ({agg['by_source'][k]['r']:+.2f}R)"

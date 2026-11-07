@@ -1,12 +1,16 @@
 name: Arena Export
 
 # فاز ۹ — خروجی کامل تاریخچه‌ی میدان برای تحلیل سوددهی
-# فقط اجرای دستی: تب Actions → Arena Export → Run workflow
-# خروجی: آرتیفکت arena-export (فایل arena_export.json — ۷ روز نگهداری)
+# دستی: تب Actions → Arena Export → Run workflow
+# هفتگی: هر دوشنبه پشتیبانِ تاریخچه به‌صورت Artifact (۷ روز نگهداری) — لایه‌ی
+# سومِ پشتیبان کنار Supabase و فایل محلی.
+# خروجی: آرتیفکت arena-export (فایل arena_export.json)
 # هیچ تغییری در داده نمی‌دهد؛ فقط خواندن از همان بک‌اند اپ (Supabase/محلی).
 
 on:
-  workflow_dispatch: {}      # فقط دستی — هیچ زمان‌بندی‌ای ندارد
+  workflow_dispatch: {}      # دستی — هر وقت خواستی
+  schedule:
+    - cron: "23 4 * * 1"     # دوشنبه‌ها ۰۴:۲۳ UTC — پشتیبان هفتگی تاریخچه‌ی میدان
 
 concurrency:
   group: arena-export

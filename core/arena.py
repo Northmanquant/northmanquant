@@ -100,6 +100,47 @@ def participants() -> list[dict]:
     return out
 
 
+def _base_of(symbol: str) -> str:
+    """نماد → پایه: «BTC-USDT» / «BTC/USDT» / «BTCUSDT» → «BTC». خراب = «»."""
+    s = str(symbol or "").strip().upper()
+    if not s:
+        return ""
+    for sep in ("/", "-"):
+        if sep in s:
+            s = s.split(sep, 1)[0]
+            break
+    return s[:-4] if s.endswith("USDT") and len(s) > 4 else s
+
+
+def symbol_opinions(trades: list[dict], symbol: str) -> list[dict]:
+    """عقیده‌ی میدان درباره‌ی یک نماد: آخرین معامله‌ی هر شرکت‌کننده روی همین نماد.
+    نمادها از طریق پایه مقایسه می‌شوند (BTC ≈ BTC-USDT)؛ مرتب بر اساس تازگی.
+    ورودی خراب = [] — هرگز raise نمی‌کند."""
+    base = _base_of(symbol)
+    if not base:
+        return []
+    rows = []
+    for t in trades or []:
+        try:
+            if not isinstance(t, dict):
+                continue
+            if _base_of(t.get("symbol")) == base:
+                rows.append(t)
+        except Exception:  # noqa: BLE001 — ردیف خراب دور ریخته می‌شود
+            continue
+    rows.sort(key=lambda t: str(t.get("created_at") or t.get("opened_at") or ""),
+              reverse=True)
+    seen: set[str] = set()
+    out: list[dict] = []
+    for t in rows:
+        a = str(t.get("agent") or "?")
+        if a in seen:
+            continue
+        seen.add(a)
+        out.append(t)
+    return out
+
+
 # ----------------------------------------------------------------------------- time helpers
 def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")

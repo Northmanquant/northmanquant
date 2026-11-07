@@ -11,6 +11,47 @@ from core.crypto_candles import candles_bundle, decimals_for as crypto_decimals
 from core.i18n import setup_i18n, tr
 from core.tv_chart import build_tv_chart_html
 
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _arena_trades() -> list:
+    """معامله‌های میدان برای پل «عقیده‌ی ایجنت‌ها» — کش ۶۰ثانیه‌ای، خرابی = []."""
+    try:
+        from core import arena_store as AST
+        return AST.load_trades() or []
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _dir_fa(d) -> str:
+    try:
+        d = int(d or 0)
+    except (TypeError, ValueError):
+        d = 0
+    return "لانگ 🟢" if d > 0 else "شورت 🔴" if d < 0 else "—"
+
+
+def _opinion_rows(ops: list) -> list[dict]:
+    """آخرین معامله‌ی هر شرکت‌کننده روی نماد → جدول کوچک صادقانه."""
+    out = []
+    for t in ops:
+        status = str(t.get("status") or "")
+        if status == "open":
+            state, r = "باز ⏳", "—"
+        elif status == "closed":
+            res = str(t.get("result") or "")
+            state = {"win": "برد ✅", "loss": "باخت ❌"}.get(res, "سر‌به‌سر ⚪")
+            try:
+                r = f"{float(t.get('realized_r') or 0.0):+.2f}R"
+            except (TypeError, ValueError):
+                r = "—"
+        else:
+            state, r = "—", "—"
+        out.append({"ایجنت": str(t.get("agent") or "—"),
+                    "جهت": _dir_fa(t.get("direction")),
+                    "وضعیت": state, "R خالص": r,
+                    "ورود": f"{float(t.get('entry')):,.6g}" if t.get("entry") else "—"})
+    return out
+
 st.set_page_config(page_title="قیمت‌های زنده | Live Prices", page_icon="📊", layout="wide")
 setup_i18n(page="p1")   # زبان + منوی ترجمه‌شده + پچ ترجمه‌ی کل صفحه
 st.title("📊 قیمت‌های زنده بازار")
@@ -362,3 +403,23 @@ else:
                             dec=crypto_decimals(_last_px), initial_bars=320),
         height=700, scrolling=False,
     )
+
+# ---------------------------------------------------------------- عقیده‌ی میدان درباره‌ی همین ارز
+with st.expander(tr("🏟️ عقیده‌ی میدان درباره‌ی همین ارز — آخرین معامله‌ی هر ایجنت",
+                    "🏟️ What the arena thinks — each agent's latest trade on this coin"),
+                 expanded=False):
+    _ops = []
+    try:
+        from core import arena as AR
+        _ops = AR.symbol_opinions(_arena_trades(), chart_base)
+    except Exception:  # noqa: BLE001
+        _ops = []
+    if not _ops:
+        st.caption(tr(
+            "هنوز هیچ ایجنتی روی این نماد در میدان معامله باز/بسته نکرده — میدان هر ۳۰ دقیقه کل بازار را اسکن می‌کند و فقط برگزیدگانش را معامله می‌کند.",
+            "No arena participant has traded this symbol yet — the arena rescans the whole market every 30 minutes and only trades its finalists."))
+    else:
+        st.dataframe(_opinion_rows(_ops), use_container_width=True, hide_index=True)
+        st.caption(tr(
+            "این‌ها معامله‌های کاغذیِ میدان روی داده‌ی واقعی‌اند (نه سفارش واقعی) — جزئیات کامل و جدول قهرمانی در «میدان ایجنت‌ها».",
+            "These are the arena's paper trades on real data (not real orders) — full details and the championship table live on the «Agent Arena» page."))

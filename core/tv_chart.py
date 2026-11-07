@@ -10,6 +10,8 @@
   ▸ پنل‌های جداگانه: RSI(14) · MACD(12,26,9) · استوکاستیک(14,3,3) · استوک RSI(14,14,3,3)
     · CCI(20) · ویلیامز %R(14) · ADX/DMI(14) · ATR(14) · OBV · MFI(14)
   ▸ ابزارهای رسم یک‌بارمصرف — پس از هر رسم خودکار به نشانگر برمی‌گردند (فیبوناچی پشت‌سرهم نمی‌ماند)
+  ▸ انتخاب و جابه‌جایی رسم‌ها با نشانگر، سبک تریدینگ‌ویو — کلیک روی رسم: انتخاب با دستگیره‌ها ·
+    کشیدن بدنه: جابه‌جایی کل · کشیدن دستگیره‌ها: تغییر شکل (با واگرد) — کلیک روی فضای خالی: پن عادی چارت
   ▸ ابزارهای رسم: خط روند · خط افقی · پرتو افقی · خط عمودی · مستطیل · فیبوناچی (۷ سطح)
     · خط‌کش (٪/قیمت/کندل/مدت) · پوزیشن خرید/فروش (ورود/ضرر/هدف + RR) · فلش صعودی/نزولی
     · متن · قلم آزاد + پاک‌کن تک‌رسم (کلیک روی هر رسم = حذف) + واگرد/ازنوی کامل (حتی پاک‌کردن همه)
@@ -1111,6 +1113,42 @@ function hitTest(x, y){
   }
   return -1;
 }
+
+/* ---------- انتخاب و جابه‌جایی رسم‌ها (سبک تریدینگ‌ویو) ----------------- */
+let selIdx=-1, drag=null;   // drag={mode:'move'|'p1'|'p2'|'p3', idx, orig, grab:{t,price}, cx, cy, moved}
+function cpDraw(d){ return JSON.parse(JSON.stringify(d)); }
+function ptSc(pt){ return { x:(pt&&pt.t!=null)? xOfT(pt.t):null, y:(pt&&pt.price!=null)? yOf(pt.price):null }; }
+function handlesOf(d){
+  if(d.type==='trend'||d.type==='rect'||d.type==='fib') return [['p1',d.p1],['p2',d.p2]];
+  if(d.type==='posL'||d.type==='posS') return [['p1',d.p1],['p2',d.p2],['p3',d.p3]];
+  return [];
+}
+function handleHit(x,y){
+  if(selIdx<0 || !DRAWINGS[selIdx]) return null;
+  for(const h of handlesOf(DRAWINGS[selIdx])){
+    const s=ptSc(h[1]);
+    if(s.x!=null&&s.y!=null && Math.hypot(x-s.x,y-s.y)<=10) return h[0];
+  }
+  return null;
+}
+function drawSel(d){
+  octx.save();
+  for(const h of handlesOf(d)){
+    const s=ptSc(h[1]); if(s.x==null||s.y==null) continue;
+    octx.beginPath(); octx.arc(s.x,s.y,4.5,0,Math.PI*2);
+    octx.fillStyle='#2962ff'; octx.fill();
+    octx.lineWidth=1.6; octx.strokeStyle='#eaeef6'; octx.stroke();
+  }
+  octx.restore();
+}
+/* جابه‌جایی همه‌ی نقاط رسم با دلتای زمان/قیمت — نقاطِ null (مثل t خط افقی) دست‌نخورده می‌مانند */
+function applyDelta(d, dt, dp){
+  for(const k of ['p1','p2','p3']){
+    const pt=d[k];
+    if(pt){ if(pt.t!=null && dt) pt.t+=dt; if(pt.price!=null && dp) pt.price+=dp; }
+  }
+  if(d.pts) for(const pt of d.pts){ if(pt.t!=null && dt) pt.t+=dt; if(pt.price!=null && dp) pt.price+=dp; }
+}
 let pend=null, measure=null, brush=null, dragMoved=false;
 __ZONES_JS__
 function renderLoop(){
@@ -1118,6 +1156,7 @@ function renderLoop(){
   octx.clearRect(0,0,r.width,r.height);
   drawZones();
   for(const d of DRAWINGS) drawOne(d,false);
+  if(selIdx>=0 && DRAWINGS[selIdx]) drawSel(DRAWINGS[selIdx]);
   if(brush && brush.pts.length>1) drawOne({type:'brush', pts:brush.pts}, true);
   if(pend) drawPend(pend);
   if(measure) drawMeasure(measure);
@@ -1136,22 +1175,25 @@ function evPos(e){
 function dist(a,b){ return Math.sqrt(Math.pow(a.x-b.x,2)+Math.pow(a.y-b.y,2)); }
 /* ابزارها یک‌بارمصرف‌اند: بعد از هر رسم، خودکار به نشانگر برمی‌گردیم (فیبوناچی پشت‌سرهم نمی‌ماند) */
 function oneShotDone(){ setTool('cursor'); buildToolsMenu(); }
-function commit(d){ DRAWINGS.push(d); UNDOS.push({op:'draw', d:d}); REDOS=[]; saveDraw(); oneShotDone(); }
+function commit(d){ DRAWINGS.push(d); UNDOS.push({op:'draw', d:d}); REDOS=[]; saveDraw(); selIdx=DRAWINGS.length-1; oneShotDone(); }
 function eraseAt(i){ if(i<0 || i>=DRAWINGS.length) return;
   const d = DRAWINGS.splice(i,1)[0]; UNDOS.push({op:'erase', idx:i, d:d}); REDOS=[]; saveDraw();
+  if(selIdx===i) selIdx=-1; else if(selIdx>i) selIdx--;
   toast('حذف شد — ↩ واگرد برای بازگردانی'); }
 function doUndo(){ const op = UNDOS.pop(); if(!op) return;
   if(op.op==='draw'){ DRAWINGS.pop(); }
   else if(op.op==='erase'){ DRAWINGS.splice(Math.min(op.idx, DRAWINGS.length), 0, op.d); }
+  else if(op.op==='move'){ if(op.idx>=0 && op.idx<DRAWINGS.length) DRAWINGS[op.idx]=op.before; }
   else if(op.op==='clear'){ DRAWINGS = op.items.slice(); }
   REDOS.push(op); saveDraw(); }
 function doRedo(){ const op = REDOS.pop(); if(!op) return;
   if(op.op==='draw'){ DRAWINGS.push(op.d); }
   else if(op.op==='erase'){ DRAWINGS.splice(Math.min(op.idx, DRAWINGS.length), 1); }
+  else if(op.op==='move'){ if(op.idx>=0 && op.idx<DRAWINGS.length) DRAWINGS[op.idx]=op.after; }
   else if(op.op==='clear'){ DRAWINGS = []; }
   UNDOS.push(op); saveDraw(); }
 function clearAll(){ if(!DRAWINGS.length) return;
-  UNDOS.push({op:'clear', items:DRAWINGS.slice()}); DRAWINGS=[]; REDOS=[]; saveDraw();
+  UNDOS.push({op:'clear', items:DRAWINGS.slice()}); DRAWINGS=[]; REDOS=[]; selIdx=-1; saveDraw();
   toast('همه‌ی رسم‌ها پاک شد'); }
 ovl.addEventListener('pointerdown', e=>{
   if(S.tool==='cursor' || !mainSeries) return;
@@ -1205,7 +1247,63 @@ ovl.addEventListener('pointerup', e=>{
     }
   }
 });
-window.addEventListener('keydown', e=>{ if(e.key==='Escape'){ pend=null; measure=null; brush=null; setTool('cursor'); } });
+window.addEventListener('keydown', e=>{ if(e.key==='Escape'){ pend=null; measure=null; brush=null; selIdx=-1; drag=null; setTool('cursor'); } });
+
+/* ---------- انتخاب و جابه‌جایی با نشانگر (سبک تریدینگ‌ویو) --------------
+   رهگیری در فاز capture روی mainPane: کلیک روی رسم → انتخاب/درگ (رویداد به چارت نمی‌رسد)
+   کلیک روی فضای خالی → رویداد عادی به چارت می‌رسد و پن/زوم مثل قبل کار می‌کند */
+mainPane.addEventListener('pointerdown', e=>{
+  if(S.tool!=='cursor' || !mainSeries) return;
+  if(e.button!==undefined && e.button!==0) return;
+  const r = ovl.getBoundingClientRect();
+  const x = e.clientX-r.left, y = e.clientY-r.top;
+  const hk = handleHit(x,y);
+  if(hk){
+    e.stopPropagation(); e.preventDefault();
+    try{ mainPane.setPointerCapture(e.pointerId); }catch(err){}
+    drag={mode:hk, idx:selIdx, orig:cpDraw(DRAWINGS[selIdx]), grab:null, cx:e.clientX, cy:e.clientY, moved:false};
+    mainPane.style.cursor='grabbing';
+    return;
+  }
+  const h = hitTest(x,y);
+  if(h<0){ selIdx=-1; return; }   // خروج از انتخاب — چارت آزاد است تا پن شود
+  e.stopPropagation(); e.preventDefault();
+  selIdx=h;
+  try{ mainPane.setPointerCapture(e.pointerId); }catch(err){}
+  const p = evPos(e);
+  drag={mode:'move', idx:h, orig:cpDraw(DRAWINGS[h]), grab:{t:p.t, price:p.price}, cx:e.clientX, cy:e.clientY, moved:false};
+  mainPane.style.cursor='grabbing';
+}, true);
+window.addEventListener('pointermove', e=>{
+  if(drag){
+    if(Math.abs(e.clientX-drag.cx)+Math.abs(e.clientY-drag.cy)>2) drag.moved=true;
+    const d = DRAWINGS[drag.idx]; if(!d){ drag=null; return; }
+    const p = evPos(e);
+    if(drag.mode==='move'){
+      const dt=(drag.grab.t!=null && p.t!=null)? p.t-drag.grab.t : 0;
+      const dp=(drag.grab.price!=null && p.price!=null)? p.price-drag.grab.price : 0;
+      const cur = cpDraw(drag.orig);       // همیشه از نسخه‌ی اصلی محاسبه — بدون رانش
+      applyDelta(cur, dt, dp);
+      DRAWINGS[drag.idx] = cur;
+    } else {
+      const pt = d[drag.mode];
+      if(pt){ if(pt.t!=null && p.t!=null) pt.t=p.t; if(pt.price!=null && p.price!=null) pt.price=p.price; }
+    }
+    return;
+  }
+  if(S.tool!=='cursor' || !mainSeries) return;
+  const r = ovl.getBoundingClientRect();
+  const x = e.clientX-r.left, y = e.clientY-r.top;
+  mainPane.style.cursor = (handleHit(x,y) || hitTest(x,y)>=0) ? 'grab' : '';
+}, true);
+window.addEventListener('pointerup', e=>{
+  if(!drag) return;
+  if(drag.moved){
+    UNDOS.push({op:'move', idx:drag.idx, before:drag.orig, after:cpDraw(DRAWINGS[drag.idx])});
+    REDOS=[]; saveDraw();
+  }
+  drag=null; mainPane.style.cursor='';
+}, true);
 
 /* ---------- تولبار: تایم‌فریم · نوع چارت · منوها ---------------------- */
 function toast(msg){
@@ -1227,7 +1325,7 @@ function buildTfBtns(){
 function setTF(tf){
   if(!TFS[tf]){ toast('داده‌ی این تایم‌فریم در دسترس نیست'); return; }
   S.tf = tf; localStorage.setItem(SK('tf'), tf);
-  DRAWINGS = loadDraw().map(normDraw); UNDOS=[]; REDOS=[];
+  DRAWINGS = loadDraw().map(normDraw); UNDOS=[]; REDOS=[]; selIdx=-1; drag=null;
   buildIdx();
   rebuildMain(false);
   rebuildAllPanes();
@@ -1303,7 +1401,7 @@ function buildIndMenu(){
 }
 const TOOLS = [
   ['_g','حالت و خطوط'],
-  ['cursor','⌖','نشانگر (حالت عادی)'],
+  ['cursor','⌖','نشانگر — کلیک روی رسم: انتخاب و جابه‌جایی'],
   ['erase','⌫','پاک‌کن — کلیک روی هر رسم، حذف می‌شود'],
   ['trend','↗','خط روند'], ['hline','─','خط افقی'],
   ['hray','⟼','پرتو افقی'], ['vline','↕','خط عمودی'],
@@ -1339,7 +1437,7 @@ function buildToolsMenu(){
     };
 }
 function setTool(t){
-  S.tool = t; pend=null; brush=null; measure=null;
+  S.tool = t; pend=null; brush=null; measure=null; if(t!=='cursor') selIdx=-1;
   ovl.classList.toggle('armed', t!=='cursor');
   const btn = document.getElementById('btnTools');
   btn.classList.toggle('active', t!=='cursor');

@@ -81,6 +81,26 @@ _redo_erase = "else if(op.op==='erase'){ DRAWINGS.splice(Math.min(op.idx, DRAWIN
 ok(html.count(_undo_erase) == 1 and html.count(_redo_erase) == 1,
    "واگردِ erase → درج · ازنویِ erase → حذف (قبل از رفع: ازنو هم درج می‌کرد و رسم تکثیر می‌شد)")
 
+print("— انتخاب و جابه‌جایی رسم‌ها با نشانگر (سبک تریدینگ‌ویو)")
+ok("let selIdx=-1, drag=null;" in html, "وضعیت انتخاب/درگ")
+ok("function drawSel(" in html and "function handleHit(" in html and "function handlesOf(" in html,
+   "دستگیره‌های انتخاب (p1/p2/p3) + هیت‌تست دستگیره")
+ok("function applyDelta(" in html and "function cpDraw(" in html,
+   "جابه‌جایی همه‌ی نقاط با دلتا + کپی عمیق (بدون رانش)")
+ok("op.op==='move'){ if(op.idx>=0 && op.idx<DRAWINGS.length) DRAWINGS[op.idx]=op.before; }" in html,
+   "واگردِ جابه‌جایی")
+ok("op.op==='move'){ if(op.idx>=0 && op.idx<DRAWINGS.length) DRAWINGS[op.idx]=op.after; }" in html,
+   "ازنویِ جابه‌جایی")
+ok("mainPane.addEventListener('pointerdown'" in html and html.count("}, true);") >= 3,
+   "رهگیری در فاز capture — کلیک خالی = پن عادی چارت، کلیک روی رسم = انتخاب")
+ok("e.stopPropagation()" in html and "mainPane.setPointerCapture" in html,
+   "جلوگیری از پن هنگام درگ رسم + قفل نشانگر")
+ok("op:'move', idx:drag.idx, before:drag.orig" in html, "ثبت عملیات move در پشته با نسخه‌ی قبل/بعد")
+ok("selIdx=DRAWINGS.length-1" in html, "رسم تازه بلافاصله انتخاب می‌شود")
+ok("if(selIdx===i) selIdx=-1; else if(selIdx>i) selIdx--;" in html,
+   "انتخاب پس از حذف رسم جابه‌جا/خنثی می‌شود")
+ok("نشانگر — کلیک روی رسم: انتخاب و جابه‌جایی" in html, "راهنمای تازه‌ی نشانگر در منوی ابزارها")
+
 print("— روکش‌های خودکار قابل خاموش‌کردن")
 ok("zones:true, plines:true" in html, "پیش‌فرض روشن: نواحی + خطوط سیگنال")
 ok("نواحی FVG/BVG" in html and "خطوط سیگنال (ورود/ضرر/هدف)" in html, "دو کلید در منوی اندیکاتورها")
@@ -162,14 +182,57 @@ try:
             "out.push(['1 after clear-undo', DRAWINGS.length, UNDOS.length, REDOS.length]);\n"
             "doRedo();\n"
             "out.push(['0 after clear-redo', DRAWINGS.length, UNDOS.length, REDOS.length]);\n"
-            "console.log(JSON.stringify(out));\n"
+            "commit({type:'hline', p1:{t:null, price:100}});\n"
+            "out.push(['1 redraw hline', DRAWINGS.length, UNDOS.length, REDOS.length]);\n"
+            "const mvBefore = JSON.parse(JSON.stringify(DRAWINGS[0]));\n"
+            "DRAWINGS[0].p1.price = 105;\n"
+            "UNDOS.push({op:'move', idx:0, before:mvBefore, after:JSON.parse(JSON.stringify(DRAWINGS[0]))});\n"
+            "out.push(['after move-op', DRAWINGS.length, UNDOS.length, REDOS.length]);\n"
+            "const prices = [mvBefore.p1.price];\n"
+            "doUndo();\n"
+            "prices.push(DRAWINGS[0].p1.price);\n"
+            "out.push(['after move-undo', DRAWINGS.length, UNDOS.length, REDOS.length]);\n"
+            "doRedo();\n"
+            "prices.push(DRAWINGS[0].p1.price);\n"
+            "out.push(['after move-redo', DRAWINGS.length, UNDOS.length, REDOS.length]);\n"
+            "console.log(JSON.stringify({rows: out, prices: prices}));\n"
         )
         _run2 = _sp.run(["node", "-e", _sim], capture_output=True, text=True, timeout=60)
-        _rows = _json.loads(_run2.stdout.strip())
-        _expect = [(2, 2, 0), (1, 3, 0), (2, 2, 1), (1, 3, 0), (0, 4, 0), (1, 3, 1), (0, 4, 0)]
+        _sim2 = _json.loads(_run2.stdout.strip())
+        _rows, _prices = _sim2["rows"], _sim2["prices"]
+        _expect = [(2, 2, 0), (1, 3, 0), (2, 2, 1), (1, 3, 0), (0, 4, 0), (1, 3, 1), (0, 4, 0),
+                   (1, 5, 0), (1, 6, 0), (1, 5, 1), (1, 6, 0)]
         for _row, _exp in zip(_rows, _expect):
             _got = tuple(_row[1:])
             ok(_got == _exp, f"پشته‌ی عملیات «{_row[0]}» → {_exp} (دریافت‌شده: {_got})")
+        ok(_prices == [100, 100, 105], f"واگرد/ازنوی جابه‌جایی قیمت را برمی‌گرداند {_prices}")
+
+    _m3 = _re.search(r"(function applyDelta\(d, dt, dp\)\{.*?\n\})", html, _re.S)
+    ok(bool(_m3), "بلاک applyDelta در HTML تولیدی")
+    if _m3:
+        _adj = (
+            _m3.group(1) +
+            "\nconst res = [];\n"
+            "const df = {type:'fib', p1:{t:100, price:50}, p2:{t:300, price:40}, p3:null};\n"
+            "applyDelta(df, 60, -5);\n"
+            "res.push([df.p1.t, df.p1.price, df.p2.t, df.p2.price, df.p3]);\n"
+            "const dh = {type:'hline', p1:{t:null, price:100}};\n"
+            "applyDelta(dh, 60, -5);\n"
+            "res.push([dh.p1.t, dh.p1.price]);\n"
+            "const dv = {type:'vline', p1:{t:100, price:null}};\n"
+            "applyDelta(dv, 60, -5);\n"
+            "res.push([dv.p1.t, dv.p1.price]);\n"
+            "const db = {type:'brush', pts:[{t:1, price:2},{t:3, price:4}]};\n"
+            "applyDelta(db, 10, 1);\n"
+            "res.push([db.pts[0].t, db.pts[1].price]);\n"
+            "console.log(JSON.stringify(res));\n"
+        )
+        _run3 = _sp.run(["node", "-e", _adj], capture_output=True, text=True, timeout=60)
+        _res = _json.loads(_run3.stdout.strip())
+        ok(_res[0] == [160, 45, 360, 35, None], f"فیبوناچی: هر دو نقطه جابه‌جا {_res[0]}")
+        ok(_res[1] == [None, 95], f"خط افقی: فقط قیمت (t=null می‌ماند) {_res[1]}")
+        ok(_res[2] == [160, None], f"خط عمودی: فقط زمان (price=null می‌ماند) {_res[2]}")
+        ok(_res[3] == [11, 5], f"قلم آزاد: همه‌ی pts جابه‌جا {_res[3]}")
 except FileNotFoundError:
     print("  ⚠ node در دسترس نیست — تست‌های JS رد شد")
 

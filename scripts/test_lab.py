@@ -109,4 +109,31 @@ opened2, _ = A.open_trades_from_scan(scans, "KuCoin", "1hour", store,
                                      source="manual", lab=None, regime_dir=1)
 ok(len(opened2) >= 1, "بدون lab — رفتار قدیمی سالم (backward compatible)")
 
+print("— مسیر ریکالیبراسیون (recal_progress) —")
+ok(LAB.RECAL_TARGET == 50, "هدف پیش‌فرض ۵۰ معامله (هم‌منبع با گزارش روزانه)")
+ok(LAB.recal_progress(None) == {"closed": 0, "target": 50, "pct": 0.0, "ready": False},
+   "ورودی None — صفرها، بدون raise")
+ok(LAB.recal_progress("garbage")["closed"] == 0, "ورودی غیرلیست امن")
+ok(LAB.recal_progress([1, None, "x", {}])["closed"] == 0, "ردیف‌های خراب دور ریخته می‌شوند")
+_lighter_trades = [
+    {"exchange": "Lighter", "status": "closed"},
+    {"exchange": "lighter", "status": "closed"},      # حروف بزرگ/کوچک بی‌اهمیت
+    {"exchange": " Lighter ", "status": "CLOSED"},    # فاصله و حالت — بی‌اهمیت
+    {"exchange": "Lighter", "status": "open"},        # باز — نمی‌شمرد
+    {"exchange": "Lighter", "status": None},          # بی‌وضعیت — نمی‌شمرد
+    {"exchange": "Binance", "status": "closed"},      # صرافی دیگر — نمی‌شمرد
+    {"exchange": "", "status": "closed"},             # بی‌صرافی — نمی‌شمرد
+]
+_rp = LAB.recal_progress(_lighter_trades)
+ok(_rp["closed"] == 3, f"فقط بسته‌شده‌های لایتر شمرده می‌شوند (closed={_rp['closed']})")
+ok(_rp["pct"] == 3 / 50 and not _rp["ready"], "درصد صحیح و هنوز آماده نیست")
+_rp2 = LAB.recal_progress([{"exchange": "lighter", "status": "closed"}] * 50)
+ok(_rp2["pct"] == 1.0 and _rp2["ready"], "رسیدن به هدف — pct سقف ۱ و ready=True")
+_rp3 = LAB.recal_progress([{"exchange": "lighter", "status": "closed"}] * 60)
+ok(_rp3["pct"] == 1.0, "عبور از هدف — درصد نمی‌شود بیش از ۱")
+_rp4 = LAB.recal_progress([], target=0)
+ok(_rp4["target"] == 50, "target نامعتبر (۰) — به پیش‌فرض برمی‌گردد")
+_rp5 = LAB.recal_progress(_lighter_trades, target=6)
+ok(_rp5["pct"] == 0.5 and _rp5["target"] == 6, "target سفارشی پذیرفته می‌شود")
+
 print(f"\n✅ همه‌ی {PASS} تست فاز ۱۳ پاس شد")

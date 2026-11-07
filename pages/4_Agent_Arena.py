@@ -39,7 +39,10 @@ from core import replay as RP  # noqa: E402
 from core import edge as EG  # noqa: E402
 from core import xlsx_export as XE  # noqa: E402
 from core import arena_store  # noqa: E402
+from core import crypto_candles as CC  # noqa: E402
+from core.tv_chart import build_tv_chart_html  # noqa: E402
 from core.duel_engine import _dec_for  # noqa: E402
+import streamlit.components.v1 as components  # noqa: E402
 
 EXCHANGES = ["KuCoin", "OKX", "Binance", "Bybit", "Lighter", "XT", "LBank", "KCEX"]
 _store = arena_store.get_store()
@@ -494,6 +497,52 @@ with tab_pos:
                      "Trades are advanced with fresh candles whenever this page loads (at most once per 60s)."))
         for t in sorted(_open_trades, key=lambda t: t.get("agent", "")):
             _trade_card(t, _live.get(t.get("symbol")), _unrealized_r(t, _live.get(t.get("symbol"))))
+
+        # ---- 📈 چارت معامله: ورود، استاپ و اهداف ایجنت روی کندل‌های واقعی ----
+        with st.expander("📈 " + L("چارت معامله — ورود، استاپ و اهداف روی کندل‌ها",
+                                    "Trade chart — entry, stop and targets on real candles"),
+                         expanded=False):
+            _labels = [f"{t.get('agent')} · {t.get('symbol')}"
+                       + (" 🟢" if int(t.get("direction") or 0) > 0 else " 🔴")
+                       for t in _open_trades]
+            _ci = st.selectbox(L("معامله", "Trade"), list(range(len(_open_trades))),
+                               format_func=lambda i: _labels[i], key="arena_trade_chart")
+            _ct = _open_trades[_ci]
+            _cbase = A._base_of(_ct.get("symbol"))
+            if not _cbase:
+                st.caption(L("نماد این معامله قابل‌تبدیل به پایه نیست — چارت موجود نیست.",
+                             "This trade's symbol has no extractable base — no chart."))
+            else:
+                # فقط ۴ تایم‌فریم معامله‌های میدان — سریع‌تر از بسته‌ی کامل
+                _cb = CC.candles_bundle(_cbase, ("15min", "1hour", "4hour", "1day"))
+                if not _cb:
+                    st.caption(L("کندل گرفته نشد — این ارز احتمالاً روی Binance لیست نیست یا شبکه کند است؛ جدول و کارت‌های بالا مستقل کار می‌کنند.",
+                                 "Could not fetch candles — the coin may not be listed on Binance or the network is slow; the table and cards above work independently."))
+                else:
+                    _civ = str(_ct.get("interval") or "")
+                    _btf = _civ if _civ in _cb else ("1hour" if "1hour" in _cb else next(iter(_cb)))
+                    _cpx = _cb[_btf][-1][4] if _cb[_btf] else float(_ct.get("entry") or 1.0)
+                    # سطوح معامله روی چارت: ورود آبی ثابت، SL قرمز خط‌چین، TPها سبز خط‌چین
+                    # (قرارداد dash بولی است — هم‌سان با صفحه‌ی فارکس)
+                    _levels = [{"price": float(_ct["entry"]), "name": L("ورود", "Entry"),
+                                "color": "#3b82f6", "dash": False}]
+                    _stop = float(_ct.get("cur_stop") or _ct.get("stop"))
+                    _levels.append({"price": _stop, "name": L("SL فعلی", "Cur SL"),
+                                    "color": "#ef4444", "dash": True})
+                    for _k in ("tp1", "tp2", "tp3"):
+                        if _ct.get(_k):
+                            _levels.append({"price": float(_ct[_k]), "name": _k.upper(),
+                                            "color": "#16a34a", "dash": True})
+                    components.html(
+                        build_tv_chart_html(
+                            candles=_cb[_btf], tfs=_cb, base_tf=_btf,
+                            symbol=str(_ct.get("symbol")), zones=[], levels=_levels,
+                            title=f"{_ct.get('agent')} · {_ct.get('symbol')} · {_btf}",
+                            dec=CC.decimals_for(_cpx), initial_bars=320),
+                        height=640, scrolling=False,
+                    )
+                    st.caption(L("سطوح: ورود آبی · استاپ قرمز خط‌چین · اهداف سبز خط‌چین — کندل از Binance spot.",
+                                 "Levels: blue entry · red dashed stop · green dashed targets — candles from Binance spot."))
 
 # =============================================================================
 # تب ۳ — هشدارها

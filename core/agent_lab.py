@@ -77,6 +77,31 @@ def filter_by_exchange(trades: List[Any], exchange: str) -> List[Any]:
             if isinstance(t, dict) and str(t.get("exchange") or "").strip() == ex]
 
 
+# هدف ریکالیبراسیون آزمایشگاه — هم‌منبع با core/daily_report.py (RECAL_TARGET)
+RECAL_TARGET = 50
+
+
+def recal_progress(trades: List[Any], target: int = RECAL_TARGET) -> Dict[str, Any]:
+    """مسیر ریکالیبراسیون آزمایشگاه: چند معامله‌ی بسته‌ی لایتر جمع شده است؟
+
+    همان تعریف گزارش روزانه: exchange=lighter و status=closed — پس صفحه و
+    گزارش هرگز عدد متفاوت نشان نمی‌دهند. ورودی خراب امن است (غیرلیست = صفرها)
+    و هرگز raise نمی‌کند. خروجی: {closed, target, pct, ready}.
+    """
+    n = 0
+    for t in trades or []:
+        try:
+            if (isinstance(t, dict)
+                    and str(t.get("exchange") or "").strip().lower() == "lighter"
+                    and str(t.get("status") or "").strip().lower() == "closed"):
+                n += 1
+        except Exception:  # noqa: BLE001 — ردیف خراب دور ریخته می‌شود
+            continue
+    tgt = int(target) if int(target or 0) > 0 else RECAL_TARGET
+    pct = min(1.0, n / tgt) if tgt > 0 else 1.0
+    return {"closed": n, "target": tgt, "pct": pct, "ready": n >= tgt}
+
+
 def current_streak(agent_closed: List[Dict[str, Any]]) -> int:
     """طول زنجیره‌ی باخت فعلی ایجنت (از انتها) — برد/سربه‌سر زنجیره را قطع می‌کند."""
     n = 0

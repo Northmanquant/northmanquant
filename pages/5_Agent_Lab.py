@@ -47,6 +47,9 @@ except Exception as e:  # noqa: BLE001
     st.error(L(f"خواندن میدان ناموفق: {e}", f"Failed to load arena: {e}"))
     st.stop()
 
+# 🔬 مسیر ریکالیبراسیون — قبل از فیلتر صرافی حساب می‌شود چون مسیر لایتر مستقل از فیلتر صفحه است
+_recal = LAB.recal_progress(_trades)
+
 # ---------------------------------------------------------------- فیلتر صرافی (Lighter اول)
 _total_all = len(_trades)
 _exs = sorted({str(t.get("exchange") or "").strip()
@@ -94,6 +97,17 @@ k3.metric(L("بهترین ایجنت (انتظاری)", "Best agent (expectancy)
 k4.metric(L("ضعیف‌ترین (n≥2)", "Weakest (n≥2)"),
           (_worst[0] or "—") if _worst else "—",
           f"{_worst[1]['exp']:+.2f}R" if _worst else "")
+
+# 🔬 مسیر ریکالیبراسیون لایتر — همان عدد گزارش روزانه؛ پیشرفتِ قابل‌مشاهده به‌جای انتظارِ کور
+if _recal["closed"]:
+    _rtxt = L(
+        f"🔬 مسیر ریکالیبراسیون لایتر: {_recal['closed']}/{_recal['target']} معامله‌ی بسته ({_recal['pct'] * 100:.0f}٪) —"
+        + (" آماده‌ی بازتنظیم آستانه‌ها!" if _recal["ready"]
+           else " داده برای بازتنظیم آستانه‌های آزمایشگاه جمع می‌شود."),
+        f"🔬 Lighter recalibration path: {_recal['closed']}/{_recal['target']} closed trades ({_recal['pct'] * 100:.0f}%) —"
+        + (" ready to recalibrate lab thresholds!" if _recal["ready"]
+           else " data is accumulating to recalibrate lab thresholds."))
+    st.progress(_recal["pct"], text=_rtxt)
 
 _tab1, _tab2, _tab3, _tab4 = st.tabs([
     "🎓 " + L("کارنامه‌ی ایجنت‌ها", "Agent report cards"),

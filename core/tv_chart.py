@@ -9,9 +9,12 @@
     · Parabolic SAR · SuperTrend(10,3) · ایچیموکو(9,26,52) · پیوت‌پوینت روزانه · میانگین حجم
   ▸ پنل‌های جداگانه: RSI(14) · MACD(12,26,9) · استوکاستیک(14,3,3) · استوک RSI(14,14,3,3)
     · CCI(20) · ویلیامز %R(14) · ADX/DMI(14) · ATR(14) · OBV · MFI(14)
+  ▸ ابزارهای رسم یک‌بارمصرف — پس از هر رسم خودکار به نشانگر برمی‌گردند (فیبوناچی پشت‌سرهم نمی‌ماند)
   ▸ ابزارهای رسم: خط روند · خط افقی · پرتو افقی · خط عمودی · مستطیل · فیبوناچی (۷ سطح)
     · خط‌کش (٪/قیمت/کندل/مدت) · پوزیشن خرید/فروش (ورود/ضرر/هدف + RR) · فلش صعودی/نزولی
-    · متن · قلم آزاد + واگرد/پاک‌کردن + ذخیره‌ی خودکار localStorage (نماد+تایم‌فریم)
+    · متن · قلم آزاد + پاک‌کن تک‌رسم (کلیک روی هر رسم = حذف) + واگرد/ازنوی کامل (حتی پاک‌کردن همه)
+    + ذخیره‌ی خودکار localStorage (نماد+تایم‌فریم)
+  ▸ روکش‌های خودکار قابل خاموش‌شدن از منوی اندیکاتورها: نواحی FVG/BVG · خطوط سیگنال (ورود/ضرر/هدف)
   ▸ لجند OHLCV + مقادیر زنده‌ی همه‌ی اندیکاتورها · مقیاس لگاریتمی · نواحی FVG/BVG
   ▸ چیپ قیمت لحظه‌ای + شمارش معکوس بسته‌شدن کندل (سبک تریدینگ‌ویو) · دکمه‌های بازه‌ی سریع
   ▸ رابط جمع‌وجور: تولبار باریک، محور زمان کم‌ارتفاع، پنل‌های فشرده — فضای بیشتری برای کندل‌ها
@@ -39,7 +42,7 @@ def _lib() -> str:
 
 _ZONES_JS = """
 function drawZones(){
-  if(S.tf!==DATA.base_tf || !ZONES.length) return;
+  if(S.tf!==DATA.base_tf || !ZONES.length || S.ind.zones===false) return;
   const TIMES = CAND().map(a => a[0]);      // ثانیه — برای مکان‌یابی منطقی نواحی
   function logicalForTime(sec){
     let lo=0, hi=TIMES.length-1, best=null;
@@ -189,7 +192,8 @@ const IND_DEF = {
   sma20:false, sma50:false, sma100:false, sma200:false,
   bb:true, vwap:false, volma:false, psar:false, st:false, ichi:false, piv:false,
   rsi:false, macd:false, stoch:false, srsi:false, cci:false, wr:false,
-  adx:false, atr:false, obv:false, mfi:false, log:false, leg:true };
+  adx:false, atr:false, obv:false, mfi:false, log:false, leg:true,
+  zones:true, plines:true };
 /* فارکس: ولوم یاهو همیشه صفر/تهی است — هیستوگرام حجم پیش‌فرض خاموش (کاربر می‌تواند روشن کند) */
 if (DATA.fx) IND_DEF.vol = false;
 
@@ -204,7 +208,7 @@ if(!TFS[S.tf]) S.tf = DATA.base_tf;
 const WANT_SECS = (S.tf !== (localStorage.getItem(SK('tf'))||'') && SECS[localStorage.getItem(SK('tf'))||''] && !TFS[localStorage.getItem(SK('tf'))||''])
   ? localStorage.getItem(SK('tf')) : null;
 let DRAWINGS = [];
-let REDO = [];
+let UNDOS = [], REDOS = [];
 
 /* ---------- ریاضیات اندیکاتورها (سمت مرورگر) ------------------------- */
 function emaArr(v, n){ const o=new Array(v.length).fill(null); if(v.length<n) return o;
@@ -543,7 +547,7 @@ const FILL = {
 };
 function rebuildAllPanes(){ for(const k in FILL) FILL[k](); }
 /* ---------- سری اصلی + اندیکاتورهای روکش ------------------------------- */
-let mainSeries=null, volSeries=null; const IND={}; let priceLines=[];
+let mainSeries=null, volSeries=null; const IND={}; let priceLines=[]; let sigLines=[];
 function rm(s){ if(s){ try{ chartMain.removeSeries(s); }catch(e){} } }
 
 const IND_MENU = [
@@ -558,6 +562,8 @@ const IND_MENU = [
   ['_g','باندها و سطوح'],
   ['bb','باندهای بولینگر (20,2)','#94a3b8'], ['vwap','VWAP (روزانه)','#f59e0b'],
   ['piv','پیوت‌پوینت روزانه','#8ea1c0'],
+  ['_g','روکش‌های خودکار — قابل خاموش‌کردن'],
+  ['zones','نواحی FVG/BVG','#a855f7'], ['plines','خطوط سیگنال (ورود/ضرر/هدف)','#f59e0b'],
   ['_g','نوسان‌گرها — پنل جداگانه'],
   ['rsi','RSI (14)','#7e57c2'], ['macd','MACD (12,26,9)','#26a69a'],
   ['stoch','استوکاستیک (14,3,3)','#2962ff'], ['srsi','استوک RSI (14,14,3,3)','#a855f7'],
@@ -667,9 +673,10 @@ function rebuildMain(keepRange){
   applyMarkers();
 
   priceLines = [];
-  if(S.tf===DATA.base_tf){
+  sigLines = [];
+  if(S.ind.plines!==false && S.tf===DATA.base_tf){
     for(const lv of DATA.levels){
-      priceLines.push(mainSeries.createPriceLine({ price:lv.price, color:lv.color, lineWidth:1,
+      sigLines.push(mainSeries.createPriceLine({ price:lv.price, color:lv.color, lineWidth:1,
         lineStyle: lv.dash ? LightweightCharts.LineStyle.Dashed : LightweightCharts.LineStyle.Solid,
         axisLabelVisible:true, title:lv.name }));
     }
@@ -684,6 +691,20 @@ function rebuildMain(keepRange){
         lineStyle:LightweightCharts.LineStyle.Dotted, axisLabelVisible:true, title:d[0] }));
   }
   if(prev) chartMain.timeScale().setVisibleLogicalRange(prev);
+}
+
+/* ---------- خطوط سیگنال: خاموش/روشن بدون بازسازی چارت ------------------ */
+function applySigLines(){
+  if(!mainSeries) return;
+  for(const pl of sigLines){ try{ mainSeries.removePriceLine(pl); }catch(e){} }
+  sigLines = [];
+  if(S.ind.plines!==false && S.tf===DATA.base_tf){
+    for(const lv of DATA.levels){
+      sigLines.push(mainSeries.createPriceLine({ price:lv.price, color:lv.color, lineWidth:1,
+        lineStyle: lv.dash ? LightweightCharts.LineStyle.Dashed : LightweightCharts.LineStyle.Solid,
+        axisLabelVisible:true, title:lv.name }));
+    }
+  }
 }
 
 /* ---------- لجند ------------------------------------------------------ */
@@ -1045,6 +1066,51 @@ function drawMeasure(m){
   octx.fillStyle='#ffffff';
   octx.fillText(txt, bx+8, by+14);
 }
+/* ---------- تشخیص برخورد برای پاک‌کن ----------------------------------- */
+function segDist(x, y, x1, y1, x2, y2){
+  if(x1==null||y1==null||x2==null||y2==null) return Infinity;
+  const dx=x2-x1, dy=y2-y1, L2=dx*dx+dy*dy;
+  if(!L2) return Math.hypot(x-x1, y-y1);
+  let t=((x-x1)*dx+(y-y1)*dy)/L2; t=Math.max(0, Math.min(1, t));
+  return Math.hypot(x-(x1+t*dx), y-(y1+t*dy));
+}
+function hitTest(x, y){
+  const TOL = 7;
+  for(let i=DRAWINGS.length-1; i>=0; i--){
+    const d = DRAWINGS[i]; const pt1=d.p1, pt2=d.p2;
+    const x1= pt1&&pt1.t!=null? xOfT(pt1.t):null;
+    const x2= pt2&&pt2.t!=null? xOfT(pt2.t):null;
+    const y1= pt1&&pt1.price!=null? yOf(pt1.price):null;
+    const y2= pt2&&pt2.price!=null? yOf(pt2.price):null;
+    if(d.type==='hline'){ if(y1!=null && Math.abs(y-y1)<=TOL) return i; }
+    else if(d.type==='hray'){ if(y1!=null){ const x0=(x1!=null? x1:0);
+      if(Math.abs(y-y1)<=TOL && x>=x0-TOL) return i; } }
+    else if(d.type==='vline'){ if(x1!=null && Math.abs(x-x1)<=TOL) return i; }
+    else if(d.type==='trend'){ if(segDist(x,y,x1,y1,x2,y2)<=TOL) return i; }
+    else if(d.type==='rect'){ if(x1!=null&&x2!=null&&y1!=null&&y2!=null){
+      const xa=Math.min(x1,x2), xb=Math.max(x1,x2), ya=Math.min(y1,y2), yb=Math.max(y1,y2);
+      if(x>=xa-TOL && x<=xb+TOL && (Math.abs(y-ya)<=TOL || Math.abs(y-yb)<=TOL)) return i;
+      if(y>=ya-TOL && y<=yb+TOL && (Math.abs(x-xa)<=TOL || Math.abs(x-xb)<=TOL)) return i; } }
+    else if(d.type==='fib'){ if(x1!=null&&x2!=null&&y1!=null&&y2!=null){
+      if(segDist(x,y,x1,y1,x2,y2)<=TOL) return i;
+      const xa=Math.min(x1,x2), xb=Math.max(x1,x2);
+      if(x>=xa-TOL && x<=xb+TOL){
+        for(const lv of FIB_LV){ const p= pt2.price+(pt1.price-pt2.price)*lv[0];
+          const yy=yOf(p); if(yy!=null && Math.abs(y-yy)<=TOL) return i; } } } }
+    else if(d.type==='arrowU' || d.type==='arrowD'){
+      if(x1!=null&&y1!=null && dist({x:x, y:y}, {x:x1, y:y1})<=11) return i; }
+    else if(d.type==='text'){ if(x1!=null&&y1!=null){
+      octx.font='600 11px Tahoma, sans-serif';
+      const tw=octx.measureText(d.txt||'').width;
+      if(x>=x1-4 && x<=x1+tw+6 && y>=y1-15 && y<=y1+4) return i; } }
+    else if(d.type==='brush'){ if(d.pts){ for(const pt of d.pts){
+      const px= pt.t!=null? xOfT(pt.t):null, py= pt.price!=null? yOf(pt.price):null;
+      if(px!=null&&py!=null && dist({x:x, y:y}, {x:px, y:py})<=8) return i; } } }
+    else if(d.type==='posL' || d.type==='posS'){
+      if(y1!=null && Math.abs(y-y1)<=TOL && x>=(x1!=null? x1-TOL:0)) return i; }
+  }
+  return -1;
+}
 let pend=null, measure=null, brush=null, dragMoved=false;
 __ZONES_JS__
 function renderLoop(){
@@ -1068,10 +1134,29 @@ function evPos(e){
   return { x:x, y:y, price: mainSeries? mainSeries.coordinateToPrice(y) : null, t: snapTime(x) };
 }
 function dist(a,b){ return Math.sqrt(Math.pow(a.x-b.x,2)+Math.pow(a.y-b.y,2)); }
-function commit(d){ DRAWINGS.push(d); REDO=[]; saveDraw(); }
+/* ابزارها یک‌بارمصرف‌اند: بعد از هر رسم، خودکار به نشانگر برمی‌گردیم (فیبوناچی پشت‌سرهم نمی‌ماند) */
+function oneShotDone(){ setTool('cursor'); buildToolsMenu(); }
+function commit(d){ DRAWINGS.push(d); UNDOS.push({op:'draw', d:d}); REDOS=[]; saveDraw(); oneShotDone(); }
+function eraseAt(i){ if(i<0 || i>=DRAWINGS.length) return;
+  const d = DRAWINGS.splice(i,1)[0]; UNDOS.push({op:'erase', idx:i, d:d}); REDOS=[]; saveDraw();
+  toast('حذف شد — ↩ واگرد برای بازگردانی'); }
+function doUndo(){ const op = UNDOS.pop(); if(!op) return;
+  if(op.op==='draw'){ DRAWINGS.pop(); }
+  else if(op.op==='erase'){ DRAWINGS.splice(Math.min(op.idx, DRAWINGS.length), 0, op.d); }
+  else if(op.op==='clear'){ DRAWINGS = op.items.slice(); }
+  REDOS.push(op); saveDraw(); }
+function doRedo(){ const op = REDOS.pop(); if(!op) return;
+  if(op.op==='draw'){ DRAWINGS.push(op.d); }
+  else if(op.op==='erase'){ DRAWINGS.splice(Math.min(op.idx, DRAWINGS.length), 0, op.d); }
+  else if(op.op==='clear'){ DRAWINGS = []; }
+  UNDOS.push(op); saveDraw(); }
+function clearAll(){ if(!DRAWINGS.length) return;
+  UNDOS.push({op:'clear', items:DRAWINGS.slice()}); DRAWINGS=[]; REDOS=[]; saveDraw();
+  toast('همه‌ی رسم‌ها پاک شد'); }
 ovl.addEventListener('pointerdown', e=>{
   if(S.tool==='cursor' || !mainSeries) return;
   e.preventDefault();
+  if(S.tool==='erase'){ eraseAt(hitTest(evPos(e).x, evPos(e).y)); return; }
   if(measure){ measure=null; }
   const p = evPos(e);
   if(S.tool==='measure'){ measure={p1:p, p2:p}; return; }
@@ -1142,7 +1227,7 @@ function buildTfBtns(){
 function setTF(tf){
   if(!TFS[tf]){ toast('داده‌ی این تایم‌فریم در دسترس نیست'); return; }
   S.tf = tf; localStorage.setItem(SK('tf'), tf);
-  DRAWINGS = loadDraw().map(normDraw);
+  DRAWINGS = loadDraw().map(normDraw); UNDOS=[]; REDOS=[];
   buildIdx();
   rebuildMain(false);
   rebuildAllPanes();
@@ -1191,6 +1276,8 @@ function applyPanes(){
 }
 function toggleInd(k){
   S.ind[k] = !S.ind[k]; saveInd();
+  if(k==='plines'){ applySigLines(); return; }
+  if(k==='zones'){ return; }   /* renderLoop هر فریم با S.ind.zones می‌کشد — فریم بعد خودش می‌رود */
   if(PANE[k]){ FILL[k](); applyPanes(); return; }
   const grp = (keys)=>{ for(const s of keys) if(IND[s]) IND[s].applyOptions({visible:S.ind[k]}); };
   if(k==='bb'){ grp(['bbU','bbM','bbL']); return; }
@@ -1217,6 +1304,7 @@ function buildIndMenu(){
 const TOOLS = [
   ['_g','حالت و خطوط'],
   ['cursor','⌖','نشانگر (حالت عادی)'],
+  ['erase','⌫','پاک‌کن — کلیک روی هر رسم، حذف می‌شود'],
   ['trend','↗','خط روند'], ['hline','─','خط افقی'],
   ['hray','⟼','پرتو افقی'], ['vline','↕','خط عمودی'],
   ['_g','اشکال'],
@@ -1243,10 +1331,10 @@ function buildToolsMenu(){
   for(const el of m.querySelectorAll('.mi'))
     el.onclick = ()=>{
       const t = el.dataset.t;
-      if(t==='undo'){ if(DRAWINGS.length){ REDO.push(DRAWINGS.pop()); saveDraw(); } }
-      else if(t==='redo'){ if(REDO.length){ DRAWINGS.push(REDO.pop()); saveDraw(); } }
-      else if(t==='clear'){ DRAWINGS=[]; REDO=[]; saveDraw(); toast('همه‌ی رسم‌ها پاک شد'); }
-      else setTool(t);
+      if(t==='undo'){ doUndo(); }
+      else if(t==='redo'){ doRedo(); }
+      else if(t==='clear'){ clearAll(); }
+      else { setTool(t); if(t==='erase') toast('روی رسم کلیک کن تا حذف شود — Esc برای خروج'); }
       buildToolsMenu(); closeMenus();
     };
 }

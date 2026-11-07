@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""scripts/test_tvchart.py — تست چارت حرفه‌ای داشبورد (نسخه ۴ — منوی تریدینگ‌ویویی + ثانیه‌ای + نوار پایین)
+"""scripts/test_tvchart.py — تست چارت حرفه‌ای داشبورد (نسخه ۵ — ابزار یک‌بارمصرف + پاک‌کن تک‌رسم + روکش‌های قابل خاموش‌کردن)
 اجرا: python3 scripts/test_tvchart.py   (بدون شبکه — fetch_candles فیک می‌شود)"""
 import os
 import sys
@@ -62,6 +62,77 @@ for lbl in ["'1min':'1m'", "'3min':'3m'", "'5min':'5m'", "'15min':'15m'", "'30mi
     ok(lbl in html, f"نقشه تایم‌فریم {lbl}")
 ok("LightweightCharts" in html, "کتابخانه inline")
 ok(html.count("<script>") == 2, "دو بلاک اسکریپت (کتابخانه+اپ)")
+
+print("— ابزار یک‌بارمصرف + پاک‌کن تک‌رسم + واگرد کامل (نسخه ۵)")
+ok("پاک‌کن — کلیک روی هر رسم" in html, "ابزار پاک‌کن در منوی ابزارها")
+ok("function hitTest(" in html and "function segDist(" in html, "هیت‌تست حذف تک‌رسم (همه‌ی انواع رسم)")
+ok("eraseAt(hitTest(" in html, "کلیک پاک‌کن → حذف رسم زیر نشانگر")
+ok("function oneShotDone(" in html and "oneShotDone(); }" in html,
+   "یک‌بارمصرف: پس از هر رسم، بازگشت خودکار به نشانگر (فیبوناچی نمی‌ماند)")
+ok("function doUndo(" in html and "function doRedo(" in html and "function clearAll(" in html,
+   "واگرد/ازنو/پاک‌کردن همه با پشته‌ی عملیات")
+ok("op:'erase'" in html and "op:'clear'" in html, "واگردِ حذف تک‌رسم و حتی پاک‌کردن همه")
+ok("UNDOS=[]; REDOS=[]" in html, "ریست پشته‌ی واگرد هنگام تعویض تایم‌فریم")
+ok("let REDO = [];" not in html, "پشته‌ی قدیمی REDO حذف شد")
+
+print("— روکش‌های خودکار قابل خاموش‌کردن")
+ok("zones:true, plines:true" in html, "پیش‌فرض روشن: نواحی + خطوط سیگنال")
+ok("نواحی FVG/BVG" in html and "خطوط سیگنال (ورود/ضرر/هدف)" in html, "دو کلید در منوی اندیکاتورها")
+ok("S.ind.zones===false" in html, "کلید نواحی در drawZones اعمال می‌شود")
+ok("function applySigLines(" in html and "applySigLines(); return;" in html,
+   "کلید خطوط سیگنال → applySigLines بدون بازسازی چارت")
+ok("let sigLines=[]" in html and "sigLines.push(mainSeries.createPriceLine" in html,
+   "خطوط سیگنال جدای خطوط پیوت")
+ok("removePriceLine" in html, "حذف واقعی خطوط سیگنال هنگام خاموش‌کردن")
+
+print("— صحت و عملکرد JS (node)")
+import json as _json
+import re as _re
+import subprocess as _sp
+import tempfile as _tf  # noqa: E402
+
+_scripts = _re.findall(r"<script>(.*?)</script>", html, _re.S)
+try:
+    with _tf.NamedTemporaryFile("w", suffix=".js", delete=False) as _f:
+        _f.write(_scripts[-1]); _appjs = _f.name
+    _chk = _sp.run(["node", "--check", _appjs], capture_output=True, text=True, timeout=60)
+    ok(_chk.returncode == 0, f"سینتکس JS اپ (node --check) {_chk.stderr.strip()[:120]}")
+
+    _m = _re.search(r"(/\* ---------- تشخیص برخورد.*?)(?=let pend=null)", html, _re.S)
+    ok(bool(_m), "بلاک هیت‌تست در HTML تولیدی")
+    if _m:
+        _harness = (
+            "const DRAWINGS = ["
+            "{type:'hline', p1:{t:null, price:120}},"
+            "{type:'fib', p1:{t:1, price:100}, p2:{t:3, price:90}},"
+            "{type:'trend', p1:{t:1, price:150}, p2:{t:3, price:160}},"
+            "{type:'brush', pts:[{t:1,price:130},{t:2,price:131},{t:3,price:130.5}]},"
+            "{type:'posL', p1:{t:2, price:105}, p2:{t:2, price:100}, p3:{t:2, price:115}}"
+            "];\n"
+            "function xOfT(t){ return t*10; }\n"
+            "function yOf(p){ return 200 - p; }\n"
+            "const FIB_LV = [[0,'#a'],[0.5,'#b'],[1,'#c']];\n"
+            "function dist(a,b){ return Math.sqrt(Math.pow(a.x-b.x,2)+Math.pow(a.y-b.y,2)); }\n"
+            "const octx = { measureText: function(s){ return {width: String(s||'').length*6}; }, font: '' };\n"
+            + _m.group(1) +
+            "\nconst r = {"
+            "hline: hitTest(500, 80),"
+            "fib_mid: hitTest(20, 105),"
+            "fib_far_x: hitTest(500, 105),"
+            "trend_on: hitTest(20, 45),"
+            "trend_off: hitTest(45, 45),"
+            "brush_hit: hitTest(30, 70),"
+            "pos_entry: hitTest(100, 95),"
+            "none: hitTest(500, 5)"
+            "};\nconsole.log(JSON.stringify(r));\n"
+        )
+        _run = _sp.run(["node", "-e", _harness], capture_output=True, text=True, timeout=60)
+        _r = _json.loads(_run.stdout.strip())
+        for _k, _v in {"hline": 0, "fib_mid": 1, "fib_far_x": -1, "trend_on": 2,
+                       "trend_off": -1, "brush_hit": 3, "pos_entry": 4, "none": -1}.items():
+            ok(_r.get(_k) == _v, f"hitTest {_k} → {_v} (دریافت‌شده: {_r.get(_k)})")
+except FileNotFoundError:
+    print("  ⚠ node در دسترس نیست — تست‌های JS رد شد")
 
 print("— منوی بازه‌ی زمانی به سبک تریدینگ‌ویو")
 ok('id="btnTfAll"' in html and "buildTfMenu" in html and "pickTf" in html, "دکمه+منوی همه‌ی بازه‌ها")

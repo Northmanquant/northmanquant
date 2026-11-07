@@ -1096,7 +1096,7 @@ function hitTest(x, y){
       const xa=Math.min(x1,x2), xb=Math.max(x1,x2);
       if(x>=xa-TOL && x<=xb+TOL){
         for(const lv of FIB_LV){ const p= pt2.price+(pt1.price-pt2.price)*lv[0];
-          const yy=yOf(p); if(yy!=null && Math.abs(y-yy)<=TOL) return i; } } } }
+          const yy=yOf(p); if(yy!=null && Math.abs(y-yy)<=TOL+3) return i; } } } }
     else if(d.type==='arrowU' || d.type==='arrowD'){
       if(x1!=null&&y1!=null && dist({x:x, y:y}, {x:x1, y:y1})<=11) return i; }
     else if(d.type==='text'){ if(x1!=null&&y1!=null){
@@ -1147,7 +1147,7 @@ function doUndo(){ const op = UNDOS.pop(); if(!op) return;
   REDOS.push(op); saveDraw(); }
 function doRedo(){ const op = REDOS.pop(); if(!op) return;
   if(op.op==='draw'){ DRAWINGS.push(op.d); }
-  else if(op.op==='erase'){ DRAWINGS.splice(Math.min(op.idx, DRAWINGS.length), 0, op.d); }
+  else if(op.op==='erase'){ DRAWINGS.splice(Math.min(op.idx, DRAWINGS.length), 1); }
   else if(op.op==='clear'){ DRAWINGS = []; }
   UNDOS.push(op); saveDraw(); }
 function clearAll(){ if(!DRAWINGS.length) return;

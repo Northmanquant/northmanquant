@@ -75,6 +75,12 @@ ok("op:'erase'" in html and "op:'clear'" in html, "واگردِ حذف تک‌ر
 ok("UNDOS=[]; REDOS=[]" in html, "ریست پشته‌ی واگرد هنگام تعویض تایم‌فریم")
 ok("let REDO = [];" not in html, "پشته‌ی قدیمی REDO حذف شد")
 
+print("— واگرد/ازنو: معنای درست erase در doRedo (رفع باگ تکرار رسم)")
+_undo_erase = "else if(op.op==='erase'){ DRAWINGS.splice(Math.min(op.idx, DRAWINGS.length), 0, op.d); }"
+_redo_erase = "else if(op.op==='erase'){ DRAWINGS.splice(Math.min(op.idx, DRAWINGS.length), 1); }"
+ok(html.count(_undo_erase) == 1 and html.count(_redo_erase) == 1,
+   "واگردِ erase → درج · ازنویِ erase → حذف (قبل از رفع: ازنو هم درج می‌کرد و رسم تکثیر می‌شد)")
+
 print("— روکش‌های خودکار قابل خاموش‌کردن")
 ok("zones:true, plines:true" in html, "پیش‌فرض روشن: نواحی + خطوط سیگنال")
 ok("نواحی FVG/BVG" in html and "خطوط سیگنال (ورود/ضرر/هدف)" in html, "دو کلید در منوی اندیکاتورها")
@@ -131,6 +137,39 @@ try:
         for _k, _v in {"hline": 0, "fib_mid": 1, "fib_far_x": -1, "trend_on": 2,
                        "trend_off": -1, "brush_hit": 3, "pos_entry": 4, "none": -1}.items():
             ok(_r.get(_k) == _v, f"hitTest {_k} → {_v} (دریافت‌شده: {_r.get(_k)})")
+
+    _m2 = _re.search(r"(function oneShotDone\(\).*?toast\('همه‌ی رسم‌ها پاک شد'\); \})", html, _re.S)
+    ok(bool(_m2), "بلاک commit/erase/undo/redo در HTML تولیدی")
+    if _m2:
+        _sim = (
+            "var DRAWINGS=[], UNDOS=[], REDOS=[];\n"
+            "function setTool(){}\nfunction buildToolsMenu(){}\n"
+            "function saveDraw(){}\nfunction toast(){}\n"
+            + _m2.group(1) +
+            "\nconst out = [];\n"
+            "commit({type:'hline', p1:{t:null, price:100}});\n"
+            "commit({type:'vline', p1:{t:5, price:null}});\n"
+            "out.push(['2 draw', DRAWINGS.length, UNDOS.length, REDOS.length]);\n"
+            "eraseAt(0);\n"
+            "out.push(['1 after erase', DRAWINGS.length, UNDOS.length, REDOS.length]);\n"
+            "doUndo();\n"
+            "out.push(['2 after undo', DRAWINGS.length, UNDOS.length, REDOS.length]);\n"
+            "doRedo();\n"
+            "out.push(['1 after redo', DRAWINGS.length, UNDOS.length, REDOS.length]);\n"
+            "clearAll();\n"
+            "out.push(['0 after clear', DRAWINGS.length, UNDOS.length, REDOS.length]);\n"
+            "doUndo();\n"
+            "out.push(['1 after clear-undo', DRAWINGS.length, UNDOS.length, REDOS.length]);\n"
+            "doRedo();\n"
+            "out.push(['0 after clear-redo', DRAWINGS.length, UNDOS.length, REDOS.length]);\n"
+            "console.log(JSON.stringify(out));\n"
+        )
+        _run2 = _sp.run(["node", "-e", _sim], capture_output=True, text=True, timeout=60)
+        _rows = _json.loads(_run2.stdout.strip())
+        _expect = [(2, 2, 0), (1, 3, 0), (2, 2, 1), (1, 3, 0), (0, 4, 0), (1, 3, 1), (0, 4, 0)]
+        for _row, _exp in zip(_rows, _expect):
+            _got = tuple(_row[1:])
+            ok(_got == _exp, f"پشته‌ی عملیات «{_row[0]}» → {_exp} (دریافت‌شده: {_got})")
 except FileNotFoundError:
     print("  ⚠ node در دسترس نیست — تست‌های JS رد شد")
 

@@ -341,4 +341,213 @@ ok([len(bundle_agg[k]) for k in ("10min", "45min", "3hour", "2day", "3day")] == 
    "۵ بازه‌ی تجمیعی با طول درست (نصف/یک‌سوم پایه)")
 ok(all(int(bundle_agg["10min"][0][0]) % 600 == 0 for _ in [0]), "مرز ۱۰ دقیقه‌ای")
 
+print("— همگام‌سازی ابری رسم‌ها (Supabase)")
+_sb_save = {k: os.environ.get(k) for k in ("SUPABASE_URL", "SUPABASE_KEY")}
+for _k in ("SUPABASE_URL", "SUPABASE_KEY"):
+    os.environ.pop(_k, None)
+
+from core.tv_chart import _SYNC_JS, _sync_cfg  # noqa: E402
+
+# ۱) sync=None → هیچ اثری از همگام‌سازی
+h_off = build_tv_chart_html(candles=CD, tfs=TFS, base_tf="1hour", symbol="BTC-USDT",
+                            zones=[], levels=[], title="T", dec=1, sync=None)
+ok('id="btnSync"' not in h_off and "/rest/v1/chart_drawings" not in h_off
+   and "SCFG" not in h_off, "sync=None: چیپ و کد همگام‌سازی تزریق نمی‌شود")
+
+# ۲) sync=dict → چیپ + پیکربندی + endpoint
+CFG = {"url": "https://sbx.supabase.test", "key": "test-key"}
+h_syn = build_tv_chart_html(candles=CD, tfs=TFS, base_tf="1hour", symbol="BTC-USDT",
+                            zones=[], levels=[], title="T", dec=1, sync=CFG)
+ok('id="btnSync"' in h_syn and "همگام‌سازی رسم‌ها با کلود" in h_syn, "چیپ ☁ در تولبار")
+ok('const SCFG = {"url": "https://sbx.supabase.test", "key": "test-key"}' in h_syn,
+   "پیکربندی SCFG تزریق شد")
+ok("__SYNC_CFG__" not in h_syn, "بدون placeholder باقی‌مانده در sync")
+ok("/rest/v1/chart_drawings" in h_syn and "resolution=merge-duplicates,return=representation" in h_syn,
+   "upsert با Prefer درست (ts از سرور برمی‌گردد)")
+ok("AbortController" in _SYNC_JS and "6000" in _SYNC_JS, "تایم‌اوت ۶ ثانیه‌ای fetch")
+ok("1200" in _SYNC_JS and "pushTimer" in _SYNC_JS, "دبانس ۱٫۲ ثانیه‌ای push")
+ok("encodeURIComponent(scope)" in _SYNC_JS and "toUpperCase" in _SYNC_JS,
+   "scope = SYMBOL:TF بزرگ‌شده و url-encoded")
+ok("nqtv:device" in _SYNC_JS and "updated_by" in _SYNC_JS, "شناسه‌ی دستگاه برای last-writer-wins")
+ok("dsync:" in _SYNC_JS and "stampSet" in _SYNC_JS and "stampGet" in _SYNC_JS,
+   "مُهر نسخه‌ی همگام‌شده per-scope")
+ok("MAX_DRAWS" in _SYNC_JS and "slice(0,MAX_DRAWS)" in _SYNC_JS, "سقف ۴۰۰ رسم در push/pull")
+ok("normDraw" in _SYNC_JS and "buildIdx()" in _SYNC_JS and "sizeOvl()" in _SYNC_JS,
+   "پس از pull: نرمال‌سازی + بازسازی ایندکس + رندر")
+ok("if(window.__nqSyncQueue) window.__nqSyncQueue();" in h_syn,
+   "هوک saveDraw → صف push (draw/move/erase/undo/redo/clear همه)")
+ok("window.__nqSyncReconcile) window.__nqSyncReconcile()" in h_syn,
+   "هوک setTF → reconcile تایم‌فریم جدید")
+ok("reconcile();\n})();" in _SYNC_JS, "reconcile خودکار در بوت")
+ok("if(dirty){ await pushNow(); return; }" in _SYNC_JS, "قانون ۱: تغییرات محلی اول آپلود می‌شوند")
+ok("if(DRAWINGS.length>0 && !st){ await pushNow(); return; }" in _SYNC_JS,
+   "قانون ۴: دستگاه جدید + محلی کار دارد → محلی اولویت دارد")
+ok("DRAWINGS = cloudArr.map(normDraw).slice(0,MAX_DRAWS);" in _SYNC_JS,
+   "قانون ۵: کلود جدیدتر → بارگذاری در محلی")
+
+# ۳) auto: بدون کلید خاموش، با env روشن (بدون کش — هر بار خوانده می‌شود)
+ok(_sync_cfg() is None, "auto بدون کلیدها → خاموش (fallback محلی دست‌نخورده)")
+os.environ["SUPABASE_URL"] = "https://env.supabase.test"
+os.environ["SUPABASE_KEY"] = "env-key"
+ok(_sync_cfg() == {"url": "https://env.supabase.test", "key": "env-key"},
+   "auto با env → روشن")
+for _k, _v in _sb_save.items():
+    if _v is None:
+        os.environ.pop(_k, None)
+    else:
+        os.environ[_k] = _v
+
+# ۴) سینتکس JS کامل با بلاک sync
+_scripts_syn = _re.findall(r"<script>(.*?)</script>", h_syn, _re.S)
+try:
+    with _tf.NamedTemporaryFile("w", suffix=".js", delete=False) as _f2:
+        _f2.write(_scripts_syn[-1])
+    _chk2 = _sp.run(["node", "--check", _f2.name], capture_output=True, text=True, timeout=60)
+    ok(_chk2.returncode == 0, f"سینتکس JS اپ+sync (node --check) {_chk2.stderr.strip()[:120]}")
+
+    # ۵) شبیه‌سازی معنایی جدول تصمیم reconcile با فک fetch/localStorage
+    _sim = r'''
+const vm = require('vm');
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+function makeEnv(opts){
+  // opts: {cloud: {scope: row}|null, cloudTs, failGet, failPut, clock}
+  const store = {};
+  const chip = {className:'', title:''};
+  const log = {get:[], put:[], toasts:[]};
+  const g = globalThis;
+  g.DRAWINGS = opts.local ? JSON.parse(JSON.stringify(opts.local)) : [];
+  g.UNDOS = []; g.REDOS = []; g.selIdx = -1; g.drag = null;
+  g.DATA = {symbol:'BTCUSDT', title:'T'};
+  g.S = {tf:'1h'};
+  g.SK = k => 'nqtv:T:'+k;
+  g.normDraw = d => d;
+  g.buildIdx = () => {};
+  g.sizeOvl = () => {};
+  g.toast = m => log.toasts.push(m);
+  g.localStorage = {
+    getItem: k => (k in store ? store[k] : null),
+    setItem: (k,v) => { store[k] = String(v); },
+    removeItem: k => { delete store[k]; },
+  };
+  g.document = { getElementById: id => (id==='btnSync' ? chip : null) };
+  g.window = g;
+  const table = {};
+  if(opts.cloud){ for(const [sc,row] of Object.entries(opts.cloud))
+    table[sc] = Object.assign({scope:sc}, row); }
+  const clock = () => opts.clock;
+  g.fetch = async (url, opt) => {
+    opt = opt || {};
+    const isGet = !opt.method;
+    if(isGet){
+      log.get.push(url);
+      if(opts.failGet) return {ok:false, status:500, json:async()=>[]};
+      const m = /scope=eq.([^&]+)/.exec(url);
+      const sc = decodeURIComponent(m[1]);
+      return {ok:true, status:200, json:async()=> (table[sc] ? [table[sc]] : [])};
+    }
+    log.put.push({url, body: JSON.parse(opt.body)});
+    if(opts.failPut) return {ok:false, status:500, json:async()=>[]};
+    const row = JSON.parse(opt.body)[0];
+    table[row.scope] = Object.assign({}, row, {updated_at: clock()});
+    return {ok:true, status:200, json:async()=>[table[row.scope]]};
+  };
+  return {store, chip, log, table, g};
+}
+// setTimeout را برای تست فوری می‌کنیم (دبانس ۱۲۰۰ms → 1ms)
+const _st = setTimeout;
+globalThis.setTimeout = (f, ms) => _st(f, Math.min(ms||0, 1));
+
+let g = null;
+const SCOPE = 'BTCUSDT:1H';
+async function scenario(name, opts, pre, checks){
+  const env = makeEnv(opts);
+  g = env.g;
+  if(opts.stamp) env.store['nqtv:T:dsync:1h'] = opts.stamp;
+  vm.runInThisContext(SYNCJS_SRC, {filename:'sync.js'});
+  if(pre) await pre(env);
+  await sleep(60);
+  const out = {
+    puts: env.log.put.length, gets: env.log.get.length,
+    drawings: g.DRAWINGS.length,
+    chip: env.chip.className, stamp: env.store['nqtv:T:dsync:1h'] || null,
+    toasts: env.log.toasts.length,
+    putScope: env.log.put[0] ? env.log.put[0].body[0].scope : null,
+    putN: env.log.put[0] ? env.log.put[0].body[0].drawings.length : null,
+    putLastN: env.log.put.length ? env.log.put[env.log.put.length-1].body[0].drawings.length : null,
+    putDev: env.log.put[0] ? env.log.put[0].body[0].updated_by : null,
+  };
+  const bad = checks(out, env);
+  if(bad){ console.error('SCENARIO FAIL ['+name+']: '+bad+' → '+JSON.stringify(out)); process.exit(1); }
+  console.log('  ok '+name);
+}
+'''
+    _sim += "\nconst SYNCJS_SRC = " + _json.dumps(_SYNC_JS.replace("__SYNC_CFG__", _json.dumps(CFG))) + ";\n"
+    _sim += r'''
+(async () => {
+  const T0='2026-01-01T09:00:00+00:00', T1='2026-01-02T09:00:00+00:00';
+  await scenario('کلود خالی + محلی خالی → فقط مُهر، بدون push',
+    {cloud:{}, clock:T0},
+    null,
+    (o)=> !o.puts && o.gets===1 && o.chip==='tb-btn ok' && o.stamp ? null : 'وضعیت غلط');
+  await scenario('کلود خالی + محلی ۲ رسم → یک push با scope درست',
+    {clock:T0},
+    async (env)=>{ g.DRAWINGS.push({type:'hline'},{type:'rect'}); },
+    (o)=> o.puts===1 && o.putScope===SCOPE && o.putN===2 && o.chip==='tb-btn ok'
+          && o.stamp==='2026-01-01T09:00:00+00:00' && o.putDev && o.putDev.startsWith('dev-')
+          ? null : 'push اولیه خراب');
+  await scenario('کلود جدیدتر + مُهر قدیمی → pull (۵ رسم جایگزین، توست)',
+    {cloud:{[SCOPE]:{drawings:[{},{},{},{},{}], updated_at:T1, updated_by:'dev-other'}}, clock:T1,
+     stamp:T0},
+    null,
+    (o,e)=> o.puts===0 && o.drawings===5 && o.chip==='tb-btn ok' && o.toasts===1
+            && o.stamp===T1 && g.UNDOS.length===0 ? null : 'pull خراب');
+  await scenario('مُهر برابر با کلود → هیچ عملی',
+    {cloud:{[SCOPE]:{drawings:[{}], updated_at:T1, updated_by:'dev-other'}}, clock:T1, stamp:T1},
+    null,
+    (o)=> o.puts===0 && o.gets===1 && o.drawings===0 && o.chip==='tb-btn ok' ? null : 'نباید کاری می‌کرد');
+  await scenario('dirty قبل از reconcile → push محلی حتی اگر کلود جدیدتر باشد (بدون pull)',
+    {cloud:{[SCOPE]:{drawings:[{},{},{},{},{}], updated_at:T1, updated_by:'dev-other'}}, clock:T1,
+     stamp:T0},
+    async (env)=>{ g.DRAWINGS.push({type:'hline'}); g.window.__nqSyncQueue(); await sleep(10); },
+    (o)=> o.puts>=1 && o.putLastN===1 && o.drawings===1 && o.chip==='tb-btn ok'
+          && o.stamp===T1 ? null : 'اولویت محلی خراب (رسم‌ها pull شدند؟)');
+  await scenario('دستگاه جدید (بدون مُهر) + محلی کار دارد + کلود نسخه دارد → push محلی',
+    {cloud:{[SCOPE]:{drawings:[{}], updated_at:T1, updated_by:'dev-other'}}, clock:T1},
+    async (env)=>{ g.DRAWINGS.push({type:'hline'},{type:'hline'}); },
+    (o)=> o.puts===1 && o.putN===2 && o.drawings===2 ? null : 'اولویت دستگاه جدید خراب');
+  await scenario('۳ بار queuePush پشت‌سرهم → فقط یک push (دبانس)',
+    {cloud:{[SCOPE]:{drawings:[{}], updated_at:T0, updated_by:'dev-self'}}, clock:T0, stamp:T0},
+    async ()=>{ await sleep(20);            // بوت اول تمام شود (reconcile بی‌عمل)
+                g.DRAWINGS.push({type:'hline'}); g.window.__nqSyncQueue();
+                g.DRAWINGS.push({type:'hline'}); g.window.__nqSyncQueue();
+                g.DRAWINGS.push({type:'hline'}); g.window.__nqSyncQueue(); },
+    (o)=> o.puts===1 && o.putN===3 && o.chip==='tb-btn ok' ? null : 'دبانس خراب');
+  await scenario('خطای کلود → چیپ err (اپ نمی‌شکند)',
+    {failGet:true},
+    null,
+    (o)=> o.gets===1 && o.chip==='tb-btn err' ? null : 'مدیریت خطا خراب');
+  console.log('SYNC_SIM_OK');
+})().catch(e=>{ console.error('SCENARIO ERR:', e); process.exit(1); });
+'''
+    _run_s = _sp.run(["node", "-e", _sim], capture_output=True, text=True, timeout=120)
+    ok("SYNC_SIM_OK" in _run_s.stdout,
+       "۸ سناریوی reconcile (push/pull/مُهر/dirty/دبانس/خطا) "
+       + (_run_s.stderr.strip()[:200] if _run_s.returncode else ""))
+except FileNotFoundError:
+    print("  ⚠ node در دسترس نیست — تست‌های sync رد شد")
+
+# ۶) فایل SQL جدول همگام‌سازی
+_sqlp = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                     "sql", "chart_sync_setup.sql")
+ok(os.path.exists(_sqlp), "sql/chart_sync_setup.sql موجود است")
+if os.path.exists(_sqlp):
+    _sql = open(_sqlp, encoding="utf-8").read()
+    ok(_re.search(r"create table if not exists chart_drawings", _sql)
+       and _re.search(r"scope\s+text primary key", _sql),
+       "جدول chart_drawings با کلید scope")
+    ok('enable row level security' in _sql and '"drawings read"' in _sql,
+       "RLS هم‌تراز بقیه‌ی جدول‌ها")
+    ok("chart_drawings_touch" in _sql and "before insert or update" in _sql,
+       "تریگر updated_at سمت سرور (زمان مرجع = سرور)")
+
 print(f"\n✅ همه‌ی {PASS} تست چارت پاس شد")

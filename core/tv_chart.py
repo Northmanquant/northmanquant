@@ -28,6 +28,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -893,7 +894,7 @@ function snapTime(x){
   return CALC[S.tf].t[li];
 }
 function loadDraw(){ const v = safeParse(localStorage.getItem(SK('draw:'+S.tf))); return Array.isArray(v)? v : []; }
-function saveDraw(){ try{ localStorage.setItem(SK('draw:'+S.tf), JSON.stringify(DRAWINGS)); }catch(e){} }
+function saveDraw(){ try{ localStorage.setItem(SK('draw:'+S.tf), JSON.stringify(DRAWINGS)); }catch(e){} if(window.__nqSyncQueue) window.__nqSyncQueue(); }
 function saveInd(){ try{ localStorage.setItem(SK('ind'), JSON.stringify(S.ind)); }catch(e){} }
 /* رسم‌های قدیمی (قالب تخت) → قالب جدید (تودرتو) */
 function normDraw(d){
@@ -1338,6 +1339,7 @@ function setTF(tf){
   const a = c[c.length-1];
   if(a){ setLegend({t:a[0],o:a[1],h:a[2],l:a[3],c:a[4],v:a[5]}); setIndLegend(a[0]); updatePaneLegends(a[0]); }
   closeMenus();
+  if(window.__nqSyncReconcile) window.__nqSyncReconcile();   // همگام‌سازی رسم‌های تایم‌فریم جدید
 }
 const TYPE_LBL = {candles:'کندل', hollow:'توخالی', bars:'میله', line:'خط', linemk:'خط + نشانگر',
                   step:'پله‌ای', area:'ناحیه', baseline:'بیس‌لاین', heikin:'هایکن‌آشی'};
@@ -1596,6 +1598,120 @@ if(WANT_SECS) loadSeconds(WANT_SECS).then(ok=>{ if(ok && TFS[WANT_SECS]) setTF(W
 requestAnimationFrame(renderLoop);
 """
 
+# ------------------------------------------------------------------ همگام‌سازی ابری رسم‌ها
+_SYNC_JS = """
+/* ---------- همگام‌سازی ابری رسم‌ها (Supabase) — آخرین نسخه برنده است ---------- */
+(function(){
+  const SCFG = __SYNC_CFG__;
+  if(!SCFG || !SCFG.url || !SCFG.key) return;
+  const chip = document.getElementById('btnSync');
+  const TABLE_URL = String(SCFG.url).replace(/\\/$/,'') + '/rest/v1/chart_drawings';
+  const MAX_DRAWS = 400;
+  const devId = (function(){ try{ let d=localStorage.getItem('nqtv:device');
+    if(!d){ d='dev-'+Math.random().toString(36).slice(2,10); localStorage.setItem('nqtv:device',d); } return d; }
+    catch(e){ return 'dev-anon'; } })();
+  let dirty=false, pushTimer=null, pushAgain=false, inFlight=false, syncSeq=0;
+  const scopeOf  = ()=> (String(DATA.symbol||'')+':'+S.tf).toUpperCase().replace(/\\s+/g,'_');
+  const stampKey = ()=> SK('dsync:'+S.tf);
+  function stampGet(){ try{ return localStorage.getItem(stampKey()); }catch(e){ return null; } }
+  function stampSet(v){ try{ if(v) localStorage.setItem(stampKey(), v); }catch(e){} }
+  function setChip(cls, tip){ if(!chip) return; chip.className='tb-btn '+cls; if(tip) chip.title=tip; }
+  function hdrs(extra){ return Object.assign({'Content-Type':'application/json',
+    'apikey':SCFG.key, 'Authorization':'Bearer '+SCFG.key}, extra||{}); }
+  function fetchTO(url, opt){ const ctl=new AbortController(); const t=setTimeout(()=>ctl.abort(), 6000);
+    return fetch(url, Object.assign({}, opt||{}, {signal:ctl.signal})).finally(()=>clearTimeout(t)); }
+
+  async function cloudGet(scope){
+    const u = TABLE_URL + '?scope=eq.' + encodeURIComponent(scope) + '&select=scope,drawings,updated_at,updated_by';
+    const r = await fetchTO(u, {headers: hdrs()});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const rows = await r.json();
+    return (rows && rows[0]) || null;
+  }
+  async function cloudPut(scope, drawings){
+    const body = [{scope:scope, symbol:String(DATA.symbol||''), timeframe:S.tf,
+                   drawings:drawings, updated_by:devId}];
+    const r = await fetchTO(TABLE_URL, {method:'POST',
+      headers:hdrs({'Prefer':'resolution=merge-duplicates,return=representation'}),
+      body:JSON.stringify(body)});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const rows = await r.json();
+    return (rows && rows[0] && rows[0].updated_at) || null;
+  }
+  function pushNow(){
+    if(inFlight){ pushAgain=true; return Promise.resolve(); }
+    inFlight=true; const mySeq=++syncSeq;
+    setChip('busy','در حال بارگذاری رسم‌ها به کلود…');
+    return cloudPut(scopeOf(), DRAWINGS.slice(0,MAX_DRAWS)).then(ts=>{
+      inFlight=false; if(mySeq!==syncSeq) return;
+      dirty=false; stampSet(ts);
+      setChip('ok','همگام ✓ — کلیک = بارگذاری اجباری رسم‌های محلی');
+      if(pushAgain){ pushAgain=false; queuePush(); }
+    }).catch(err=>{
+      inFlight=false; if(mySeq!==syncSeq) return;
+      setChip('err','خطای همگام‌سازی: '+String(err&&err.message||err)+' — کلیک = تلاش دوباره');
+    });
+  }
+  function queuePush(){
+    dirty=true; clearTimeout(pushTimer);
+    pushTimer=setTimeout(()=>{ pushTimer=null; pushNow(); }, 1200);
+    setChip('busy','تغییرات در انتظار همگام‌سازی…');
+  }
+  async function reconcile(){
+    const scope=scopeOf(); const mySeq=++syncSeq;
+    clearTimeout(pushTimer); pushTimer=null;
+    setChip('busy','بررسی نسخه‌ی ابری…');
+    let row=null;
+    try{ row = await cloudGet(scope); }
+    catch(err){ if(mySeq===syncSeq) setChip('err','خطای همگام‌سازی: '+String(err&&err.message||err)+' — کلیک = تلاش دوباره'); return; }
+    if(mySeq!==syncSeq) return;
+    const cloudTs  = row? (row.updated_at||null) : null;
+    const cloudArr = (row && Array.isArray(row.drawings))? row.drawings : null;
+    if(dirty){ await pushNow(); return; }                        /* ۱) اول آپلود محلی */
+    if(!row || !cloudArr || cloudArr.length===0){                 /* ۲) کلود خالی */
+      if(DRAWINGS.length>0){ await pushNow(); return; }           /*    محلی کار دارد → ببر بالا */
+      stampSet(cloudTs || new Date().toISOString());
+      setChip('ok','همگام ✓ — بدون رسم'); return;
+    }
+    const st = stampGet();
+    if(st && cloudTs===st){ setChip('ok','همگام ✓ — کلیک = بارگذاری اجباری'); return; }  /* ۳) همان نسخه */
+    if(DRAWINGS.length>0 && !st){ await pushNow(); return; }      /* ۴) دستگاه جدید + محلی کار دارد → محلی اولویت */
+    DRAWINGS = cloudArr.map(normDraw).slice(0,MAX_DRAWS);          /* ۵) کلود جدیدتر → بارگذاری */
+    try{ localStorage.setItem(SK('draw:'+S.tf), JSON.stringify(DRAWINGS)); }catch(e){}
+    UNDOS=[]; REDOS=[]; selIdx=-1; drag=null;
+    buildIdx(); sizeOvl();
+    stampSet(cloudTs); dirty=false;
+    setChip('ok','همگام ✓ — از کلود بارگذاری شد');
+    toast('☁ رسم‌ها از کلود بارگذاری شد ('+DRAWINGS.length+' رسم)');
+  }
+  if(chip){
+    chip.className='tb-btn';
+    chip.onclick = ()=>{ dirty=true; clearTimeout(pushTimer); pushNow(); };
+  }
+  window.__nqSyncQueue = queuePush;
+  window.__nqSyncReconcile = reconcile;
+  reconcile();
+})();
+"""
+
+
+def _sync_cfg() -> Optional[Dict[str, str]]:
+    """تنظیمات اتصال Supabase برای همگام‌سازی رسم‌ها — None یعنی خاموش.
+
+    ترتیب: متغیر محیطی (لوکال/CI) → st.secrets (کلاد). هیچ خطایی به بیرون
+    نشت نمی‌کند؛ در نبود کلیدها چارت دقیقاً مثل قبل آفلاین کار می‌کند.
+    """
+    url = os.environ.get("SUPABASE_URL", "").strip()
+    key = os.environ.get("SUPABASE_KEY", "").strip()
+    if not (url and key):
+        try:
+            import streamlit as st  # type: ignore
+            url = str(st.secrets.get("SUPABASE_URL", "") or "").strip()
+            key = str(st.secrets.get("SUPABASE_KEY", "") or "").strip()
+        except Exception:
+            pass
+    return {"url": url, "key": key} if (url and key) else None
+
 _CSS = """
 html,body{margin:0;padding:0;background:#0e1117;height:100%;overflow:hidden;}
 #wrap{position:relative;width:100%;height:100%;direction:ltr;background:#0e1117;display:flex;flex-direction:column;}
@@ -1679,6 +1795,10 @@ html,body{margin:0;padding:0;background:#0e1117;height:100%;overflow:hidden;}
 .tfmi .lzi{color:#f59e0b;font-size:10px;font-weight:700;}
 a[href*="tradingview.com"]{opacity:0.28; filter:grayscale(1);}
 a[href*="tradingview.com"]:hover{opacity:0.7;}
+#btnSync{font-size:12.5px;line-height:1;}
+#btnSync.busy{color:#f59e0b;}
+#btnSync.ok{color:#26a69a;}
+#btnSync.err{color:#ef5350;}
 @media (max-width:700px){ .tb-label{display:none;} .menu{min-width:190px;} #tzt{display:none;}
   .bb-sell,.bb-buy{padding:3px 6px;} #clock{font-size:10px;} }
 """
@@ -1687,7 +1807,8 @@ a[href*="tradingview.com"]:hover{opacity:0.7;}
 def build_tv_chart_html(*, candles: List[List[Any]], tfs: Dict[str, List[List[Any]]],
                         base_tf: str, symbol: str, zones: List[Dict[str, Any]],
                         levels: List[Dict[str, Any]], title: str, dec: int,
-                        initial_bars: int = 160, fx: bool = False) -> str:
+                        initial_bars: int = 160, fx: bool = False,
+                        sync: Any = "auto") -> str:
     """HTML خودکفای چارت TV کامل.
     candles:  [t_s, o, h, l, c, v]  (t ثانیه · NaN قبلاً None شده)
     tfs:      {tf_key: candles} — تا ۲۶ تایم‌فریم برای سوئیچر (بومی + تجمیعی سرور، ثانیه‌ای مرورگر)
@@ -1697,6 +1818,18 @@ def build_tv_chart_html(*, candles: List[List[Any]], tfs: Dict[str, List[List[An
     """
     if base_tf not in tfs:
         tfs = {base_tf: candles}
+    # --- همگام‌سازی ابری رسم‌ها: sync="auto" (پیش‌فرض: env/secrets) | dict | None=خاموش ---
+    if isinstance(sync, dict) and sync.get("url") and sync.get("key"):
+        scfg: Optional[Dict[str, str]] = {"url": str(sync["url"]), "key": str(sync["key"])}
+    elif sync == "auto":
+        scfg = _sync_cfg()
+    else:
+        scfg = None
+    sync_js = (_SYNC_JS.replace("__SYNC_CFG__", json.dumps(scfg, ensure_ascii=False))
+               if scfg else "")
+    sync_chip = ('<button class="tb-btn" id="btnSync" '
+                 'title="همگام‌سازی رسم‌ها با کلود — کلیک = بارگذاری اجباری">☁</button>'
+                 if scfg else '')
     data = json.dumps({"candles": candles, "tfs": tfs, "base_tf": base_tf,
                        "symbol": symbol, "levels": levels, "dec": dec,
                        "title": title, "initial_bars": int(initial_bars),
@@ -1706,7 +1839,8 @@ def build_tv_chart_html(*, candles: List[List[Any]], tfs: Dict[str, List[List[An
     js = (_MAIN_JS
           .replace("__DATA__", data)
           .replace("__ZONES__", zones_js)
-          .replace("__ZONES_JS__", _ZONES_JS))
+          .replace("__ZONES_JS__", _ZONES_JS)
+          + sync_js)
     html = (
         '<!DOCTYPE html><html><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
@@ -1722,6 +1856,7 @@ def build_tv_chart_html(*, candles: List[List[Any]], tfs: Dict[str, List[List[An
         '<button class="tb-btn" id="btnLog" title="مقیاس لگاریتمی">log</button>'
         '<input id="txtIn" placeholder="متن یادداشت…">'
         '<div class="tb-spacer"></div>'
+        + sync_chip +
         '<button class="tb-btn" id="btnLeg" title="لجند">ℹ</button>'
         '<button class="tb-btn" id="btnFit" title="بازنشانی نما">⤢</button>'
         '<button class="tb-btn" id="btnNow" title="پرش به کندل آخر">▶▏</button>'

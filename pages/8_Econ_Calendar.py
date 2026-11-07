@@ -8,6 +8,7 @@ import pandas as pd
 import streamlit as st
 
 from core import econ_calendar as EC
+from core.help import hint
 from core.i18n import get_lang, setup_i18n, tr
 
 st.set_page_config(page_title="تقویم اقتصادی | Economic Calendar", page_icon="🗓️", layout="wide")
@@ -45,7 +46,7 @@ def _cal(month: str) -> dict:
 
 
 st.title("🗓️ " + tr("تقویم اقتصادی آمریکا", "US Economic Calendar"))
-st.caption(tr(
+hint(tr(
     "زمان‌بندی رسمی انتشار آمار بزرگ آمریکا (CPI، اشتغال/NFP، PPI، GDP و…) مستقیم از فایل‌های تقویمِ "
     "BLS و BEA — نه هیچ تقویم سومی که تاریخ‌ها را خودش حدس می‌زند. ساعاتِ نمایش به وقت تهران است؛ "
     "این گزارش‌ها بزرگ‌ترین تکان‌دهنده‌های بازار طلا، دلار و فارکس‌اند.",

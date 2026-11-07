@@ -4,6 +4,7 @@ import time
 import streamlit as st
 
 from core.webview import iframe_html
+from core.help import hint
 from core.i18n import setup_i18n, tr
 from core import trade_guard as G
 from core import trade_log as TL
@@ -22,7 +23,7 @@ from core import lighter_real as LREAL   # سفارش واقعی لایتر با
 st.set_page_config(page_title="ترید مستقیم | Live Trading", page_icon="💹", layout="wide")
 setup_i18n(page="p2")   # زبان + منوی ترجمه‌شده + پچ ترجمه‌ی کل صفحه
 st.title("💹 ترید مستقیم — بدون رفتن به صرافی")
-st.caption(tr(
+hint(tr(
     "کلیدها فقط در حافظه‌ی همین نشست می‌مانند و جایی ذخیره نمی‌شوند · سقف هر سفارش و سقف روزانه فعال است · بعد از ۳۰ دقیقه بی‌کاری، اتصال خودکار پاک می‌شود.",
     "Keys stay only in this session's memory and are never stored · per-order and daily caps are enforced · the connection auto-clears after 30 minutes of idle time."))
 
@@ -114,7 +115,7 @@ def get_client():
 
 
 def _caps_caption():
-    st.caption(tr(
+    hint(tr(
         f"🛡 سقف‌های سخت: هر سفارش ≤ {G.MAX_ORDER_USD:,.0f} USDT · مجموع روزانه ≤ {G.MAX_DAILY_USD:,.0f} USDT · "
         f"{G.WARMUP_ORDERS} سفارش واقعی اول ≤ {G.WARMUP_MAX_ORDER_USD:,.0f} USDT · "
         f"این سقف‌ها فقط از متغیر محیطی قابل تغییرند و از رابط قابل دور زدن نیستند.",
@@ -616,7 +617,7 @@ if is_real and cfg.get("ex") == "Lighter":
             st.metric(tr("قابل‌برداشت/آزاد", "Available"), f"{_acc['available']:,.2f} USDT")
         with m3:
             st.metric(tr("سفارش بازی", "Open orders"), f"{_acc['open_orders']}")
-        st.caption(tr(
+        hint(tr(
             "این داده از API عمومی لایتر خوانده می‌شود — بدون هیچ کلیدی (اطلاعات حساب روی لایتر عمومی است).",
             "Read from Lighter's public API — with no keys at all (account data on Lighter is public)."))
         if _acc["positions"]:
@@ -660,7 +661,7 @@ else:
 # ---------------------------------------------------------------- دفتر سفارش‌های واقعی
 st.divider()
 st.subheader(tr("🧾 دفتر سفارش‌های واقعی", "🧾 Real order ledger"))
-st.caption(tr(
+hint(tr(
     "هر سفارش واقعی بدون هیچ کلیدی این‌جا ثبت می‌شود — پایه‌ی سقف روزانه و دوره‌ی گرم‌کردن.",
     "Every real order is logged here without any keys — the basis of the daily cap and warm-up period."))
 _rows = TL.recent(20)

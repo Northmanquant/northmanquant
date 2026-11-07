@@ -12,6 +12,7 @@ from html import escape as _esc
 import numpy as np
 import pandas as pd
 import streamlit as st
+from core.help import hint
 from core.i18n import setup_i18n, get_lang
 
 st.set_page_config(page_title="میدان ایجنت‌ها | Agent Arena", page_icon="🏟️", layout="wide")
@@ -23,7 +24,7 @@ def L(fa: str, en: str) -> str:
 
 
 st.title("🏟️ " + L("میدان ایجنت‌ها — لیگ معاملاتی", "Agent Arena — Trading League"))
-st.caption(L(
+hint(L(
     "۵ شرکت‌کننده (۴ ایجنت + کمیسیون) اول کل بازار صرافی را غربال می‌کنند تا قوی‌ترین ارزها را پیدا کنند، "
     "بعد همان‌ها را با موتور تحلیل و بک‌تست خودشان عمیق بررسی و معامله‌ی کاغذی باز می‌کنند. "
     "معامله‌ها بین بازدیدها زنده می‌مانند و تا TP/SL/تایم‌اوت مدیریت می‌شوند. "
@@ -225,7 +226,7 @@ def _unrealized_r(t: dict, live_price: float | None) -> float | None:
 # =============================================================================
 # تب ۱ — اسکن
 with tab_scan:
-    st.caption(L(
+    hint(L(
         "هر شرکت‌کننده با وزن‌های خودش برگزیدگان را ارزیابی می‌کند؛ فقط جایی معامله باز می‌کند که: "
         "۱) امتیاز خودش از آستانه‌اش رد شده، ۲) بک‌تست خودش روی همان ارز سودده بوده (PF>1)، "
         "۳) ستاپ تازه هم‌جهت باشد (به تناسب سطح فیلتر ورود)، ۴) R:R ≥ ۱. کمیسیون هم با اجماع ۳/۴ ایجنت وارد می‌شود.",
@@ -249,7 +250,7 @@ with tab_scan:
         st.write("")
         go = st.button("🔎 " + L("اسکن کل بازار", "Scan whole market"), type="primary", width="stretch", key="arena_go")
 
-    st.caption(L(
+    hint(L(
         "سخت‌گیر: فقط ستاپ تازه + لبه‌ی walk-forward اثبات‌شده (کم‌معامله ولی بی‌رحم) · "
         "متعادل: ستاپ تازه در ۶ کندل اخیر کافی است · شکارچی: فیلتر ستاپ خاموش — ایجنت‌ها با امتیاز و بک‌تست خودشان تصمیم می‌گیرند.",
         "Strict: fresh setup + proven walk-forward edge only (rare but ruthless) · "
@@ -492,8 +493,8 @@ with tab_pos:
                 L("R باز", "Open R"): ("—" if ur is None else f"{ur:+.2f}"),
             })
         st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
-        st.caption(L("معامله‌ها هر بار که صفحه باز شود با کندل‌های تازه پیش برده می‌شوند (حداکثر هر ۶۰ ثانیه).",
-                     "Trades are advanced with fresh candles whenever this page loads (at most once per 60s)."))
+        hint(L("معامله‌ها هر بار که صفحه باز شود با کندل‌های تازه پیش برده می‌شوند (حداکثر هر ۶۰ ثانیه).",
+               "Trades are advanced with fresh candles whenever this page loads (at most once per 60s)."))
         for t in sorted(_open_trades, key=lambda t: t.get("agent", "")):
             _trade_card(t, _live.get(t.get("symbol")), _unrealized_r(t, _live.get(t.get("symbol"))))
 
@@ -540,14 +541,14 @@ with tab_pos:
                             dec=CC.decimals_for(_cpx), initial_bars=320),
                         height=640,
                     )
-                    st.caption(L("سطوح: ورود آبی · استاپ قرمز خط‌چین · اهداف سبز خط‌چین — کندل از Binance spot.",
-                                 "Levels: blue entry · red dashed stop · green dashed targets — candles from Binance spot."))
+                    hint(L("سطوح: ورود آبی · استاپ قرمز خط‌چین · اهداف سبز خط‌چین — کندل از Binance spot.",
+                           "Levels: blue entry · red dashed stop · green dashed targets — candles from Binance spot."))
 
 # =============================================================================
 # تب ۳ — هشدارها
 with tab_alerts:
     st.subheader("🔔 " + L("هشدارهای میدان", "Arena alerts"))
-    st.caption(L(
+    hint(L(
         "رویدادهای مهم میدان — باز و بسته‌شدن معامله‌ها و تغییر رژیم بازار — دائمی ثبت می‌شوند؛ تازه‌ترین‌ها بالای فهرست. هشدارِ تکراری ساخته نمی‌شود (هر معامله حداکثر یک بازشدن و یک بسته‌شدن دارد).",
         "Key arena events — trades opening/closing and regime flips — are stored permanently; newest first. No duplicate alerts (each trade yields at most one open and one close alert)."))
     if time.time() - st.session_state.get("_arena_alerts_ts", 0) >= 15 or "_arena_alerts_val" not in st.session_state:
@@ -604,7 +605,7 @@ with tab_alerts:
 # تب ۴ — اخبار بازار
 with tab_news:
     st.subheader("📰 " + L("اخبار بازار", "Market news"))
-    st.caption(L(
+    hint(L(
         "تیترهای تازه از Decrypt، Cointelegraph و NewsBTC — به انگلیسی می‌مانند چون ترجمه‌ی ماشینی اخبار مالی خطا می‌سازد. "
         "زمان‌ها UTC · کش ۱۰ دقیقه‌ای · ⭐ = تیتر به نمادی می‌خورد که پوزیشن باز داری.",
         "Fresh headlines from Decrypt, Cointelegraph and NewsBTC. Times in UTC · 10-min cache · ⭐ = headline mentions a symbol you hold open."))
@@ -654,7 +655,7 @@ with tab_board:
         st.success(L(
             f"🟢 {_summ['n']} معامله — نمونه‌ی آماری کافی است؛ حالا می‌شود به انتظاری و PF اعتماد بیشتری کرد.",
             f"🟢 {_summ['n']} trades — statistically usable sample; expectancy and PF can now be trusted more."))
-    st.caption(L(
+    hint(L(
         "انتظاری = میانگین R خالص هر معامله (بعد از کارمزد و لغزش) · PF = مجموع بردها ÷ مجموع باخت‌ها · "
         "MaxDD = بیشترین افت ایکوییتی ترکیبی با ریسک ۱٪ (انگار یک حساب همه‌ی میدان را می‌گرفت).",
         "Expectancy = average net R per trade (after fees & slippage) · PF = gross wins ÷ gross losses · "
@@ -687,10 +688,10 @@ with tab_board:
             L("آمار", "Sample"): L("⚠️ کم", "⚠️ small") if 0 < r["trades"] < 10 else ("✅" if r["trades"] >= 10 else "—"),
         })
     st.subheader("🏆 " + L("جدول قهرمانی", "Championship table"))
-    st.caption(L("رتبه‌بندی بر اساس امتیاز؛ ایکوییتی از ۱۰٬۰۰۰$ کاغذی با ریسک ۱٪ در هر معامله مرکب می‌شود. "
-                 "وین‌ریت با کمتر از ۱۰ معامله معنای آماری مطمئنی ندارد.",
-                 "Ranked by points; equity compounds from a paper $10,000 at 1% risk per trade. "
-                 "Winrates under 10 trades are not statistically meaningful."))
+    hint(L("رتبه‌بندی بر اساس امتیاز؛ ایکوییتی از ۱۰٬۰۰۰$ کاغذی با ریسک ۱٪ در هر معامله مرکب می‌شود. "
+           "وین‌ریت با کمتر از ۱۰ معامله معنای آماری مطمئنی ندارد.",
+           "Ranked by points; equity compounds from a paper $10,000 at 1% risk per trade. "
+           "Winrates under 10 trades are not statistically meaningful."))
     st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
     traded = [r for r in board if r["trades"]]
@@ -746,7 +747,7 @@ with tab_board:
 # تب ۶ — بازپخش تاریخی
 with tab_replay:
     st.subheader("🧪 " + L("بازپخش تاریخی میدان", "Historical arena replay"))
-    st.caption(L(
+    hint(L(
         "همان موتور و همان دروازه‌های اسکن زنده — امتیاز ایجنت، بک‌تست PF>1 روی پنجره‌ی ۳۰۰تایی، R:R≥۱، فیلتر رژیم BTC، "
         "سهمیه‌ی ۳ پوزیشن هر شرکت‌کننده، سقف ۱۵ کل میدان، cooldown و کارمزد+لغزش واقعی — روی کندل‌های تاریخی پخش می‌شود "
         "تا بدون انتظار هفته‌ها ببینی این ترکیب در گذشته سودده بوده یا نه. هیچ چیزی در جدول معاملات ذخیره نمی‌شود.",
@@ -900,7 +901,7 @@ with tab_replay:
                     })
                 st.dataframe(pd.DataFrame(_hrows), width="stretch", hide_index=True)
 
-        st.caption(L(
+        hint(L(
             "محدودیت‌های صداقت‌آمیز: جهانِ بازپخش نمادهای انتخابی توست (غربالگریِ لحظه‌ایِ گذشته بازسازی‌شدنی نیست) · "
             "دروازه‌ی ستاپ سه‌سطحی اعمال نمی‌شود (معادل سطح شکارچی) · اندیکاتورها روی کل تاریخچه گرم می‌شوند (کمی بهتر از فریم زنده) · "
             "معاملات هنوز‌بازِ انتهای دوره در آمار نیستند. بازپخش شاهد آماری است، نه جای معاملات زنده.",
@@ -912,7 +913,7 @@ with tab_replay:
 # تب ۷ — اعتبار لبه (فاز ۵)
 with tab_edge:
     st.subheader("⚖️ " + L("اعتبار لبه ایجنت‌ها", "Agent edge credibility"))
-    st.caption(L(
+    hint(L(
         "پاسخِ سؤالی که هیچ دروازه‌ی فعلی نمی‌پرسد: «خودِ این ایجنت تاریحاً سودده بوده؟» — یک بازپخش کامل روی کل تاریخچه اجرا می‌شود "
         "و معامله‌های هر ایجنت به پنجره‌های زمانیِ جدا (بر اساس کندل ورود) تفکیک می‌شود: ایجنتی که فقط در یک دوره خوب بوده شانسی است؛ "
         "حکم فقط با ثبات بین پنجره‌ها صادر می‌شود. حکم‌ها روی اسکن زنده اثر می‌گذارند (بنچ + وزن رأی کمیسیون).",
@@ -992,7 +993,7 @@ with tab_edge:
             _row[L("وزن رأی", "Vote weight")] = f"{EG.weight_for(_E.get('verdicts'), _nm):.1f}×"
             _vrows.append(_row)
         st.dataframe(pd.DataFrame(_vrows), width="stretch", hide_index=True)
-        st.caption(L(
+        hint(L(
             "قواعد حکم (ثابت و شفاف): ❌ زیان‌ده = حداقل ۱۲ معامله + انتظاری کل زیر −۰٫۱۰R + زیان در بیشتر از نیمِ پنجره‌های فعال · "
             "✅ سودده = حداقل ۱۲ معامله + انتظاری کل بالای +۰٫۰۵R + PF کل > ۱ + هیچ پنجره‌ای بدتر از −۰٫۲۵R + زیان در حداکثر نیمِ پنجره‌ها · "
             "⚠️ بقیه (نمونه‌ی کم یا مخلوط). معامله به پنجره‌ی «ورودش» تعلق دارد؛ دُمِ آخر (فرصت بستن) هم به پنجره‌ی آخر می‌رود.",
@@ -1004,7 +1005,7 @@ with tab_edge:
     st.radio(L("حالت گیت", "Gate mode"), EG.MODES,
              format_func=lambda m: (EG.MODE_FA if LANG != "en" else EG.MODE_EN).get(m, m),
              key="edge_mode", horizontal=True)
-    st.caption(L(
+    hint(L(
         "بنچ یعنی «معامله‌ی تازه باز نمی‌کند» — پوزیشن‌های بازِ او طبق قواعد معمول (TP/SL/تایم‌اوت) مدیریت می‌شوند. "
         "بدون حکم تازه، هر سه حالت عملاً یک‌اند و رفتار میدان مثل قبل است.",
         "Benching means 'no new trades' — their open positions are still managed by the normal rules (TP/SL/timeout). "

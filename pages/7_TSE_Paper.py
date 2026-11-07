@@ -10,6 +10,7 @@ import streamlit as st
 from core import tse as T
 from core import tse_paper as P
 from core import xlsx_export as XE
+from core.help import hint
 from core.i18n import get_lang, setup_i18n, tr
 
 st.set_page_config(page_title="ماکت بورس | TSE Paper", page_icon="🧾", layout="wide")
@@ -17,7 +18,7 @@ setup_i18n(page="p7")
 
 st.title("🧾 " + tr("ماکت بورس ایران — تمرین با پول مجازی",
                     "TSE Paper Trading — practice with virtual money"))
-st.caption(tr(
+hint(tr(
     "۱۰۰ میلیون تومان مجازی · قیمت زنده/پایانی واقعی از TSETMC · کارمزد تقریبی واقعی (خرید ≈۰٫۳۷٪، فروش ≈۰٫۸۸٪ با مالیات) · "
     "پرتفوی تا پایان نشست می‌ماند · ترید واقعیِ بورس فقط از طریق کارگزار ممکن است — این‌جا فقط تمرینِ استراتژی است.",
     "Virtual 100M tomans · real live/close prices from TSETMC · realistic fees (buy ≈0.37%, sell ≈0.88% incl. tax) · "
@@ -184,8 +185,8 @@ else:
 st.divider()
 r1, r2 = st.columns([4, 1])
 with r1:
-    st.caption(tr("پرتفوی ماکت فقط در همین نشست ذخیره می‌شود و با بستن مرورگر صفر می‌شود.",
-                  "The paper portfolio lives only in this session and resets when the browser closes."))
+    hint(tr("پرتفوی ماکت فقط در همین نشست ذخیره می‌شود و با بستن مرورگر صفر می‌شود.",
+            "The paper portfolio lives only in this session and resets when the browser closes."))
 with r2:
     if st.button("♻️ " + tr("شروع دوباره", "Reset"), width="stretch"):
         st.session_state.tse_paper = P.new_portfolio()

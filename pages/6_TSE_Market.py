@@ -14,6 +14,7 @@ from app_base import (add_indicators, build_agents_svg, build_neural_shell_svg,
                       signal_card_parts, signal_events, swing_levels)
 from core import macro_ir as M
 from core import tse as T
+from core.help import hint
 from core.i18n import get_lang, setup_i18n, tr
 from core.tv_chart import build_tv_chart_html
 
@@ -21,7 +22,7 @@ st.set_page_config(page_title="بورس ایران | TSE Watch", page_icon="🇮
 setup_i18n(page="p6")
 
 st.title("🏛️ " + tr("بورس ایران — دیده‌بان بازار تهران", "Tehran Stock Exchange — Market Watch"))
-st.caption(tr(
+hint(tr(
     "داده از سرورهای عمومی TSETMC (بدون کلید) · شنبه تا چهارشنبه ۰۸:۴۵ تا ۱۲:۳۰ · "
     "تحلیل با همان موتور داشبورد (همگرایی + پوسته مدل‌ها + طرح معامله walk-forward). "
     "اگر داده نیامد: سرورهای بورس بعضی IPهای خارج از ایران را بسته‌اند — اجرای لوکال از داخل ایران همیشه کار می‌کند.",
@@ -72,7 +73,7 @@ def _status_row() -> None:
     c1.metric(tr("وضعیت بازار", "Market status"), state)
     c2.metric(tr("ساعت تهران", "Tehran time"), f"{ss['hhmm']}")
     c3.metric(tr("روز هفته", "Weekday"), wd)
-    st.caption(tr(
+    hint(tr(
         "تعطیلات رسمی (مناسبت‌ها) از راه دور قابل تشخیص نیست — فقط الگوی هفتگی هفته‌ی معاملاتی.",
         "Official holidays can't be detected remotely — only the weekly trading pattern is applied."))
 

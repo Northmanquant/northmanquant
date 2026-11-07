@@ -7,6 +7,7 @@ import pandas as pd
 import streamlit as st
 
 from core.webview import iframe_html
+from core.help import hint
 
 from app_base import (add_indicators, build_agents_svg, build_neural_shell_svg,
                       compute_agents, confluence, fvg_summary, make_plan,
@@ -19,7 +20,7 @@ st.set_page_config(page_title="فارکس و بروکرها | Forex & Brokers", 
 setup_i18n(page="p3")
 
 st.title("💱 " + tr("بازار فارکس و معرفی بروکرها", "Forex Market & Broker Guide"))
-st.caption(tr(
+hint(tr(
     "قیمت زنده‌ی جفت‌ارزهای مِیجر از یاهو فایننس (منبع خنثی، میان‌دلالی) + چارت حرفه‌ای و آزمایشگاه ایجنت‌ها + "
     "مقایسه‌ی ۵ بروکر معتبر — قیمت هر بروکر فقط چند پیپ حول همین mid باز می‌شود.",
     "Live major-pair prices from Yahoo Finance (neutral mid-market source) plus a pro chart, the agents lab and a "
@@ -67,7 +68,7 @@ if auto and hasattr(st, "fragment"):
 # ---------------------------------------------------------------------------
 st.markdown("---")
 st.subheader("📈 " + tr("چارت حرفه‌ای و آزمایشگاه ایجنت‌ها", "Pro Chart & The Agents Lab"))
-st.caption(tr(
+hint(tr(
     "همان موتور تحلیل داشبورد کریپتو — این‌بار روی مِیجرهای فارکس: همگرایی اندیکاتورها، پوسته‌ی مدل‌ها، "
     "۸ ایجنت با بک‌تست زنده و طرح معامله‌ی اعتبارسنجی‌شده (walk-forward). سوئیچر تایم‌فریم داخل خود چارت است.",
     "The crypto dashboard's analysis engine — now on FX majors: indicator confluence, the neural shell, "
@@ -239,7 +240,7 @@ try:
                 ev = ev.rename(columns={"زمان": "Time", "رویداد": "Event",
                                         "قیمت": "Price", "امتیاز": "Score"})
             st.dataframe(ev, width="stretch", hide_index=True)
-        st.caption(tr(
+        hint(tr(
             "داده: یاهو فایننس (میان‌دلالی، کش ۱۲۰ ثانیه‌ای) — بدون اسپرد/سوآپ بروکر. "
             "این ابزار توصیه‌ی سرمایه‌گذاری نیست.",
             "Data: Yahoo Finance (mid-market, 120s cache) — no broker spread/swap. "
@@ -253,16 +254,15 @@ except Exception:  # noqa: BLE001 — هیچ خطایی به UI نشت نمی‌
 # ---------------------------------------------------------------------------
 st.markdown("---")
 st.subheader("🧭 " + tr("قبل از انتخاب بروکر به این‌ها نگاه کن", "What to check before picking a broker"))
-st.info("\n".join([
-    "• " + tr("**مدارک نظارتی نهادِ حساب** را چک کن — همان نهادی که پولت نزد اوست مهم است، نه نام بزرگ برند.",
-              "Check the **regulation of the exact entity** holding your funds — not just the big brand name."),
-    "• " + tr("هزینه واقعی = **اسپرد + کمیسیون** با هم؛ فقط «اسپرد از 0.0» را نبین.",
-              "True cost = **spread + commission** together; don't just look at «from 0.0 pips»."),
-    "• " + tr("اول **حساب دمو** بگیر و سرعت برداشت را با مبلغ کوچک تست کن.",
-              "Start on a **demo**, then test withdrawal speed with a small amount."),
-    "• " + tr("اهرم بالا = ریسک بالا؛ اهرمِ نهاد اروپایی/آمریکایی معمولاً محدودتر و امن‌تر است.",
-              "High leverage = high risk; EU/US entities cap leverage (safer by design)."),
-]))
+hint(tr(
+    "• **مدارک نظارتی نهادِ حساب** را چک کن — همان نهادی که پولت نزد اوست مهم است، نه نام بزرگ برند.",
+    "• Check the **regulation of the exact entity** holding your funds — not just the big brand name."),
+    tr("• هزینه واقعی = **اسپرد + کمیسیون** با هم؛ فقط «اسپرد از 0.0» را نبین.",
+       "• True cost = **spread + commission** together; don't just look at «from 0.0 pips»."),
+    tr("• اول **حساب دمو** بگیر و سرعت برداشت را با مبلغ کوچک تست کن.",
+       "• Start on a **demo**, then test withdrawal speed with a small amount."),
+    tr("• اهرم بالا = ریسک بالا؛ اهرمِ نهاد اروپایی/آمریکایی معمولاً محدودتر و امن‌تر است.",
+       "• High leverage = high risk; EU/US entities cap leverage (safer by design)."))
 
 # ---------------------------------------------------------------------------
 # ۴) جدول مقایسه‌ی بروکرها

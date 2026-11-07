@@ -9,6 +9,7 @@ import streamlit as st
 
 from core.webview import iframe_html
 from core.crypto_candles import candles_bundle, decimals_for as crypto_decimals
+from core.help import hint
 from core.i18n import setup_i18n, tr
 from core.tv_chart import build_tv_chart_html
 
@@ -56,8 +57,8 @@ def _opinion_rows(ops: list) -> list[dict]:
 st.set_page_config(page_title="قیمت‌های زنده | Live Prices", page_icon="📊", layout="wide")
 setup_i18n(page="p1")   # زبان + منوی ترجمه‌شده + پچ ترجمه‌ی کل صفحه
 st.title("📊 قیمت‌های زنده بازار")
-st.caption(tr("اول صرافی رو انتخاب کن، بعد ارز رو سرچ کن — مقایسه KCEX + KuCoin + Binance + Bybit + OKX + Lighter",
-              "Pick an exchange, search a coin — compare KCEX + KuCoin + Binance + Bybit + OKX + Lighter"))
+hint(tr("اول صرافی رو انتخاب کن، بعد ارز رو سرچ کن — مقایسه KCEX + KuCoin + Binance + Bybit + OKX + Lighter",
+        "Pick an exchange, search a coin — compare KCEX + KuCoin + Binance + Bybit + OKX + Lighter"))
 
 EXCHANGES = ["KuCoin", "OKX", "Binance", "Bybit", "Lighter", "XT", "LBank", "KCEX"]
 COMPARE_EX = ["KCEX", "KuCoin", "Binance", "Bybit", "OKX", "Lighter"]
@@ -203,8 +204,8 @@ with st.expander(tr("🌍 نمای کلی بازار — برنده‌ها · ب
             _mover_table(_lose, "🔴 " + tr("بیشترین افت", "Top losers"))
         with _v:
             _mover_table(_vol, "💧 " + tr("پرحجم‌ترین‌ها", "Most active"))
-        st.caption(tr("منبع: Binance spot · حجم دلاری ۲۴ ساعت — فقط برای جهت‌گیری؛ قیمتِ هر صرافی پایین‌تر زنده گرفته می‌شود.",
-                      "Source: Binance spot · 24h quote volume — for orientation only; per-exchange prices below are live."))
+        hint(tr("منبع: Binance spot · حجم دلاری ۲۴ ساعت — فقط برای جهت‌گیری؛ قیمتِ هر صرافی پایین‌تر زنده گرفته می‌شود.",
+                "Source: Binance spot · 24h quote volume — for orientation only; per-exchange prices below are live."))
 
 st.markdown("---")
 
@@ -421,6 +422,6 @@ with st.expander(tr("🏟️ عقیده‌ی میدان درباره‌ی همی
             "No arena participant has traded this symbol yet — the arena rescans the whole market every 30 minutes and only trades its finalists."))
     else:
         st.dataframe(_opinion_rows(_ops), width="stretch", hide_index=True)
-        st.caption(tr(
+        hint(tr(
             "این‌ها معامله‌های کاغذیِ میدان روی داده‌ی واقعی‌اند (نه سفارش واقعی) — جزئیات کامل و جدول قهرمانی در «میدان ایجنت‌ها».",
             "These are the arena's paper trades on real data (not real orders) — full details and the championship table live on the «Agent Arena» page."))

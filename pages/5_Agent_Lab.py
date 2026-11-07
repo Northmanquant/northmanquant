@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pandas as pd
 import streamlit as st
+from core.help import hint
 from core.i18n import setup_i18n, get_lang
 
 st.set_page_config(page_title="آزمایشگاه ایجنت‌ها | Agent Lab", page_icon="🔬", layout="wide")
@@ -20,7 +21,7 @@ def L(fa: str, en: str) -> str:
 
 st.title("🔬 " + L("آزمایشگاه ایجنت‌ها — تحقیق و خودبهبود",
                    "Agent Lab — Research & Self-Improvement"))
-st.caption(L(
+hint(L(
     "اینجا به جای «چند تا برد؟» می‌پرسیم «چرا باخت؟ و سیستم چه یاد گرفت؟» "
     "هر معامله‌ی بسته کالبدشکافی می‌شود (استاپ تنگ، خلاف رژیم، تایم‌اوت بدون سود…) "
     "و از دل همان شواهد، محدودیت‌های محافظه‌کارانه‌ی خودکار ساخته می‌شود: "
@@ -138,7 +139,7 @@ with _tab1:
     if not df.empty:
         df = df.sort_values(L("انتظاری", "Expectancy"), ascending=False)
     st.dataframe(df, width="stretch", hide_index=True)
-    st.caption(L(
+    hint(L(
         "انتظاری = میانگین R هر معامله (مهم‌ترین عدد — بعد از ~۳۰ معامله معنادار است). "
         "حکم لبه از بازپخش بک‌تست می‌آید (صفحه‌ی میدان)؛ بقیه از معاملات زنده.",
         "Expectancy = average R per trade (the key number — meaningful after ~30 trades). "
@@ -186,7 +187,7 @@ with _tab2:
 
 # ================================================================ تب ۳ — تطبیق
 with _tab3:
-    st.info(L(
+    hint(L(
         "این‌ها قواعد ثابت و شفاف‌اند — سیستم هر بار از صفر از روی تاریخچه محاسبه‌شان می‌کند "
         "(بدون حافظه‌ی مخفی): زنجیره‌ی باخت ≥۳ → cooldown ×۲، ≥۵ → ×۳، ≥۷ → ×۴؛ "
         "(ایجنت، نماد) با ≥۳ باخت و ۰ برد در ۱۴ روز → ۷ روز ممنوع؛ "
@@ -230,7 +231,7 @@ with _tab3:
 
 # ================================================================ تب ۴ — پرونده‌ی بهبود (فاز ۱۴)
 with _tab4:
-    st.info(L(
+    hint(L(
         "پرونده‌ی پزشکی هر ایجنت: تشخیص (از کالبدشکافی) → نسخه (سه درمان محافظه‌کارانه) → "
         "اعتبارسنجی ضدواقعی (اگر نسخه از اول بود، چند ضرر حذف می‌شد و چند سود از دست می‌رفت؟). "
         "گیت علمی: نسخه فقط وقتی کار می‌شود که «ضرر حذف‌شده ≥ سود ازدست‌رفته». "
@@ -313,8 +314,8 @@ with _tab4:
         st.success(L("هیچ پرونده‌ی فعالی نیست — همه‌ی ایجنت‌ها در محدوده‌ی سالم‌اند. ✅",
                      "No active dossiers — all agents are healthy. ✅"))
 
-    st.caption(L("قواعد نسخه‌ها در core/dossier.py — آستانه‌ها بالای فایل و شفاف‌اند.",
-                 "Prescription rules live in core/dossier.py — thresholds at the top, fully transparent."))
+    hint(L("قواعد نسخه‌ها در core/dossier.py — آستانه‌ها بالای فایل و شفاف‌اند.",
+           "Prescription rules live in core/dossier.py — thresholds at the top, fully transparent."))
 
 st.divider()
 st.caption(L(f"🔬 محاسبه‌ی زنده از {_store.backend} · قواعد آزمایشگاه در core/agent_lab.py · نسخه‌های بهبود در core/dossier.py",

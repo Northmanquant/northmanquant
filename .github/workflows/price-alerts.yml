@@ -1,0 +1,41 @@
+name: Price Alerts
+
+# 🔔 چکر سمت سرور هشدارهای قیمتی — لایه‌ی پشتیبان وقتی اپ باز نیست
+# هر ۱۰ دقیقه: جدول price_alerts خوانده می‌شود؛ برای نمادهای کریپتو/فارکس قیمت
+# آخر گرفته می‌شود؛ هشدار برخورده غیرفعال و با تلگرام اعلام می‌شود.
+# الزامات (همه از قبل موجودند — Secret تازه لازم نیست):
+#   SUPABASE_URL ، SUPABASE_KEY ، TELEGRAM_BOT_TOKEN ، TELEGRAM_CHAT_ID
+# پیش‌نیاز یک‌باره‌ی دیتابیس: اجرای sql/price_alerts_setup.sql در Supabase → SQL Editor
+# توقف موقت: تب Actions → Price Alerts → ⋯ → Disable workflow
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"   # هر ۱۰ دقیقه (UTC)
+  workflow_dispatch: {}       # اجرای دستی برای تست
+
+concurrency:
+  group: price-alerts
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: بررسی هشدارهای قیمتی
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python scripts/check_price_alerts.py

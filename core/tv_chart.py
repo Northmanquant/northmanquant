@@ -1151,6 +1151,28 @@ function applyDelta(d, dt, dp){
   if(d.pts) for(const pt of d.pts){ if(pt.t!=null && dt) pt.t+=dt; if(pt.price!=null && dp) pt.price+=dp; }
 }
 let pend=null, measure=null, brush=null, dragMoved=false;
+/* دکمه‌ی ✕ روی رسم انتخاب‌شده — کلیک = حذف همان رسم (قابل واگرد) */
+const selXBtn = document.getElementById('selX');
+if(selXBtn){
+  selXBtn.addEventListener('pointerdown', e=>e.stopPropagation());
+  selXBtn.addEventListener('click', e=>{ e.stopPropagation(); if(selIdx>=0) eraseAt(selIdx); });
+}
+function selXAnchor(d){
+  for(const h of handlesOf(d)){ const s=ptSc(h[1]); if(s.x!=null&&s.y!=null) return s; }
+  if(d.pts && d.pts.length){ const s=ptSc(d.pts[0]); if(s.x!=null&&s.y!=null) return s; }
+  if(d.p1){ const s=ptSc(d.p1); if(s.x!=null&&s.y!=null) return s; }
+  return null;
+}
+window.__nqPlaceSelX = function(){
+  if(!selXBtn) return;
+  const d = (selIdx>=0)? DRAWINGS[selIdx] : null;
+  const a = d? selXAnchor(d) : null;
+  if(!a){ selXBtn.style.display='none'; return; }
+  const r = mainPane.getBoundingClientRect();
+  selXBtn.style.display='block';
+  selXBtn.style.left = Math.max(4, Math.min(a.x+13, r.width-26)) + 'px';
+  selXBtn.style.top  = Math.max(4, Math.min(a.y-29, r.height-26)) + 'px';
+};
 __ZONES_JS__
 function renderLoop(){
   const r = mainPane.getBoundingClientRect();
@@ -1158,6 +1180,8 @@ function renderLoop(){
   drawZones();
   for(const d of DRAWINGS) drawOne(d,false);
   if(selIdx>=0 && DRAWINGS[selIdx]) drawSel(DRAWINGS[selIdx]);
+  if(window.__nqDrawAlerts) window.__nqDrawAlerts();
+  if(window.__nqPlaceSelX) window.__nqPlaceSelX();
   if(brush && brush.pts.length>1) drawOne({type:'brush', pts:brush.pts}, true);
   if(pend) drawPend(pend);
   if(measure) drawMeasure(measure);
@@ -1200,6 +1224,11 @@ ovl.addEventListener('pointerdown', e=>{
   if(S.tool==='cursor' || !mainSeries) return;
   e.preventDefault();
   if(S.tool==='erase'){ eraseAt(hitTest(evPos(e).x, evPos(e).y)); return; }
+  if(S.tool==='alert'){
+    const pa = evPos(e);
+    if(pa.price!=null){ addAlert(pa.price); oneShotDone(); }
+    return;
+  }
   if(measure){ measure=null; }
   const p = evPos(e);
   if(S.tool==='measure'){ measure={p1:p, p2:p}; return; }
@@ -1248,7 +1277,15 @@ ovl.addEventListener('pointerup', e=>{
     }
   }
 });
-window.addEventListener('keydown', e=>{ if(e.key==='Escape'){ pend=null; measure=null; brush=null; selIdx=-1; drag=null; setTool('cursor'); } });
+window.addEventListener('keydown', e=>{
+  if(e.key==='Escape'){ pend=null; measure=null; brush=null; selIdx=-1; drag=null; setTool('cursor'); }
+  /* Delete/Backspace = حذف رسم انتخاب‌شده (وقتی در حال تایپ نیستیم) */
+  if((e.key==='Delete' || e.key==='Backspace') && selIdx>=0 && S.tool==='cursor' && !drag){
+    const ae=document.activeElement;
+    if(ae && (ae.tagName==='INPUT' || ae.tagName==='TEXTAREA')) return;
+    e.preventDefault(); eraseAt(selIdx);
+  }
+});
 
 /* ---------- انتخاب و جابه‌جایی با نشانگر (سبک تریدینگ‌ویو) --------------
    رهگیری در فاز capture روی mainPane: کلیک روی رسم → انتخاب/درگ (رویداد به چارت نمی‌رسد)
@@ -1256,8 +1293,12 @@ window.addEventListener('keydown', e=>{ if(e.key==='Escape'){ pend=null; measure
 mainPane.addEventListener('pointerdown', e=>{
   if(S.tool!=='cursor' || !mainSeries) return;
   if(e.button!==undefined && e.button!==0) return;
+  if(e.target && e.target.closest && e.target.closest('#selX')) return;  /* کلیک روی ✕ — به خودش برسد */
   const r = ovl.getBoundingClientRect();
   const x = e.clientX-r.left, y = e.clientY-r.top;
+  /* کلیک روی خط هشدار قیمتی = بستن همان هشدار (قبل از رسم‌ها) */
+  if(typeof alertHit==='function'){ const ah=alertHit(x,y);
+    if(ah>=0){ e.stopPropagation(); e.preventDefault(); removeAlert(ah); return; } }
   const hk = handleHit(x,y);
   if(hk){
     e.stopPropagation(); e.preventDefault();
@@ -1304,6 +1345,16 @@ window.addEventListener('pointerup', e=>{
     REDOS=[]; saveDraw();
   }
   drag=null; mainPane.style.cursor='';
+}, true);
+/* دابل‌کلیک روی هر چیز روی چارت = بستن/حذف فوری (هشدار یا رسم) — قابل واگرد */
+mainPane.addEventListener('dblclick', e=>{
+  if(S.tool!=='cursor' || !mainSeries) return;
+  const r = ovl.getBoundingClientRect();
+  const x = e.clientX-r.left, y = e.clientY-r.top;
+  if(typeof alertHit==='function'){ const ah=alertHit(x,y);
+    if(ah>=0){ e.stopPropagation(); e.preventDefault(); removeAlert(ah); return; } }
+  const h = hitTest(x,y);
+  if(h>=0){ e.stopPropagation(); e.preventDefault(); eraseAt(h); }
 }, true);
 
 /* ---------- تولبار: تایم‌فریم · نوع چارت · منوها ---------------------- */
@@ -1412,6 +1463,8 @@ const TOOLS = [
   ['_g','اندازه‌گیری و پوزیشن'],
   ['measure','📏','خط‌کش (اندازه‌گیری)'],
   ['posL','🟢','پوزیشن خرید (ورود/ضرر/هدف)'], ['posS','🔴','پوزیشن فروش (ورود/ضرر/هدف)'],
+  ['_g','هشدار'],
+  ['alert','🔔','هشدار قیمتی — کلیک روی چارت در قیمت هدف؛ کلیک روی خط = حذف'],
   ['_g','یادداشت'],
   ['arrowU','⬆','فلش صعودی'], ['arrowD','⬇','فلش نزولی'],
   ['text','ℹ','متن'], ['brush','✎','قلم آزاد'],
@@ -1695,6 +1748,195 @@ _SYNC_JS = """
 """
 
 
+# ------------------------------------------------------------------ هشدار قیمتی روی چارت
+_ALERT_JS = """
+/* ---------- هشدار قیمتی (🔔) — ذخیره محلی + سینک کلود + تریگر زنده ----------
+   • ابزار «هشدار» یا دکمه‌ی 🔔 → کلیک روی چارت در قیمت هدف → خط نارنجی چین‌چین
+   • کلیک روی خط هشدار (یا دابل‌کلیک) = حذف
+   • تریگر زنده: کریپتو هر ۲۰ ثانیه قیمت زنده از Binance؛ بقیه بازارها روی
+     آخرین قیمتِ کندل هنگام بازشدن چارت چک می‌شوند + چکر سروری (Actions) پشتیبان است
+   • بدون کلید کلود هم کار می‌کند (فقط localStorage) */
+(function(){
+  const symKey  = ()=> (String(DATA.symbol||'')||'NQ').toUpperCase().replace(/\\s+/g,'_');
+  const symDisp = ()=> String(DATA.symbol||'');
+  const binSym  = ()=> symDisp().split('/')[0].split('-').join('').toUpperCase();
+  const isCrypto= ()=> !DATA.fx && /^[A-Z0-9]{2,15}$/.test(binSym());
+  function devId(){ try{ let d=localStorage.getItem('nqtv:device');
+    if(!d){ d='dev-'+Math.random().toString(36).slice(2,10); localStorage.setItem('nqtv:device',d); } return d; }
+    catch(e){ return 'dev-anon'; } }
+  const AL_KEY = ()=> 'nqtv:al:'+symKey();
+  function loadAl(){ const v=safeParse(localStorage.getItem(AL_KEY())); return Array.isArray(v)? v.filter(a=>a && isFinite(parseFloat(a.price))) : []; }
+  function saveLocalOnly(){ try{ localStorage.setItem(AL_KEY(), JSON.stringify(ALERTS)); }catch(e){} }
+  function saveAlerts(){ saveLocalOnly(); if(window.__alSyncQueue) window.__alSyncQueue(); }
+
+  let ALERTS = loadAl().slice(0,100);
+
+  function activeN(){ let n=0; for(const a of ALERTS) if(a.active) n++; return n; }
+  function updateBadge(){ const b=document.getElementById('btnAlert'); if(!b) return;
+    const n=activeN();
+    b.textContent = n? ('🔔'+n) : '🔔';
+    b.title = n? ('هشدارهای فعال: '+n+' — برای افزودن از منوی ابزارها') : 'هشدار قیمتی — از منوی ابزارها؛ کلیک روی خط = حذف'; }
+  function beep(){ try{
+    const AC = window.AudioContext || window.webkitAudioContext; if(!AC) return;
+    const ac = beep._ac || (beep._ac = new AC());
+    const o=ac.createOscillator(), g=ac.createGain();
+    o.type='sine'; o.frequency.value=880; g.gain.value=0.07;
+    o.connect(g); g.connect(ac.destination);
+    o.start(); o.frequency.setValueAtTime(1320, ac.currentTime+0.12);
+    o.stop(ac.currentTime+0.26);
+  }catch(e){} }
+
+  function addAlert(price){
+    price = parseFloat(price); if(!isFinite(price) || price<=0) return;
+    const near = ALERTS.find(a=>a.active && Math.abs(parseFloat(a.price)-price)/price < 0.001);
+    if(near){ toast('هشدار مشابه در '+fmtP(near.price)+' از قبل هست'); return; }
+    const px0 = lastClosePrice();
+    const a = { id:'al:'+symKey()+':'+price+':'+Date.now(),
+                price:price, dir:(px0!=null && price<px0)? 'below':'above',
+                active:true, created_at:new Date().toISOString(), by:devId() };
+    ALERTS.push(a);
+    if(ALERTS.length>100) ALERTS = ALERTS.slice(-100);
+    updateBadge(); saveAlerts();
+    toast('🔔 هشدار ثبت شد '+(a.dir==='above'?'⬆ بالای ':'⬇ زیر ')+fmtP(price)+(isCrypto()? ' — هنگام رسیدن قیمت مطلع می‌شوی':''));
+  }
+  function removeAlert(i){ if(i<0 || i>=ALERTS.length) return;
+    const a=ALERTS.splice(i,1)[0];
+    updateBadge(); saveAlerts();
+    toast('🔔 هشدار '+fmtP(a.price)+' حذف شد'); }
+  function alertHit(x,y){
+    for(let i=ALERTS.length-1; i>=0; i--){
+      const a=ALERTS[i]; if(!a.active) continue;
+      const yy=yOf(a.price); if(yy==null) continue;
+      if(Math.abs(y-yy)<=10) return i;
+    }
+    return -1;
+  }
+
+  window.__nqDrawAlerts = function(){
+    if(!ALERTS.length || !mainSeries) return;
+    const w = mainPane.getBoundingClientRect().width;
+    octx.save();
+    for(const a of ALERTS){
+      if(!a.active) continue;
+      const y = yOf(a.price); if(y==null || y<-20) continue;
+      octx.beginPath(); octx.setLineDash([7,5]); octx.lineWidth=1.4; octx.strokeStyle='#f59e0b';
+      octx.moveTo(0,y); octx.lineTo(w,y); octx.stroke();
+      octx.setLineDash([]);
+      const lbl='🔔 '+fmtP(a.price);
+      octx.font='700 10px ui-monospace,monospace';
+      const tw=octx.measureText(lbl).width;
+      const bx=w-tw-24, by=y-9;
+      octx.fillStyle='rgba(245,158,11,0.95)';
+      if(octx.roundRect){ octx.beginPath(); octx.roundRect(bx,by,tw+20,17,4); octx.fill(); }
+      else octx.fillRect(bx,by,tw+20,17);
+      octx.fillStyle='#131722'; octx.textBaseline='middle';
+      octx.fillText(lbl, bx+9, by+9);
+    }
+    octx.restore();
+  };
+
+  /* ---------- تریگر ---------- */
+  function lastClosePrice(){ try{ const c=CAND(); return (c && c.length)? c[c.length-1][4] : null; }catch(e){ return null; } }
+  async function livePrice(){
+    if(!isCrypto()) return null;
+    const sym = binSym();
+    for(const h of ['https://data-api.binance.vision','https://api.binance.com']){
+      try{
+        const r = await fetch(h+'/api/v3/ticker/price?symbol='+sym);
+        if(!r.ok) continue;
+        const j = await r.json();
+        const v = parseFloat(j && j.price);
+        if(isFinite(v) && v>0) return v;
+      }catch(e){}
+    }
+    return null;
+  }
+  let checking=false;
+  async function checkAlerts(){
+    if(checking) return; checking=true;
+    try{
+      if(!ALERTS.some(a=>a.active)) return;
+      const live = await livePrice();
+      const px = (live!=null)? live : lastClosePrice();
+      if(px==null) return;
+      const nowIso = new Date().toISOString();
+      let hits=0;
+      for(const a of ALERTS){
+        if(!a.active) continue;
+        const ap = parseFloat(a.price); if(!isFinite(ap)) continue;
+        const hit = (a.dir==='below')? (px<=ap) : (px>=ap);
+        if(hit){ a.active=false; a.triggered_at=nowIso; a.trigger_price=px; hits++;
+          toast('🔔 هشدار: '+symDisp()+' '+(a.dir==='below'?'به زیر ':'به بالای ')+fmtP(ap)+' رسید — قیمت: '+fmtP(px)); }
+      }
+      if(hits){ beep(); updateBadge(); saveAlerts(); }
+    }finally{ checking=false; }
+  }
+  setInterval(checkAlerts, 20000);
+  setTimeout(checkAlerts, 1500);
+
+  const btnA = document.getElementById('btnAlert');
+  if(btnA) btnA.onclick = ()=>{ setTool('alert'); toast('هشدار قیمتی: روی چارت در قیمت هدف کلیک کن — Esc برای خروج'); };
+  updateBadge();
+  window.__nqAlertApi = { addAlert:addAlert, removeAlert:removeAlert, alertHit:alertHit,
+                          checkAlerts:checkAlerts, list:()=>ALERTS };
+
+  /* ---------- همگام‌سازی ابری هشدارها (Supabase — اختیاری) ---------- */
+  (function(){
+    const CFG = __ALERT_SYNC_CFG__;
+    if(!CFG || !CFG.url || !CFG.key) return;
+    const TURL = String(CFG.url).replace(/\\/$/,'') + '/rest/v1/price_alerts';
+    const dev = devId();
+    let dirty=false, t=null, again=false, busy=false, seq=0;
+    const stampKey = ()=> 'nqtv:alsync:'+symKey();
+    function hdrs(extra){ return Object.assign({'Content-Type':'application/json',
+      'apikey':CFG.key, 'Authorization':'Bearer '+CFG.key}, extra||{}); }
+    function fetchTO(url, opt){ const ctl=new AbortController(); const to=setTimeout(()=>ctl.abort(), 6000);
+      return fetch(url, Object.assign({}, opt||{}, {signal:ctl.signal})).finally(()=>clearTimeout(to)); }
+    async function cGet(){ const u=TURL+'?scope=eq.'+encodeURIComponent(symKey())+'&select=scope,alerts,updated_at,updated_by';
+      const r=await fetchTO(u,{headers:hdrs()}); if(!r.ok) throw new Error('HTTP '+r.status);
+      const rows=await r.json(); return (rows&&rows[0])||null; }
+    async function cPut(list){ const body=[{scope:symKey(), alerts:list, updated_by:dev}];
+      const r=await fetchTO(TURL,{method:'POST',headers:hdrs({'Prefer':'resolution=merge-duplicates,return=representation'}),
+        body:JSON.stringify(body)});
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      const rows=await r.json();
+      return (rows&&rows[0]&&rows[0].updated_at)||null; }
+    function pushNow(){ if(busy){ again=true; return Promise.resolve(); }
+      busy=true; const my=++seq;
+      return cPut(ALERTS.slice(0,100)).then(ts=>{ busy=false; if(my!==seq) return;
+        dirty=false; try{ if(ts) localStorage.setItem(stampKey(), ts); }catch(e){}
+        if(again){ again=false; queuePush(); } })
+      .catch(()=>{ busy=false; }); }
+    function queuePush(){ dirty=true; clearTimeout(t); t=setTimeout(()=>{ t=null; pushNow(); }, 1200); }
+    async function reconcile(){
+      const my=++seq; clearTimeout(t); t=null;
+      let row=null;
+      try{ row=await cGet(); }catch(e){ return; }
+      if(my!==seq) return;
+      const cloudTs = row? (row.updated_at||null) : null;
+      const cloudArr = (row && Array.isArray(row.alerts))? row.alerts : null;
+      if(dirty){ await pushNow(); return; }                          /* ۱) اول آپلود محلی */
+      if(!row || !cloudArr || !cloudArr.length){                     /* ۲) کلود خالی */
+        if(ALERTS.length>0){ await pushNow(); return; }
+        try{ localStorage.setItem(stampKey(), cloudTs || new Date().toISOString()); }catch(e){}
+        return; }
+      let st=null; try{ st=localStorage.getItem(stampKey()); }catch(e){}
+      if(st && cloudTs===st) return;                                 /* ۳) همان نسخه */
+      if(ALERTS.length>0 && !st){ await pushNow(); return; }         /* ۴) دستگاه جدید + محلی کار دارد */
+      ALERTS = cloudArr.slice(0,100);                                /* ۵) کلود جدیدتر → بارگذاری */
+      saveLocalOnly(); updateBadge();
+      try{ localStorage.setItem(stampKey(), cloudTs); }catch(e){}
+      dirty=false;
+      const n=activeN();
+      if(n) toast('🔔 '+n+' هشدار فعال از کلود بارگذاری شد');
+    }
+    window.__alSyncQueue = queuePush;
+    window.__alSyncReconcile = reconcile;
+    reconcile();
+  })();
+})();
+"""
+
 def _sync_cfg() -> Optional[Dict[str, str]]:
     """تنظیمات اتصال Supabase برای همگام‌سازی رسم‌ها — None یعنی خاموش.
 
@@ -1799,6 +2041,12 @@ a[href*="tradingview.com"]:hover{opacity:0.7;}
 #btnSync.busy{color:#f59e0b;}
 #btnSync.ok{color:#26a69a;}
 #btnSync.err{color:#ef5350;}
+#btnAlert{font-size:12.5px;line-height:1;}
+#selX{position:absolute;z-index:9;display:none;width:22px;height:22px;padding:0;
+  text-align:center;border-radius:50%;border:1px solid rgba(239,83,80,0.75);cursor:pointer;
+  background:rgba(239,83,80,0.92);color:#fff;font:700 12px/20px Tahoma,sans-serif;
+  box-shadow:0 2px 8px rgba(0,0,0,0.45);user-select:none;}
+#selX:hover{background:#ff6b66;}
 @media (max-width:700px){ .tb-label{display:none;} .menu{min-width:190px;} #tzt{display:none;}
   .bb-sell,.bb-buy{padding:3px 6px;} #clock{font-size:10px;} }
 """
@@ -1827,6 +2075,9 @@ def build_tv_chart_html(*, candles: List[List[Any]], tfs: Dict[str, List[List[An
         scfg = None
     sync_js = (_SYNC_JS.replace("__SYNC_CFG__", json.dumps(scfg, ensure_ascii=False))
                if scfg else "")
+    alert_cfg = scfg   # همان کلیدها برای جدول price_alerts — None یعنی هشدار فقط محلی
+    alert_js = _ALERT_JS.replace("__ALERT_SYNC_CFG__",
+                                 json.dumps(alert_cfg, ensure_ascii=False))
     sync_chip = ('<button class="tb-btn" id="btnSync" '
                  'title="همگام‌سازی رسم‌ها با کلود — کلیک = بارگذاری اجباری">☁</button>'
                  if scfg else '')
@@ -1840,7 +2091,7 @@ def build_tv_chart_html(*, candles: List[List[Any]], tfs: Dict[str, List[List[An
           .replace("__DATA__", data)
           .replace("__ZONES__", zones_js)
           .replace("__ZONES_JS__", _ZONES_JS)
-          + sync_js)
+          + sync_js + alert_js)
     html = (
         '<!DOCTYPE html><html><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
@@ -1856,6 +2107,7 @@ def build_tv_chart_html(*, candles: List[List[Any]], tfs: Dict[str, List[List[An
         '<button class="tb-btn" id="btnLog" title="مقیاس لگاریتمی">log</button>'
         '<input id="txtIn" placeholder="متن یادداشت…">'
         '<div class="tb-spacer"></div>'
+        + '<button class="tb-btn" id="btnAlert" title="هشدار قیمتی — از منوی ابزارها؛ کلیک روی خط = حذف">🔔</button>'
         + sync_chip +
         '<button class="tb-btn" id="btnLeg" title="لجند">ℹ</button>'
         '<button class="tb-btn" id="btnFit" title="بازنشانی نما">⤢</button>'
@@ -1867,6 +2119,7 @@ def build_tv_chart_html(*, candles: List[List[Any]], tfs: Dict[str, List[List[An
         '<div id="mainPane">'
         '<div id="chart"></div>'
         '<canvas id="ovl"></canvas>'
+        '<button id="selX" title="حذف این رسم">✕</button>'
         '<div id="legend"><span id="ltitle"></span><span id="lbar"></span><div id="lind"></div></div>'
         '<div id="cdown"></div>'
         '</div>'

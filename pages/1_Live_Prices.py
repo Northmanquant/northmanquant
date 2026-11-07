@@ -1,4 +1,4 @@
-"""Live Prices v3 - انتخاب صرافی + سرچ ارز + مقایسه همه صرافی‌ها"""
+"""Live Prices v4 - نمای کلی بازار + سرچ ارز + مقایسه صرافی‌ها + چارت کندل"""
 from __future__ import annotations
 
 import time
@@ -6,12 +6,16 @@ from concurrent.futures import ThreadPoolExecutor
 
 import requests
 import streamlit as st
-from core.i18n import setup_i18n
+import streamlit.components.v1 as components
+from core.crypto_candles import candles_bundle, decimals_for as crypto_decimals
+from core.i18n import setup_i18n, tr
+from core.tv_chart import build_tv_chart_html
 
 st.set_page_config(page_title="قیمت‌های زنده | Live Prices", page_icon="📊", layout="wide")
 setup_i18n(page="p1")   # زبان + منوی ترجمه‌شده + پچ ترجمه‌ی کل صفحه
 st.title("📊 قیمت‌های زنده بازار")
-st.caption("اول صرافی رو انتخاب کن، بعد ارز رو سرچ کن — مقایسه KCEX + KuCoin + Binance + Bybit + OKX + Lighter")
+st.caption(tr("اول صرافی رو انتخاب کن، بعد ارز رو سرچ کن — مقایسه KCEX + KuCoin + Binance + Bybit + OKX + Lighter",
+              "Pick an exchange, search a coin — compare KCEX + KuCoin + Binance + Bybit + OKX + Lighter"))
 
 EXCHANGES = ["KuCoin", "OKX", "Binance", "Bybit", "Lighter", "XT", "LBank", "KCEX"]
 COMPARE_EX = ["KCEX", "KuCoin", "Binance", "Bybit", "OKX", "Lighter"]
@@ -104,6 +108,63 @@ def parse_base(symbol_selected: str, main_ex: str) -> str:
     if s.endswith("USDT"):
         return s[:-4]
     return s
+
+
+# ---------- نمای کلی بازار (Binance spot — کش 60 ثانیه) ----------
+_LEV_SUFFIX = ("UPUSDT", "DOWNUSDT", "BULLUSDT", "BEARUSDT")
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _overview_rows() -> list[dict]:
+    """یک درخواست 24hr کل بازار → ردیف‌های تمیز (بدون توکن‌های لوریج‌دار).
+    خرابی = [] و UI صادقانه می‌گوید نمای کلی نیست."""
+    r = _get_json("https://data-api.binance.vision/api/v3/ticker/24hr", timeout=12) or []
+    out = []
+    for t in r if isinstance(r, list) else []:
+        s = str(t.get("symbol", ""))
+        if not s.endswith("USDT") or s.endswith(_LEV_SUFFIX):
+            continue
+        last, chg = _f(t.get("lastPrice")), _f(t.get("priceChangePercent"))
+        qv = _f(t.get("quoteVolume"))
+        if last <= 0 or qv <= 0:
+            continue
+        out.append({"base": s[:-4], "last": last, "chg": chg, "qv": qv})
+    return out
+
+
+def _mover_table(rows: list[dict], title: str) -> None:
+    if not rows:
+        st.caption("—")
+        return
+    data = [{"ارز": r["base"], "قیمت": f"${r['last']:,.6g}",
+             "۲۴ساعته": f"{r['chg']:+.2f}%"} for r in rows]
+    st.caption(title)
+    st.dataframe(data, use_container_width=True, hide_index=True, height=232)
+
+
+# ---------------------------------------------------------------- نمای کلی بازار
+with st.expander(tr("🌍 نمای کلی بازار — برنده‌ها · بازنده‌ها · پرحجم‌ترین‌ها (۲۴ ساعت)",
+                    "🌍 Market overview — top gainers · losers · most active (24h)"),
+                 expanded=True):
+    _ov = _overview_rows()
+    if not _ov:
+        st.caption(tr("نمای کلی از Binance گرفته نشد — احتمالاً موقتی است؛ قیمت‌های پایین صفحه همچنان کار می‌کنند.",
+                      "Overview feed from Binance failed — probably temporary; the live prices below still work."))
+    else:
+        _gain = sorted(_ov, key=lambda r: r["chg"], reverse=True)[:8]
+        _lose = sorted(_ov, key=lambda r: r["chg"])[:8]
+        _vol = sorted(_ov, key=lambda r: r["qv"], reverse=True)[:8]
+        _g, _l, _v = st.columns(3)
+        with _g:
+            _mover_table(_gain, "🟢 " + tr("بیشترین رشد", "Top gainers"))
+        with _l:
+            _mover_table(_lose, "🔴 " + tr("بیشترین افت", "Top losers"))
+        with _v:
+            _mover_table(_vol, "💧 " + tr("پرحجم‌ترین‌ها", "Most active"))
+        st.caption(tr("منبع: Binance spot · حجم دلاری ۲۴ ساعت — فقط برای جهت‌گیری؛ قیمتِ هر صرافی پایین‌تر زنده گرفته می‌شود.",
+                      "Source: Binance spot · 24h quote volume — for orientation only; per-exchange prices below are live."))
+
+st.markdown("---")
 
 
 @st.cache_data(ttl=2, show_spinner=False)
@@ -275,3 +336,29 @@ else:
     if auto:  # very old Streamlit without fragments → old behaviour
         time.sleep(refresh)
         st.rerun()
+
+
+# ---------------------------------------------------------------- چارت کندل (خارج از فرگمنت)
+st.markdown("---")
+st.subheader(tr("📈 نمودار کندل — موتور کامل (تایم‌فریم · اندیکاتور · ابزار)",
+                "📈 Candle chart — full engine (timeframes · indicators · tools)"))
+_c1, _c2 = st.columns([2, 3])
+with _c1:
+    chart_sel = st.selectbox(tr("نمودار برای کدام ارز؟", "Chart which coin?"), selected,
+                             help=tr("کندل از Binance spot می‌آید — مرجعِ بازار؛ قیمتِ صرافی‌ها بالایی زنده است.",
+                                     "Candles come from Binance spot — the market reference; exchange prices above are live."))
+chart_base = parse_base(chart_sel, main_ex)
+_bundle = candles_bundle(chart_base)
+if not _bundle:
+    st.caption(tr(f"کندل برای {chart_base} از Binance گرفته نشد — احتمالاً این ارز روی Binance لیست نیست یا شبکه موقتاً کند است؛ مقایسه‌ی قیمت بالا همچنان کار می‌کند.",
+                  f"Could not fetch candles for {chart_base} from Binance — the coin may not be listed there, or the network is slow; the price comparison above still works."))
+else:
+    _base_tf = "1hour" if "1hour" in _bundle else next(iter(_bundle))
+    _last_px = _bundle[_base_tf][-1][4] if _bundle[_base_tf] else 0.0
+    components.html(
+        build_tv_chart_html(candles=_bundle[_base_tf], tfs=_bundle, base_tf=_base_tf,
+                            symbol=f"{chart_base}/USDT", zones=[], levels=[],
+                            title=f"{chart_base}/USDT · {_base_tf}",
+                            dec=crypto_decimals(_last_px), initial_bars=320),
+        height=700, scrolling=False,
+    )

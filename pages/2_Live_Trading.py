@@ -1,11 +1,15 @@
-"""Live Trading with API Key - NorthmanQuant — v2 امن‌شده"""
+"""Live Trading with API Key - NorthmanQuant — v3 امن‌شده + چارت + Paper واقع‌گرا"""
 import time
 
 import streamlit as st
+import streamlit.components.v1 as components
 from core.i18n import setup_i18n, tr
 from core import trade_guard as G
 from core import trade_log as TL
 from core import xlsx_export as XE
+from core import crypto_candles as CC
+from core import paper as PP
+from core.tv_chart import build_tv_chart_html
 
 try:
     from core import lighter as LIT   # لایتر: عمومیِ بدون‌کلید (پرپ DEX)
@@ -48,6 +52,11 @@ if not REAL_EX:
 st.session_state.setdefault("trade_cfg", {})
 st.session_state.setdefault("ts_activity", 0.0)
 st.session_state.setdefault("pending_order", None)
+st.session_state.setdefault("paper_bal", 10000.0)
+st.session_state.setdefault("paper_pos", {})      # نماد → {"qty", "avg"}
+st.session_state.setdefault("paper_realized", 0.0)
+st.session_state.setdefault("amt_seq", 0)          # نسخه‌ی ورودی «مقدار» برای سایز سریع
+st.session_state.setdefault("prc_seq", 0)          # نسخه‌ی ورودی «قیمت» برای پیش‌پرکردن
 
 
 def _clear_conn():
@@ -266,6 +275,13 @@ if cfg["ex"] == "Lighter":
                       f"{cfg['symbol']} perp price on Lighter"),
                   f"{_tk['last']:,.4f}",
                   _sub)
+        # نرخ فاندینگ — تنها هزینه‌ی ماندن در پوزیشن پرپ؛ بدون کلید از API عمومی
+        _mid = _tk.get("market_id")
+        if _mid is not None:
+            _fr = CC.funding_rate(int(_mid))
+            if _fr is not None:
+                st.caption(tr(f"💰 نرخ فاندینگ فعلی: {_fr * 100:+.4f}% (نرخِ خامِ هر بازه‌ی فاندینگ — بسته به جهت پوزیشن می‌پردازی یا می‌گیری)",
+                              f"💰 Current funding rate: {_fr * 100:+.4f}% (raw rate per funding interval — you pay or receive depending on position side)"))
 else:
     try:
         import ccxt
@@ -286,6 +302,27 @@ else:
         tick = None
         st.warning(tr("قیمت گرفته نشد: ", "Live price failed: ")
                    + G.scrub(e, cfg.get("key"), cfg.get("secret")))
+
+# ---------------------------------------------------------------- چارت مرجع (کندل Binance spot)
+_chart_base = str(cfg.get("symbol") or "").split("/")[0].split("-")[0].strip().upper()
+if _chart_base:
+    with st.expander(tr("📈 چارت مرجع — موتور کامل (کندل از Binance spot)",
+                        "📈 Reference chart — full engine (candles from Binance spot)"),
+                     expanded=False):
+        _cb = CC.candles_bundle(_chart_base)
+        if not _cb:
+            st.caption(tr("کندل گرفته نشد — احتمالاً این ارز روی Binance لیست نیست یا شبکه موقتاً کند است؛ قیمتِ زنده‌ی بالا مستقل کار می‌کند.",
+                          "Could not fetch candles — the coin may not be listed on Binance, or the network is slow; the live price above works independently."))
+        else:
+            _btf = "1hour" if "1hour" in _cb else next(iter(_cb))
+            _lpx = _cb[_btf][-1][4] if _cb[_btf] else 0.0
+            components.html(
+                build_tv_chart_html(candles=_cb[_btf], tfs=_cb, base_tf=_btf,
+                                    symbol=str(cfg["symbol"]), zones=[], levels=[],
+                                    title=f"{cfg['symbol']} · {_btf}",
+                                    dec=CC.decimals_for(_lpx), initial_bars=320),
+                height=640, scrolling=False,
+            )
 
 # ---------------------------------------------------------------- گیت واقعی: دفتر + سقف‌ها
 cap = 0.0
@@ -326,14 +363,50 @@ if _lit_meta:
               " · market orders are sent with a 0.5% slippage guard (worst acceptable price).")
            if is_real else "")))
 o1, o2, o3, o4 = st.columns(4)
+
+# سایز سریع: درصدی از سقفِ همین سفارش — فقط با قیمتِ زنده‌ی در دسترس
+_price_est_now = float(tick.get("last") or 0.0) if tick else 0.0
+if is_real and cap > 0 and _price_est_now > 0:
+    st.caption(tr(f"⚡ سایز سریع از سقفِ همین سفارش ({cap:,.0f} USDT) — کلیک کن:",
+                  f"⚡ Quick size from this order's cap ({cap:,.0f} USDT) — click:"))
+    _qs = st.columns(4)
+    for _i, _pct in enumerate((10, 25, 50, 100)):
+        with _qs[_i]:
+            if st.button(f"{_pct}%", use_container_width=True, key=f"qs_{_pct}"):
+                _usd = cap * _pct / 100.0
+                st.session_state["amt_preset"] = round(_usd / _price_est_now, 8)
+                st.session_state["amt_seq"] = int(st.session_state.get("amt_seq", 0)) + 1
+                st.rerun()
+elif is_real:
+    st.caption(tr("برای سایز سریع، قیمتِ زنده و سقفِ مثبت لازم است — اگر سقف صفر است، وضعیت دفتر را چک کن.",
+                  "Quick sizing needs a live price and a positive cap — if the cap is zero, check the ledger status."))
+
 with o1:
     side = st.selectbox(tr("جهت", "Side"), ["buy", "sell"])
 with o2:
     otype = st.selectbox(tr("نوع", "Type"), ["market", "limit"])
 with o3:
-    amount = st.number_input("مقدار (ارز پایه)", min_value=0.0, value=0.001, format="%.6f")
+    amount = st.number_input("مقدار (ارز پایه)", min_value=0.0,
+                             value=float(st.session_state.get("amt_preset") or 0.001),
+                             format="%.8f", key=f"amt_{st.session_state.get('amt_seq', 0)}")
 with o4:
-    price = st.number_input("قیمت لیمیت (فقط limit)", min_value=0.0, value=0.0)
+    if st.button(tr("💡 قیمت لحظه‌ای", "💡 Use live price"), key="px_live_btn",
+                 help=tr("قیمت لیمیت را با قیمتِ زنده‌ی همین لحظه پر می‌کند.",
+                         "Fills the limit price with the current live price.")):
+        if _price_est_now > 0:
+            st.session_state["prc_preset"] = _price_est_now
+            st.session_state["prc_seq"] = int(st.session_state.get("prc_seq", 0)) + 1
+            st.rerun()
+        else:
+            st.warning(tr("قیمت زنده الان در دسترس نیست.", "Live price is unavailable right now."))
+    price = st.number_input("قیمت لیمیت (فقط limit)", min_value=0.0,
+                            value=float(st.session_state.get("prc_preset") or 0.0),
+                            format="%.8f", key=f"prc_{st.session_state.get('prc_seq', 0)}")
+
+_price_est = price if (otype == "limit" and price > 0) else _price_est_now
+if amount > 0 and _price_est > 0:
+    st.caption(tr(f"≈ ارزش سفارش: {amount * _price_est:,.2f} USDT",
+                  f"≈ Order value: {amount * _price_est:,.2f} USDT"))
 
 if is_real:
     agree = st.checkbox("می‌فهمم پول واقعی است و مسئولیت با من است")
@@ -341,23 +414,50 @@ else:
     agree = st.checkbox("شروع پیپر ترید (مجازی)")
 
 if not is_real:
-    if "paper_bal" not in st.session_state:
-        st.session_state.paper_bal = 10000.0
-    st.info(f"موجودی مجازی: {st.session_state.paper_bal:,.2f} USDT")
+    st.info(tr(
+        f"موجودی مجازی: {st.session_state.paper_bal:,.2f} USDT · "
+        f"سود/زیان تحقق‌یافته: {float(st.session_state.get('paper_realized', 0.0)):+,.2f} USDT",
+        f"Virtual balance: {st.session_state.paper_bal:,.2f} USDT · "
+        f"realized PnL: {float(st.session_state.get('paper_realized', 0.0)):+,.2f} USDT"))
     if st.button("✅ اجرای سفارش مجازی", disabled=not agree):
         if tick is None:
             st.error(tr("قیمت زنده در دسترس نیست؛ سفارش مجازی ثبت نشد. صرافی/نماد را عوض کن یا دوباره «اتصال» بزن.",
                         "Live price unavailable; virtual order not placed. Change exchange/symbol or press «Connect» again."))
-        elif amount <= 0:
-            st.error(tr("مقدار باید بزرگ‌تر از صفر باشد.", "Amount must be greater than zero."))
         else:
-            last = float(tick["last"])
-            cost = amount * last
-            if side == "buy" and cost > st.session_state.paper_bal:
-                st.error(f"موجودی مجازی کافی نیست: نیاز {cost:,.2f} · موجودی {st.session_state.paper_bal:,.2f}")
+            _pos, _bal, _r, _msg = PP.apply_fill(
+                st.session_state.paper_pos, side, cfg["symbol"], amount,
+                float(tick["last"]), st.session_state.paper_bal)
+            if _msg.startswith("✗"):
+                st.error(_msg)
             else:
-                st.session_state.paper_bal += -cost if side == "buy" else cost
-                st.success(f"انجام شد در قیمت {last:,.4f} — بالانس جدید {st.session_state.paper_bal:,.2f}")
+                st.session_state.paper_pos = _pos
+                st.session_state.paper_bal = _bal
+                st.session_state.paper_realized = float(st.session_state.get("paper_realized", 0.0)) + _r
+                st.success(_msg)
+                # ثبت در دفتر مشترک با mode=paper — خارج از سقف‌های واقعی، برای تاریخچه
+                TL.log_real_order(exchange=cfg["ex"], symbol=cfg["symbol"], side=side,
+                                  otype=otype, amount=amount, price=float(tick["last"]),
+                                  notional_usd=amount * float(tick["last"]),
+                                  order_id="paper", mode="paper")
+                st.rerun()
+    # پوزیشن‌های باز مجازی + سود/زیان بازِ نمادِ همین صفحه
+    if st.session_state.paper_pos:
+        st.caption(tr("📊 پوزیشن‌های باز مجازی (سود/زیان باز فقط برای نمادِ همین صفحه با قیمت زنده محاسبه می‌شود):",
+                      "📊 Open virtual positions (unrealized PnL is computed only for this page's symbol with the live price):"))
+        _rows = []
+        for _sym, _p in st.session_state.paper_pos.items():
+            _same = (_sym == str(cfg["symbol"]).strip().upper())
+            _up = PP.unrealized_pnl(st.session_state.paper_pos, _sym,
+                                    float(tick["last"]) if (tick and _same) else None)
+            _rows.append({"نماد": _sym, "مقدار": f"{float(_p['qty']):g}",
+                          "میانگین خرید": f"{float(_p['avg']):,.4f}",
+                          "سود/زیان باز": (f"{_up:+,.2f} USDT" if _same else "—")})
+        st.dataframe(_rows, use_container_width=True, hide_index=True)
+        if st.button("🧹 صفر کردن حساب مجازی (بالانس ۱۰٬۰۰۰)", key="paper_reset"):
+            st.session_state.paper_bal = 10000.0
+            st.session_state.paper_pos = {}
+            st.session_state.paper_realized = 0.0
+            st.rerun()
 else:
     st.caption(tr(
         "سفارش واقعی دومرحله‌ای است: اول «بررسی سفارش»، بعد تأیید نهایی.",

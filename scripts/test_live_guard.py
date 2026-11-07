@@ -372,6 +372,36 @@ def t_setup_sql():
     assert "notional" in sql and "order_id" in sql
 
 
+def t_price_drift():
+    # بدون جابه‌جایی → آزاد
+    ok1, why = G.price_drift_ok(95000.0, 95000.0)
+    assert ok1 and why == ""
+    # جابه‌جایی جزئی (۰٫۵٪) → آزاد
+    ok1, why = G.price_drift_ok(95000.0, 95475.0)
+    assert ok1 and why == ""
+    # بزرگ‌تر از سقف پیش‌فرض (۱٪) → بسته با دلیل
+    ok1, why = G.price_drift_ok(95000.0, 96000.0)     # 1.052%
+    assert not ok1 and "بررسی" in why
+    # فروش هم پوشش داده می‌شود (قدر مطلق)
+    ok1, why = G.price_drift_ok(95000.0, 93500.0)     # -1.58%
+    assert not ok1
+    # سقف سفارشی
+    ok1, why = G.price_drift_ok(100.0, 103.0, max_pct=5.0)
+    assert ok1
+    ok1, why = G.price_drift_ok(100.0, 103.0, max_pct=1.0)
+    assert not ok1
+    # ورودی‌های خراب → بسته (الگوی fail-closed)
+    ok1, _ = G.price_drift_ok(0, 100); assert not ok1
+    ok1, _ = G.price_drift_ok(100, 0); assert not ok1
+    ok1, _ = G.price_drift_ok(-1, 100); assert not ok1
+    ok1, _ = G.price_drift_ok(None, 100); assert not ok1
+    ok1, _ = G.price_drift_ok(100, "bad"); assert not ok1
+    ok1, _ = G.price_drift_ok(float("nan"), 100); assert not ok1
+    ok1, _ = G.price_drift_ok(float("inf"), 100); assert not ok1
+    # ثابت env محور
+    assert G.MAX_PRICE_DRIFT_PCT > 0
+
+
 if __name__ == "__main__":
     print("core/trade_guard.py + core/trade_log.py — safety layer")
     check("notional math", t_notional)
@@ -379,6 +409,7 @@ if __name__ == "__main__":
     check("check order basics", t_check_order_basics)
     check("check order closed store", t_check_order_closed_store)
     check("check order caps", t_check_order_caps)
+    check("price drift guard (market orders)", t_price_drift)
     check("idle expiry", t_expired)
     check("preview build", t_preview_build)
     check("preview staleness + text", t_preview_stale_and_text)

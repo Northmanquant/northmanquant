@@ -200,7 +200,11 @@ with c3:
 with st.spinner(f"در حال گرفتن لیست ارزهای {main_ex}..."):
     all_syms = get_symbols(main_ex)
 
-st.success(f"✅ {len(all_syms)} ارز در {main_ex} پیدا شد")
+if len(all_syms) <= 5:
+    st.warning(f"⚠️ فهرست کامل {main_ex} گرفته نشد — فعلاً {len(all_syms)} نمادِ نمونه نشان داده می‌شود؛ "
+               "چند لحظه بعد دوباره امتحان کن یا صرافی دیگری انتخاب کن.")
+else:
+    st.success(f"✅ {len(all_syms)} ارز در {main_ex} پیدا شد")
 
 s1, s2 = st.columns([1, 2])
 with s1:

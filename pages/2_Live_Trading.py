@@ -412,11 +412,28 @@ else:
                 sp = 0.0
             else:
                 cap_now = cap
-            price_now = p["price"] if p["otype"] == "limit" else (tick["last"] if tick else 0.0)
-            ok, why = G.check_order(p["amount"], price_now, cap=cap_now, daily_spent=sp)
-            if not ok:
-                st.session_state.pending_order = None
-                st.error(why)
+            if p["otype"] == "limit":
+                price_now = p["price"]
+            else:
+                price_now = float(tick.get("last") or 0.0) if tick else 0.0
+            # گارد دومرحله‌ای: سقف‌ها + جابه‌جایی قیمتِ بازار بین بررسی و تأیید
+            _blocked = ""
+            if p["otype"] == "market" and price_now <= 0:
+                _blocked = tr(
+                    "قیمت زنده الان در دسترس نیست — سفارش ارسال نشد؛ چند لحظه بعد دوباره «تأیید» بزن.",
+                    "Live price is unavailable right now — order not sent; press «Confirm» again shortly.")
+            else:
+                ok, why = G.check_order(p["amount"], price_now, cap=cap_now, daily_spent=sp)
+                if not ok:
+                    _blocked = why
+                    st.session_state.pending_order = None
+                elif p["otype"] == "market":
+                    _dok, _dwhy = G.price_drift_ok(p["price"], price_now)
+                    if not _dok:
+                        _blocked = _dwhy
+                        st.session_state.pending_order = None
+            if _blocked:
+                st.error(_blocked)
             elif cfg["ex"] == "Lighter":
                 # مسیر اختصاصی لایتر: SDK رسمی + کلید API (بدون ccxt)
                 _meta = LIT.market_meta(p["symbol"]) if LIT is not None else None

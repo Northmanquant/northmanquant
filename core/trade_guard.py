@@ -45,6 +45,9 @@ WARMUP_ORDERS = _env_int("TRADE_WARMUP_ORDERS", 3)                # طول دو�
 WARMUP_MAX_ORDER_USD = _env_float("TRADE_WARMUP_CAP_USD", 50.0)   # سقف سفارش در گرم‌کردن
 IDLE_TIMEOUT_SEC = _env_float("TRADE_IDLE_TIMEOUT", 1800.0)       # ۳۰ دقیقه بی‌کاری
 PREVIEW_TTL_SEC = _env_float("TRADE_PREVIEW_TTL", 120.0)          # عمر پیش‌نمایش تأیید
+MAX_PRICE_DRIFT_PCT = _env_float("TRADE_MAX_PRICE_DRIFT_PCT", 1.0)  # بیشترین جابه‌جایی قیمتِ مجاز
+# سفارشِ بازار بین «بررسی» و «تأیید»؛ بیشتر از آن = سفارش ارسال نمی‌شود.
+# (سپر لغزش لایتر هم مستقل در سطح SDK فعال است — این گارد روی همه‌ی صرافی‌هاست.)
 
 _EPS = 1e-9
 
@@ -116,6 +119,31 @@ def check_order(amount, price, *, cap: float, daily_spent,
         return False, (f"سقف روزانه {dc:,.0f} USDT است؛ "
                        f"امروز {spent:,.2f} USDT ثبت شده و این سفارش ≈ {v:,.2f} USDT.")
     return True, ""
+
+
+def price_drift_ok(preview_price, live_price,
+                   max_pct: Optional[float] = None) -> Tuple[bool, str]:
+    """گاردِ جابه‌جایی قیمت برای سفارشِ بازار بین «بررسی» و «تأیید».
+
+    اگر قیمت زنده از قیمتِ بررسی‌شده بیشتر از max_pct (پیش‌فرض ۱٪) دور شده
+    باشد، سفارشِ بازار ارسال نمی‌شود — چون سقف‌ها روی قیمتِ قدیمی چک شده‌اند
+    و سفارشِ بازار با قیمتِ جدیدِ بالاتر می‌تواند از سقف بگذرد.
+    خروجی (ok, دلیل_فارسی). ورودی خراب = بسته (False)."""
+    try:
+        pp = float(preview_price)
+        lp = float(live_price)
+        if not (math.isfinite(pp) and math.isfinite(lp)) or pp <= 0 or lp <= 0:
+            return False, "قیمت زنده در دسترس نیست؛ سفارشِ بازار ارسال نشد — دوباره «بررسی سفارش» بزن."
+        m = float(max_pct) if max_pct is not None else MAX_PRICE_DRIFT_PCT
+        if not (math.isfinite(m)) or m <= 0:
+            m = MAX_PRICE_DRIFT_PCT
+        drift = abs(lp - pp) / pp * 100.0
+        if drift > m + _EPS:
+            return False, (f"قیمت زنده از زمانِ بررسی {drift:.2f}٪ جابه‌جا شده (بیش از سقف {m:g}٪) — "
+                           "سفارشِ بازار برای امنیت ارسال نشد؛ دوباره «بررسی سفارش» بزن.")
+        return True, ""
+    except Exception:
+        return False, "قیمت زنده در دسترس نیست؛ سفارشِ بازار ارسال نشد — دوباره «بررسی سفارش» بزن."
 
 
 # ---------------------------------------------------------------- نشست و پیش‌نمایش

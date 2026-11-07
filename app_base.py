@@ -34,6 +34,9 @@ from core import community_store as _cstore
 from core.community_store import render_backend_banner
 from core.i18n import setup_i18n, get_lang
 from core.net import get_json
+from core import trade_guard as _guard
+from core import trade_log as _tlog
+
 KUCOIN = "https://api.kucoin.com"
 BINANCE = "https://api.binance.com"
 BYBIT = "https://api.bybit.com"
@@ -3323,6 +3326,37 @@ def main() -> None:
         st.header("⚙️ تنظیمات")
         st.caption(f"نسخه: {APP_VERSION}")
         render_backend_banner()   # وضعیت بک‌اند برد مشترک: Supabase یا فایل محلی
+
+        # --- لایه‌ی اعتماد ترید واقعی: وضعیت سقف‌ها، دفتر و لایتر --------------
+        with st.expander("🛡 لایه‌ی اعتماد ترید", expanded=False):
+            try:
+                _warm = _tlog.count_real_orders()
+                _spent = _tlog.todays_spent()
+                if _warm is None or _spent is None:
+                    st.caption("⚠️ دفتر سفارش‌ها در دسترس نیست — سفارشِ واقعی قفل است (Paper آزاد).")
+                else:
+                    _cap = _guard.order_cap(_warm)
+                    _w1, _w2 = st.columns(2)
+                    _w1.metric("سفارش واقعی", f"{_warm}",
+                               f"گرم‌کردن {min(_warm, _guard.WARMUP_ORDERS)}/{_guard.WARMUP_ORDERS}",
+                               delta_color="off")
+                    _w2.metric("سقف سفارش بعدی", f"{_cap:,.0f} $")
+                    _w3, _w4 = st.columns(2)
+                    _w3.metric("مصرف امروز", f"{_spent:,.2f} $")
+                    _w4.metric("سقف روزانه", f"{_guard.MAX_DAILY_USD:,.0f} $")
+                    if _spent > 0:
+                        st.progress(min(1.0, _spent / max(1.0, _guard.MAX_DAILY_USD)),
+                                    text=f"مصرف امروز: {_spent:,.2f} از {_guard.MAX_DAILY_USD:,.0f} $")
+            except Exception as _tg_e:  # noqa: BLE001
+                st.caption("وضعیت لایه‌ی اعتماد خوانده نشد: " + str(_tg_e)[:140])
+            try:
+                from core import lighter_real as _lreal
+                _sdk_ok = _lreal.sdk_available()
+            except Exception:  # noqa: BLE001
+                _sdk_ok = False
+            st.caption("لایتر SDK نصب است ✅ — سفارش واقعی لایتر آماده." if _sdk_ok
+                       else "لایتر SDK نصب نیست — سفارش واقعی لایتر غیرفعال است.")
+            st.caption("سقف‌ها فقط با متغیر محیطی قابل تغییرند · کلیدها هرگز ذخیره نمی‌شوند · بعد از ۳۰ دقیقه بی‌کاری اتصال پاک می‌شود.")
 
         # --- section navigation (moved here from the main page) --------------
         section = st.radio("بخش‌ها", SECTIONS, index=0, key="nav_section")

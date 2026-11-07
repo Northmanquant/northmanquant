@@ -104,7 +104,7 @@ with st.container(border=True):
                 st.caption(tr(f"هزینه‌ی کل با کارمزد: {(qty_b * price + fee_b):,.0f} ریال",
                               f"Total incl. fee: {(qty_b * price + fee_b):,.0f} rials"))
                 if st.button("🟢 " + tr("خرید مجازی", "Virtual buy"),
-                             type="primary", use_container_width=True,
+                             type="primary", width="stretch",
                              disabled=qty_b <= 0):
                     ok, msg_fa, msg_en = P.apply_order(
                         port, "buy", ins, sel["symbol"], qty_b, price,
@@ -123,7 +123,7 @@ with st.container(border=True):
                 st.caption(tr(f"عایدی خالص با کارمزد: {(qty_s * price - fee_s):,.0f} ریال",
                               f"Net proceeds: {(qty_s * price - fee_s):,.0f} rials"))
                 if st.button("🔴 " + tr("فروش مجازی", "Virtual sell"),
-                             use_container_width=True,
+                             width="stretch",
                              disabled=qty_s <= 0 or max_own <= 0):
                     ok, msg_fa, msg_en = P.apply_order(
                         port, "sell", ins, sel["symbol"], qty_s, price,
@@ -153,7 +153,7 @@ if tbl.empty:
     st.info(tr("هنوز سهمی نداری — بالا یک نماد پیدا کن و اولین خرید مجازی را بزن.",
                "No positions yet — find a symbol above and place your first virtual buy."))
 else:
-    st.dataframe(tbl, use_container_width=True, hide_index=True)
+    st.dataframe(tbl, width="stretch", hide_index=True)
 
 st.download_button("📗 " + tr("خروجی اکسل پرتفوی (مبلغ‌ها + خلاصه + دفتر سفارش‌ها)",
                               "Portfolio Excel export (positions + summary + order ledger)"),
@@ -178,7 +178,7 @@ else:
         tr("قیمت (ریال)", "Price (Rial)"): f"{o['price']:,.0f}",
         tr("کارمزد (ریال)", "Fee (Rial)"): f"{o['fee']:,.0f}",
     } for o in orders[:30]]
-    st.dataframe(pd.DataFrame(_o_rows), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(_o_rows), width="stretch", hide_index=True)
 
 # ---------------------------------------------------------------- شروع دوباره
 st.divider()
@@ -187,6 +187,6 @@ with r1:
     st.caption(tr("پرتفوی ماکت فقط در همین نشست ذخیره می‌شود و با بستن مرورگر صفر می‌شود.",
                   "The paper portfolio lives only in this session and resets when the browser closes."))
 with r2:
-    if st.button("♻️ " + tr("شروع دوباره", "Reset"), use_container_width=True):
+    if st.button("♻️ " + tr("شروع دوباره", "Reset"), width="stretch"):
         st.session_state.tse_paper = P.new_portfolio()
         st.rerun()

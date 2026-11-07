@@ -5,7 +5,8 @@ import time
 
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
+
+from core.webview import iframe_html
 
 from app_base import (add_indicators, build_agents_svg, build_neural_shell_svg,
                       compute_agents, confluence, fvg_summary, make_plan,
@@ -93,7 +94,7 @@ with cB:
                           format_func=lambda t: _TF_LABELS.get(t, (t, t))[1 if get_lang() == "en" else 0])
 with cC:
     st.write("")
-    fresh = st.button("🔄 " + tr("کندل تازه", "Fresh"), use_container_width=True)
+    fresh = st.button("🔄 " + tr("کندل تازه", "Fresh"), width="stretch")
 
 
 def _score_label(s: float) -> str:
@@ -146,7 +147,7 @@ try:
         m4.metric(_lbl4, _val4, delta=_delta4)
 
         # ---- پوسته‌ی مدل‌ها (بالای چارت — مثل داشبورد) ----------------------
-        components.html(
+        iframe_html(
             "<div style='background:#f6f8fb;margin:0;padding:2px;border-radius:12px'>"
             + build_neural_shell_svg(_comp, score, fvg=fvg_info, price=price)
             + "</div>",
@@ -172,12 +173,12 @@ try:
                 _tv_levels.append({"price": _tp, "name": f"{tr('هدف', 'TP')}{_i + 1} · {_rr}R",
                                    "color": "#2962ff", "dash": True})
 
-        components.html(
+        iframe_html(
             build_tv_chart_html(candles=tfs[tf_sel], tfs=tfs, base_tf=tf_sel,
                                 symbol=pair, zones=_tv_zones, levels=_tv_levels,
                                 title=f"{pair} · {tf_sel}", dec=dec,
                                 initial_bars=320, fx=True),
-            height=760, scrolling=False,
+            height=760,
         )
         st.divider()
 
@@ -185,7 +186,7 @@ try:
         st.subheader("◈ " + tr("دفتر ایجنت‌ها (The Agents) — بک‌تست زنده روی فارکس",
                                "The Agents — live backtest on FX"))
         agent_cards = compute_agents(d)
-        components.html(
+        iframe_html(
             "<div style='background:#f6f8fb;margin:0;padding:2px;border-radius:14px'>"
             + build_agents_svg(agent_cards)
             + "</div>",

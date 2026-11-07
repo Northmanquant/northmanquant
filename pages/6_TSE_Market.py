@@ -6,7 +6,8 @@ import time
 
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
+
+from core.webview import iframe_html
 
 from app_base import (add_indicators, build_agents_svg, build_neural_shell_svg,
                       compute_agents, confluence, fvg_summary, make_plan,
@@ -165,13 +166,13 @@ tb1, tb2, tb3 = st.tabs([
 ])
 with tb1:
     st.dataframe(_fmt_rows(sorted(rows, key=lambda r: -r["change_pct"])),
-                 use_container_width=True, hide_index=True)
+                 width="stretch", hide_index=True)
 with tb2:
     st.dataframe(_fmt_rows(sorted(rows, key=lambda r: r["change_pct"])),
-                 use_container_width=True, hide_index=True)
+                 width="stretch", hide_index=True)
 with tb3:
     st.dataframe(_fmt_rows(sorted(rows, key=lambda r: -r["volume"])),
-                 use_container_width=True, hide_index=True)
+                 width="stretch", hide_index=True)
 
 st.divider()
 st.subheader("🔎 " + tr("تحلیل نماد", "Symbol analysis"))
@@ -234,7 +235,7 @@ with st.container(border=True):
             st.caption(tr(f"وضعیت نماد: {T.STATE_FA.get(snap['state'], snap['state'])}",
                           f"Instrument state: {snap['state']}"))
 
-        components.html(
+        iframe_html(
             "<div style='background:#f6f8fb;margin:0;padding:2px;border-radius:12px'>"
             + build_neural_shell_svg(comp_table, score, fvg=fvg_info, price=price)
             + "</div>",
@@ -271,12 +272,12 @@ with st.container(border=True):
             for _i, (_tp, _rr) in enumerate(plan["targets"]):
                 _tv_levels.append({"price": _tp, "name": f"{tr('هدف', 'TP')}{_i + 1} · {_rr}R",
                                    "color": "#2962ff", "dash": True})
-        components.html(
+        iframe_html(
             build_tv_chart_html(candles=candles, tfs={"1D": candles}, base_tf="1D",
                                 symbol=sel["symbol"], zones=_tv_zones, levels=_tv_levels,
                                 title=f"{sel['symbol']} · TSE · 1D", dec=dec,
                                 initial_bars=320),
-            height=700, scrolling=False,
+            height=700,
         )
 
         # ---- طرح معامله ----------------------------------------------------
@@ -308,7 +309,7 @@ with st.container(border=True):
         st.subheader("◈ " + tr("دفتر ایجنت‌ها — بک‌تست زنده روی همین نماد",
                                "The Agents — live backtest on this symbol"))
         agent_cards = compute_agents(d)
-        components.html(
+        iframe_html(
             "<div style='background:#f6f8fb;margin:0;padding:2px;border-radius:14px'>"
             + build_agents_svg(agent_cards)
             + "</div>",

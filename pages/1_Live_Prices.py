@@ -6,7 +6,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import requests
 import streamlit as st
-import streamlit.components.v1 as components
+
+from core.webview import iframe_html
 from core.crypto_candles import candles_bundle, decimals_for as crypto_decimals
 from core.i18n import setup_i18n, tr
 from core.tv_chart import build_tv_chart_html
@@ -180,7 +181,7 @@ def _mover_table(rows: list[dict], title: str) -> None:
     data = [{"ارز": r["base"], "قیمت": f"${r['last']:,.6g}",
              "۲۴ساعته": f"{r['chg']:+.2f}%"} for r in rows]
     st.caption(title)
-    st.dataframe(data, use_container_width=True, hide_index=True, height=232)
+    st.dataframe(data, width="stretch", hide_index=True, height=232)
 
 
 # ---------------------------------------------------------------- نمای کلی بازار
@@ -396,12 +397,12 @@ if not _bundle:
 else:
     _base_tf = "1hour" if "1hour" in _bundle else next(iter(_bundle))
     _last_px = _bundle[_base_tf][-1][4] if _bundle[_base_tf] else 0.0
-    components.html(
+    iframe_html(
         build_tv_chart_html(candles=_bundle[_base_tf], tfs=_bundle, base_tf=_base_tf,
                             symbol=f"{chart_base}/USDT", zones=[], levels=[],
                             title=f"{chart_base}/USDT · {_base_tf}",
                             dec=crypto_decimals(_last_px), initial_bars=320),
-        height=700, scrolling=False,
+        height=700,
     )
 
 # ---------------------------------------------------------------- عقیده‌ی میدان درباره‌ی همین ارز
@@ -419,7 +420,7 @@ with st.expander(tr("🏟️ عقیده‌ی میدان درباره‌ی همی
             "هنوز هیچ ایجنتی روی این نماد در میدان معامله باز/بسته نکرده — میدان هر ۳۰ دقیقه کل بازار را اسکن می‌کند و فقط برگزیدگانش را معامله می‌کند.",
             "No arena participant has traded this symbol yet — the arena rescans the whole market every 30 minutes and only trades its finalists."))
     else:
-        st.dataframe(_opinion_rows(_ops), use_container_width=True, hide_index=True)
+        st.dataframe(_opinion_rows(_ops), width="stretch", hide_index=True)
         st.caption(tr(
             "این‌ها معامله‌های کاغذیِ میدان روی داده‌ی واقعی‌اند (نه سفارش واقعی) — جزئیات کامل و جدول قهرمانی در «میدان ایجنت‌ها».",
             "These are the arena's paper trades on real data (not real orders) — full details and the championship table live on the «Agent Arena» page."))

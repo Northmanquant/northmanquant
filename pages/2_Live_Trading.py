@@ -2,7 +2,8 @@
 import time
 
 import streamlit as st
-import streamlit.components.v1 as components
+
+from core.webview import iframe_html
 from core.i18n import setup_i18n, tr
 from core import trade_guard as G
 from core import trade_log as TL
@@ -251,7 +252,7 @@ with b1:
         f"متصل: {cfg['ex']} · {cfg['symbol']} · حالت {cfg['mode']}",
         f"Connected: {cfg['ex']} · {cfg['symbol']} · {cfg['mode']} mode"))
 with b2:
-    if st.button(tr("⛔ قطع اتصال", "⛔ Disconnect"), use_container_width=True):
+    if st.button(tr("⛔ قطع اتصال", "⛔ Disconnect"), width="stretch"):
         _clear_conn()
         st.rerun()
 
@@ -316,12 +317,12 @@ if _chart_base:
         else:
             _btf = "1hour" if "1hour" in _cb else next(iter(_cb))
             _lpx = _cb[_btf][-1][4] if _cb[_btf] else 0.0
-            components.html(
+            iframe_html(
                 build_tv_chart_html(candles=_cb[_btf], tfs=_cb, base_tf=_btf,
                                     symbol=str(cfg["symbol"]), zones=[], levels=[],
                                     title=f"{cfg['symbol']} · {_btf}",
                                     dec=CC.decimals_for(_lpx), initial_bars=320),
-                height=640, scrolling=False,
+                height=640,
             )
 
 # ---------------------------------------------------------------- گیت واقعی: دفتر + سقف‌ها
@@ -372,7 +373,7 @@ if is_real and cap > 0 and _price_est_now > 0:
     _qs = st.columns(4)
     for _i, _pct in enumerate((10, 25, 50, 100)):
         with _qs[_i]:
-            if st.button(f"{_pct}%", use_container_width=True, key=f"qs_{_pct}"):
+            if st.button(f"{_pct}%", width="stretch", key=f"qs_{_pct}"):
                 _usd = cap * _pct / 100.0
                 st.session_state["amt_preset"] = round(_usd / _price_est_now, 8)
                 st.session_state["amt_seq"] = int(st.session_state.get("amt_seq", 0)) + 1
@@ -452,7 +453,7 @@ if not is_real:
             _rows.append({"نماد": _sym, "مقدار": f"{float(_p['qty']):g}",
                           "میانگین خرید": f"{float(_p['avg']):,.4f}",
                           "سود/زیان باز": (f"{_up:+,.2f} USDT" if _same else "—")})
-        st.dataframe(_rows, use_container_width=True, hide_index=True)
+        st.dataframe(_rows, width="stretch", hide_index=True)
         if st.button("🧹 صفر کردن حساب مجازی (بالانس ۱۰٬۰۰۰)", key="paper_reset"):
             st.session_state.paper_bal = 10000.0
             st.session_state.paper_pos = {}
@@ -619,7 +620,7 @@ if is_real and cfg.get("ex") == "Lighter":
             "این داده از API عمومی لایتر خوانده می‌شود — بدون هیچ کلیدی (اطلاعات حساب روی لایتر عمومی است).",
             "Read from Lighter's public API — with no keys at all (account data on Lighter is public)."))
         if _acc["positions"]:
-            st.dataframe(_acc["positions"], use_container_width=True)
+            st.dataframe(_acc["positions"], width="stretch")
         else:
             st.info(tr("پوزیشن بازی نداری.", "No open positions."))
         if st.button("🛑 لغو همه‌ی سفارش‌های باز در لایتر", type="secondary"):
@@ -664,7 +665,7 @@ st.caption(tr(
     "Every real order is logged here without any keys — the basis of the daily cap and warm-up period."))
 _rows = TL.recent(20)
 if _rows:
-    st.dataframe(_rows, use_container_width=True)
+    st.dataframe(_rows, width="stretch")
     st.download_button("📗 " + tr("خروجی اکسل دفتر سفارش‌ها", "Ledger Excel export"),
                        data=XE.trade_log_workbook(_rows),
                        file_name="trade_log.xlsx", mime=XE.MIME, key="trade_log_xlsx",

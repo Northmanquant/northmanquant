@@ -41,8 +41,7 @@ from core import xlsx_export as XE  # noqa: E402
 from core import arena_store  # noqa: E402
 from core import crypto_candles as CC  # noqa: E402
 from core.tv_chart import build_tv_chart_html  # noqa: E402
-from core.duel_engine import _dec_for  # noqa: E402
-import streamlit.components.v1 as components  # noqa: E402
+from core.webview import iframe_html  # noqa: E402
 
 EXCHANGES = ["KuCoin", "OKX", "Binance", "Bybit", "Lighter", "XT", "LBank", "KCEX"]
 _store = arena_store.get_store()
@@ -533,13 +532,13 @@ with tab_pos:
                         if _ct.get(_k):
                             _levels.append({"price": float(_ct[_k]), "name": _k.upper(),
                                             "color": "#16a34a", "dash": True})
-                    components.html(
+                    iframe_html(
                         build_tv_chart_html(
                             candles=_cb[_btf], tfs=_cb, base_tf=_btf,
                             symbol=str(_ct.get("symbol")), zones=[], levels=_levels,
                             title=f"{_ct.get('agent')} · {_ct.get('symbol')} · {_btf}",
                             dec=CC.decimals_for(_cpx), initial_bars=320),
-                        height=640, scrolling=False,
+                        height=640,
                     )
                     st.caption(L("سطوح: ورود آبی · استاپ قرمز خط‌چین · اهداف سبز خط‌چین — کندل از Binance spot.",
                                  "Levels: blue entry · red dashed stop · green dashed targets — candles from Binance spot."))

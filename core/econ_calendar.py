@@ -21,9 +21,12 @@
 """
 from __future__ import annotations
 
+import json
 import re
 import time
+import urllib.parse
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from core.net import get_text
@@ -58,6 +61,37 @@ TEHRAN = timezone(timedelta(hours=3, minutes=30))   # ایران: UTC+3:30 ثا�
 FETCH_TIMEOUT = 15.0
 TTL = 6 * 3600.0          # تقویم رسمی کند به‌روز می‌شود — کش ۶ ساعت (مثل TITAN)
 NEG_TTL = 600.0           # کش منفیِ کوتاه بعد از شکست
+
+# لایه‌ی دوم fetch — آینه‌ی همه‌منظوره‌ی همان فایل رسمی. BLS از IPهای دیتاسنتر
+# (Streamlit Cloud) دسترسی را می‌بندد (۴۰۳)؛ داده‌ی رسمی از مسیر دیگر همان است.
+MIRROR_PREFIX = "https://api.allorigins.win/raw?url="
+
+# لایه‌ی سوم فیوز — اسنپ‌شات محلیِ فایل رسمی (الگوی tse_symbols.json).
+# تولید/نوسازی: python3 scripts/gen_econ_snapshot.py
+_SNAP_DIR = Path(__file__).parent / "data"
+
+
+def _mirror_url(url: str) -> str:
+    return MIRROR_PREFIX + urllib.parse.quote(url or "", safe="")
+
+
+def _snapshot(source: str) -> tuple[str, str]:
+    """اسنپ‌شات محلیِ رسمی → (متن، تاریخ اسنپ‌شات). نبود/خراب = ("", "")."""
+    try:
+        p = _SNAP_DIR / f"{source}_schedule.ics"
+        txt = p.read_text(encoding="utf-8") if p.exists() else ""
+        if "BEGIN:VCALENDAR" not in txt:
+            return "", ""
+        date = ""
+        try:
+            j = json.loads((_SNAP_DIR / "econ_snapshots.json").read_text(encoding="utf-8"))
+            date = str((j.get(source) or {}).get("fetched_at", ""))[:10]
+        except Exception:  # noqa: BLE001 — بدون متادیتا هم اسنپ‌شات معتبر است
+            pass
+        return txt, date
+    except Exception:  # noqa: BLE001 — فیوز هرگز نباید بشکند
+        return "", ""
+
 
 # هدر مرورگر — بعضی منابع (مثل BLS) درخواستِ بدون UA را می‌بندند
 HEADERS = {
@@ -189,7 +223,8 @@ def _fetch_ics(url: str, _fetch: Optional[_TextFetch] = None) -> str:
 def _source_group(source: str, month: str,
                   _fetch: Optional[_TextFetch] = None) -> Dict[str, Any]:
     """یک منبع را می‌خواند/از کش می‌گیرد و به همان ماه فیلتر می‌کند.
-    خرابی = گروه با کلید error (بقیه‌ی منابع سالم می‌مانند)."""
+    سه لایه: مستقیم → آینه‌ی رسمی → اسنپ‌شات محلی.
+    خرابی کامل = گروه با کلید error (بقیه‌ی منابع سالم می‌مانند)."""
     meta = CALENDARS[source]
     hit = _cache.get(source)
     cached: Optional[Dict[str, Any]] = None
@@ -201,21 +236,36 @@ def _source_group(source: str, month: str,
         elif age < TTL:
             cached = hit[1]
     if cached is None and not negative:
+        snap_date = ""
+        via = "live"
         txt = _fetch_ics(meta["ics"], _fetch)
+        if not txt.strip():
+            # مستقیم شکست خورد — همان فایل رسمی از مسیر آینه
+            txt = _fetch_ics(_mirror_url(meta["ics"]), _fetch)
+            via = "mirror"
+        if not txt.strip():
+            # آینه هم شکست خورد — فیوز: اسنپ‌شات رسمی داخل ریپو
+            txt, snap_date = _snapshot(source)
+            via = "snapshot"
         if not txt.strip():
             # شبکه/دسترسی شکست خورد — پیام صادقانه‌ی لایه‌ی fetch (مثلاً ۴۰۳) بیاید، نه پیام عمومیِ پارس
             _cache[source] = (time.monotonic(), False)   # کشِ منفیِ کوتاه
-            cached = {"data": [], "error": last_error or "منبع پاسخ نداد."}
+            cached = {"data": [], "error": last_error or "منبع پاسخ نداد.",
+                      "via": "live", "snapshot_date": ""}
         else:
             try:
                 events = parse_ics(txt, source, meta["ics"])
-                cached = {"data": events, "error": ""}
+                cached = {"data": events, "error": "", "via": via,
+                          "snapshot_date": snap_date if via == "snapshot" else ""}
                 _cache[source] = (time.monotonic(), cached)
             except Exception as e:  # noqa: BLE001
                 _cache[source] = (time.monotonic(), False)   # کشِ منفیِ کوتاه
-                cached = {"data": [], "error": str(e) or type(e).__name__}
+                cached = {"data": [], "error": str(e) or type(e).__name__,
+                          "via": "live", "snapshot_date": ""}
     if negative:
-        cached = {"data": [], "error": "شکست قبلی — کش منفی (چند دقیقه بعد دوباره تلاش می‌شود)."}
+        cached = {"data": [], "error": "شکست قبلی — کش منفی (چند دقیقه بعد دوباره تلاش می‌شود).",
+                  "via": "live", "snapshot_date": ""}
+    cached = cached or {"data": [], "error": "", "via": "live", "snapshot_date": ""}
     data = cached.get("data") or []
     in_month = [e for e in data if (e["datetime_utc"] or e["datetime_local"]).startswith(month)]
     cover = [(e["datetime_utc"] or e["datetime_local"])[:10] for e in data]
@@ -225,6 +275,8 @@ def _source_group(source: str, month: str,
         "public_url": meta["public"],
         "data": in_month,
         "error": cached.get("error", ""),
+        "via": cached.get("via", "live"),
+        "snapshot_date": cached.get("snapshot_date", ""),
         "coverage_start": min(cover, default=None),
         "coverage_end": max(cover, default=None),
     }

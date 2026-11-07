@@ -1,0 +1,14 @@
+{
+  "bea": {
+    "events": 169,
+    "fetched_at": "2026-11-07T09:56:10+00:00",
+    "sha256": "cbebc02fc884f265",
+    "url": "https://www.bea.gov/news/schedule/ics/online-calendar-subscription.ics"
+  },
+  "bls": {
+    "events": 313,
+    "fetched_at": "2026-11-07T09:56:09+00:00",
+    "sha256": "92a350111ace106d",
+    "url": "https://www.bls.gov/schedule/news_release/bls.ics"
+  }
+}

@@ -1,0 +1,51 @@
+name: Econ Snapshot Refresh
+
+# نوسازی هفتگی اسنپ‌شات محلیِ تقویم‌های رسمی BLS/BEA — لایه‌ی سوم فیوزِ
+# تقویم اقتصادی (core/data/*_schedule.ics). BLS از IPهای دیتاسنتر (مثل
+# Streamlit Cloud) دسترسی را می‌بندد؛ رانرهای GitHub آمریکا هستند و دسترسی
+# مستقیم دارند — پس اسنپ‌شات این‌جا تازه می‌شود و داخل ریپو commit می‌شود.
+# اگر فایل تغییری نکرده باشد، commit و push هیچ‌کدام انجام نمی‌شود.
+
+on:
+  workflow_dispatch: {}      # دستی — هر وقت خواستی
+  schedule:
+    - cron: "37 3 * * 1"     # دوشنبه‌ها ۰۳:۳۷ UTC — قبل از باز شدن بازار آمریکا
+
+concurrency:
+  group: econ-snapshot
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install deps (فقط requests کافی است)
+        run: pip install requests
+
+      - name: Refresh snapshots
+        run: python scripts/gen_econ_snapshot.py
+
+      - name: Commit if changed
+        run: |
+          if [ -n "$(git status --porcelain core/data/)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add core/data/
+            git commit -m "chore(تقویم): نوسازی هفتگی اسنپ‌شات رسمی BLS/BEA — خودکار توسط Actions"
+            git -c credential.helper='!f(){ echo username=x-access-token; echo password=${GITHUB_TOKEN}; };f' push origin main
+          else
+            echo "اسنپ‌شات‌ها بدون تغییر بودند — commit لازم نیست"
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

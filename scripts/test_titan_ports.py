@@ -18,9 +18,11 @@ import io
 import os
 import py_compile
 import sys
+import tempfile
 import traceback
 import zipfile
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from xml.etree import ElementTree
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -153,33 +155,120 @@ def t_month_validation():
     assert months == {"2026-01"}, months          # فقط ژانویه‌ی ۲۰۲۶
 
 
-def t_source_error_isolation():
-    """منبع خراب نباید منبع سالم را بکشد — گروهِ خراب با error گزارش می‌شود."""
-    EC._reset_for_tests()
-    state = {"calls": 0}
+def _no_snapshots():
+    """اسنپ‌شات را در یک پوشه‌ی خالی موقت غیرفعال می‌کند — (مسیر، تابع restore)."""
+    tmp = tempfile.mkdtemp(prefix="nq_nosnap_")
+    orig = EC._SNAP_DIR
+    EC._SNAP_DIR = Path(tmp)
+    return orig
 
-    def fetch(url, **kw):
-        state["calls"] += 1
-        if "bls.gov" in url:
-            raise TimeoutError("boom")
-        return ICS_FA
-    cal = EC.calendar("2026-01", fetch)
-    bls, bea = cal["groups"]["bls"], cal["groups"]["bea"]
-    assert bls["error"] != "" and bls["data"] == []
-    assert bea["error"] == "" and len(bea["data"]) > 0
-    assert state["calls"] == 2
+
+def t_source_error_isolation():
+    """منبع خراب نباید منبع سالم را بکشد — گروهِ خراب با error گزارش می‌شود.
+    (اسنپ‌شات غیرفعال؛ هر منبع دو تلاش می‌کند: مستقیم + آینه)"""
+    EC._reset_for_tests()
+    orig = _no_snapshots()
+    state = {"calls": 0}
+    try:
+        def fetch(url, **kw):
+            state["calls"] += 1
+            if "bls.gov" in url:
+                raise TimeoutError("boom")
+            return ICS_FA
+        cal = EC.calendar("2026-01", fetch)
+        bls, bea = cal["groups"]["bls"], cal["groups"]["bea"]
+        assert bls["error"] != "" and bls["data"] == []
+        assert bea["error"] == "" and len(bea["data"]) > 0
+        # BLS: مستقیم + آینه (هر دو ۴۰۳/خراب) + BEA: مستقیم سالم
+        assert state["calls"] == 3, state["calls"]
+        assert bea["via"] == "live"
+    finally:
+        EC._SNAP_DIR = orig
 
 
 def t_negative_cache():
     EC._reset_for_tests()
+    orig = _no_snapshots()
     state = {"calls": 0}
+    try:
+        def fetch(url, **kw):
+            state["calls"] += 1
+            raise ConnectionError("down")
+        cal = EC.calendar("2026-01", fetch)
+        assert cal["groups"]["bls"]["error"] != ""
+        EC.calendar("2026-01", fetch)      # دومین بار باید از کشِ منفی بیاید
+        # دو منبع × دو لایه‌ی fetch (مستقیم + آینه)، فقط در اولین اجرا
+        assert state["calls"] == 4, state["calls"]
+    finally:
+        EC._SNAP_DIR = orig
 
-    def fetch(url, **kw):
-        state["calls"] += 1
-        raise ConnectionError("down")
-    EC.calendar("2026-01", fetch)
-    EC.calendar("2026-01", fetch)          # دومین بار باید از کشِ منفی بیاید
-    assert state["calls"] == 2             # دو منبع، هر یک یک بار
+
+def t_mirror_fallback():
+    """لایه‌ی دوم: مستقیم بسته (۴۰۳) ولی آینه باز → داده‌ی رسمی با via=mirror."""
+    EC._reset_for_tests()
+    orig = _no_snapshots()
+    try:
+        def fetch(url, **kw):
+            # فقط مسیر مستقیم بسته است — آینه (MIRROR_PREFIX) باز است
+            if "bls.gov" in url and not url.startswith(EC.MIRROR_PREFIX):
+                raise TimeoutError("403")
+            return ICS_FA          # آینه‌ی همه‌منظوره همین‌جا پاسخ می‌دهد
+        cal = EC.calendar("2026-01", fetch)
+        bls = cal["groups"]["bls"]
+        assert bls["error"] == "" and len(bls["data"]) > 0, bls["error"]
+        assert bls["via"] == "mirror", bls["via"]
+        assert bls["snapshot_date"] == ""
+    finally:
+        EC._SNAP_DIR = orig
+
+
+def t_snapshot_fallback():
+    """لایه‌ی سوم: شبکه کامل پایین → اسنپ‌شات رسمی داخل ریپو جان می‌دهد."""
+    EC._reset_for_tests()
+    tmp = tempfile.mkdtemp(prefix="nq_snap_")
+    snap_ics = ICS_FA
+    (Path(tmp) / "bls_schedule.ics").write_text(snap_ics, encoding="utf-8")
+    (Path(tmp) / "econ_snapshots.json").write_text(
+        '{"bls": {"fetched_at": "2026-11-07T09:00:00+00:00"}}', encoding="utf-8")
+    orig = EC._SNAP_DIR
+    EC._SNAP_DIR = Path(tmp)
+    try:
+        def fetch(url, **kw):
+            raise ConnectionError("down")
+        cal = EC.calendar("2026-01", fetch)
+        bls = cal["groups"]["bls"]
+        assert bls["error"] == "" and len(bls["data"]) > 0, bls["error"]
+        assert bls["via"] == "snapshot", bls["via"]
+        assert bls["snapshot_date"] == "2026-11-07", bls["snapshot_date"]
+        # snapshot فقط بلا را پوشش می‌دهد — بِیا بدون اسنپ‌شات error می‌گیرد
+        assert cal["groups"]["bea"]["error"] != ""
+    finally:
+        EC._SNAP_DIR = orig
+
+
+def t_snapshot_corrupt_is_honest():
+    """اسنپ‌شات خراب = مثل نبودنش — گروه error می‌گیرد، هرگز نمی‌شکند."""
+    EC._reset_for_tests()
+    tmp = tempfile.mkdtemp(prefix="nq_badsnap_")
+    (Path(tmp) / "bls_schedule.ics").write_text("not a calendar", encoding="utf-8")
+    orig = EC._SNAP_DIR
+    EC._SNAP_DIR = Path(tmp)
+    try:
+        def fetch(url, **kw):
+            raise ConnectionError("down")
+        cal = EC.calendar("2026-01", fetch)
+        bls = cal["groups"]["bls"]
+        assert bls["error"] != "" and bls["data"] == []
+    finally:
+        EC._SNAP_DIR = orig
+
+
+def t_mirror_url_encoding():
+    u = EC._mirror_url("https://www.bls.gov/schedule/news_release/bls.ics")
+    assert u.startswith(EC.MIRROR_PREFIX)
+    assert "bls.gov" in u and "%" in u          # percent-encoded
+    from urllib.parse import unquote
+    assert unquote(u.split("url=", 1)[1]) == "https://www.bls.gov/schedule/news_release/bls.ics"
 
 
 def t_key_events_upcoming():
@@ -346,6 +435,10 @@ if __name__ == "__main__":
     check("month validation + filter", t_month_validation)
     check("source error isolation", t_source_error_isolation)
     check("negative cache", t_negative_cache)
+    check("mirror fallback layer", t_mirror_fallback)
+    check("snapshot fallback layer", t_snapshot_fallback)
+    check("corrupt snapshot is honest", t_snapshot_corrupt_is_honest)
+    check("mirror url encoding", t_mirror_url_encoding)
     check("upcoming key events window", t_key_events_upcoming)
     print("== xlsx_export ==")
     check("workbook basics (RTL, inline strings, no formulas)", t_workbook_basic)

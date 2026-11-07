@@ -99,8 +99,23 @@ for g in data["groups"].values():
             tr("زمان محلی ناشر", "Publisher local time"): "" if e["all_day"] else f"{local} ({e['zone']})",
         })
     st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
-    st.caption((f"پوشش تقویم این منبع: {g['coverage_start']} تا {g['coverage_end']}" if g["coverage_start"]
-                else "") + f" · {len(events)} " + tr("رویداد", "events"))
+    # صداقت درباره‌ی مسیر داده: زنده / آینه / اسنپ‌شات
+    if g.get("via") == "snapshot":
+        st.caption(tr(
+            f"📦 این گروه از **اسنپ‌شات محلیِ** فایل رسمی نمایش داده می‌شود (تاریخ اسنپ‌شات: {g.get('snapshot_date') or '؟'}) "
+            f"— سرور زنده به منبع دسترسی نداشت؛ برای تازگیِ روزِ انتشار، صفحه‌ی رسمی را چک کن: {g['public_url']}",
+            f"📦 This section comes from the **local snapshot** of the official file (snapshot date: {g.get('snapshot_date') or '?'}) "
+            f"— the live source was unreachable; for exact release-day freshness check the official page: {g['public_url']}"))
+    elif g.get("via") == "mirror":
+        st.caption(tr(
+            "🪞 داده از **آینه‌ی رسمی** همان فایل تقویم خوانده شد (سرور مستقیم بسته بود) — محتوا همان خروجی رسمی ناشر است.",
+            "🪞 Data was read from an **official mirror** of the same calendar file (direct server was blocked) — content is the publisher's official output."))
+    cap = ""
+    if g["coverage_start"]:
+        cap = tr(f"بازه‌ی کامل تقویم این منبع: {g['coverage_start']} تا {g['coverage_end']}",
+                 f"Full calendar range of this source: {g['coverage_start']} to {g['coverage_end']}")
+    st.caption((cap + " · " if cap else "")
+               + f"{len(events)} " + tr("رویداد در این ماه", "events this month"))
 
 # ---------------------------------------------------------------------------
 st.warning(tr(

@@ -212,6 +212,68 @@ def t_search_chain():
     assert T.search("", _fake_fetch) == []
 
 
+# ---------------------------------------------------------------- tests: فهرست داخلی
+def t_static_symbols():
+    syms = T.static_symbols()
+    assert len(syms) >= 1200, len(syms)
+    by = {r["symbol"]: r for r in syms}
+    # کد‌های رسمیِ پایدار TSETMC — راستی‌آزمایی‌شده از دو منبع مستقل
+    assert by["فولاد"]["ins_code"] == "46348559193224090"
+    assert by["فملی"]["ins_code"] == "35425587644337450"
+    assert by["وبملت"]["ins_code"] == "778253364357513"
+    assert by["شپنا"]["ins_code"] == "7745894403636165"
+    assert all(r["ins_code"].isnumeric() for r in syms)
+    assert all("name" in r and "isin" in r for r in syms)
+    assert T.static_symbols() is syms            # کش — بدون بازخوانی فایل
+
+
+def t_static_search():
+    # دقیق → اولین نتیجه فولاد است
+    rows = T.static_search("فولاد")
+    assert rows and rows[0]["symbol"] == "فولاد"
+    assert rows[0]["ins_code"] == "46348559193224090"
+    # نام کامل شرکت هم جست‌وجو می‌شود
+    assert any(r["symbol"] == "فولاد" for r in T.static_search("مبارکه"))
+    # ي/ک عربی در ورودی کاربر → همان نتیجه‌ی فارسی
+    assert any(r["symbol"] == "کگل" for r in T.static_search("كگل"))
+    # ISIN لاتین
+    assert any(r["symbol"] == "فولاد" for r in T.static_search("IRO1FOLD"))
+    # فاصله/نیم‌فاصله و حاشیه‌ها
+    assert T.static_search("  فولاد  ")
+    # ins_code عددی مستقیم
+    assert T.static_search("46348559193224090")[0]["symbol"] == "فولاد"
+    # ناموجود
+    assert T.static_search("ززززناموجود") == []
+    assert T.static_search("") == []
+
+
+def t_search_fallback_and_fuse():
+    # همه‌ی لایه‌های شبکه‌ای خراب → فهرست داخلی نجات می‌دهد
+    T._reset_for_tests()
+    rows = T.search("فولاد", _broken_fetch)
+    assert rows and rows[0]["symbol"] == "فولاد"
+    assert T.last_error and "بورس" in T.last_error
+    # فیوز: صدا زدن بعدیِ خراب، شبکه را دوباره صدا نمی‌زند (فوری fallback)
+    calls = {"n": 0}
+
+    def _count(url, **kw):
+        calls["n"] += 1
+        raise ConnectionError("blocked")
+
+    T._reset_for_tests()
+    assert T.search("فولاد", _count)
+    n1 = calls["n"]
+    assert n1 >= 1
+    rows = T.search("وبملت", _count)               # فیوز روشن → بدون شبکه
+    assert calls["n"] == n1, (calls["n"], n1)
+    assert rows and rows[0]["symbol"] == "وبملت"
+    # موفقیت فیوز را خاموش می‌کند → دوباره تلاش می‌شود
+    T._reset_for_tests()
+    assert T.search("فولاد", _fake_fetch)[0]["symbol"] == "فولاد"
+    assert T.search("فولاد", _count)
+    assert calls["n"] >= 1                          # فیوز خاموش شده بود → تلاش واقعی
+
+
 def t_history_and_snapshot():
     T._reset_for_tests()
     df = T.history("46348559193224090", _fake_fetch)
@@ -416,6 +478,9 @@ if __name__ == "__main__":
     check("index scale fix", t_scale_fix)
     check("mirror fetch chain + cache", t_fetch_chain)
     check("search chain", t_search_chain)
+    check("static symbols list", t_static_symbols)
+    check("static search matching", t_static_search)
+    check("search fallback + network fuse", t_search_fallback_and_fuse)
     check("history + snapshot", t_history_and_snapshot)
     check("indices", t_indices)
     check("never raises", t_module_never_raises)

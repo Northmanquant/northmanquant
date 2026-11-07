@@ -16,6 +16,13 @@
 جواب نداد، پیام صادقانه در `last_error` می‌نشیند و UI با «چرا داده نیامد»
 روشن می‌کند. اجرای لوکال از داخل ایران همیشه کار می‌کند.
 
+دو سپر ضدقطعی:
+  · فیوز شبکه: بعد از یک شکستِ کامل، ۶۰ ثانیه TSETMC اصلاً صدا زده نمی‌شود
+    (وگرنه هر حرف تایپ در جست‌وجو چند ثانیه انتظارِ تایم‌اوت می‌شود).
+  · فهرست داخلی نمادها: ~۱۴۰۰ نماد با ins_code رسمی از pytse-client 0.19.1
+    در مخزن است (core/data/tse_symbols.json)؛ یافتنِ نماد همیشه کار می‌کند،
+    حتی وقتی گرفتنِ قیمت از سرور ابری ممکن نیست.
+
 الگوی پروژه: هیچ تابعی exception به UI نمی‌اندازد — ورودی/شبکه‌ی خراب =
 [] / {} / DataFrame خالی. همه‌ی توابع با fetch تزریقی بدون شبکه تست‌پذیرند.
 """
@@ -23,6 +30,8 @@ from __future__ import annotations
 
 import csv
 import io
+import json
+import os
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -72,13 +81,20 @@ _TextFetch = Callable[..., str]
 
 _cache: Dict[str, Any] = {}
 last_error: Optional[str] = None
+_down_until = 0.0            # فیوز شبکه: تا این لحظه (monotonic) TSETMC را امتحان نکن
+DOWN_BACKOFF = 60.0          # بعد از شکستِ کامل، چند ثانیه مستقیم fallback برویم
+_STATIC_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "data", "tse_symbols.json")
+_static: Optional[List[Dict[str, Any]]] = None
 
 
 def _reset_for_tests() -> None:
     """بین تست‌ها وضعیت ماژول صفر می‌شود (بدون شبکه)."""
-    global _cache, last_error
+    global _cache, last_error, _down_until, _static
     _cache = {}
     last_error = None
+    _down_until = 0.0
+    _static = None
 
 
 # ---------------------------------------------------------------- نرمال‌سازی فارسی
@@ -89,6 +105,61 @@ _AR_TO_FA = str.maketrans({"ي": "ی", "ك": "ک", "ة": "ه", "\u200f": "", "\u
 def norm_fa(s: Any) -> str:
     """ي→ی · ك→ک · ارقام فارسی→لاتین — برای نمایش و کلید یکسان."""
     return str(s or "").translate(_AR_TO_FA).translate(_FA_DIGITS).strip()
+
+
+def _search_key(s: Any) -> str:
+    """کلید تطبیق جست‌وجو: نیم‌فاصله و فاصله حذف، ی/ي و ک/ک یکسان، لاتین کوچک."""
+    return norm_fa(s).replace("\u200c", "").replace("\u200f", "").replace(" ", "").lower()
+
+
+def static_symbols() -> List[Dict[str, Any]]:
+    """فهرست داخلی ~۱۴۰۰ نماد بورس تهران — بدون هیچ شبکه‌ای.
+    منبع داده: pytse-client 0.19.1 متن‌باز (کد رسمی و پایدار TSETMC).
+    هدف: یافتنِ نماد حتی وقتی سرورهای بورس از سرور ابری در دسترس نیستند.
+    خرابیِ فایل = [] (هرگز raise نمی‌کند)."""
+    global _static
+    if _static is None:
+        rows: List[Dict[str, Any]] = []
+        try:
+            with open(_STATIC_PATH, "r", encoding="utf-8") as fh:
+                raw = json.load(fh)
+            for r in raw:
+                ins = str(r.get("ins") or "").strip()
+                sym = norm_fa(r.get("symbol"))
+                if not sym or not ins.isnumeric():
+                    continue
+                rows.append({
+                    "symbol": sym,
+                    "name": norm_fa(r.get("name")),
+                    "ins_code": ins,
+                    "isin": str(r.get("isin") or "").strip(),
+                    "_k_sym": _search_key(sym),
+                    "_k_name": _search_key(r.get("name")),
+                })
+        except Exception:  # noqa: BLE001 — فایل نبود/خراب → فهرست خالی
+            rows = []
+        _static = rows
+    return _static
+
+
+def static_search(query: str, limit: int = 20) -> List[Dict[str, Any]]:
+    """جست‌وجوی محلی در فهرست داخلی — دقیق‌ها اول، بعد شروع‌شده‌ها، بعد شامل‌ها.
+    با نماد، نام کامل شرکت و ISIN (لاتین) مطابقت داده می‌شود."""
+    qk = _search_key(query)
+    if not qk:
+        return []
+    exact: List[Dict[str, Any]] = []
+    starts: List[Dict[str, Any]] = []
+    contains: List[Dict[str, Any]] = []
+    for r in static_symbols():
+        if r["_k_sym"] == qk or r["ins_code"] == qk:
+            exact.append(r)
+        elif r["_k_sym"].startswith(qk) or (r["_k_name"] and r["_k_name"].startswith(qk)):
+            starts.append(r)
+        elif qk in r["_k_sym"] or (r["_k_name"] and qk in r["_k_name"]) \
+                or (len(qk) >= 4 and qk in r["isin"].lower()):
+            contains.append(r)
+    return (exact + starts + contains)[:limit]
 
 
 def _num(v: Any, default: float = 0.0) -> float:
@@ -110,7 +181,11 @@ def _fetch_text(path: str, _fetch: Optional[_TextFetch] = None,
     اتصال تا timeout معلق می‌ماند و امتحانِ پشت‌سرهم تا ~۵۰ ثانیه طول می‌کشد؛
     مسابقه‌ی موازی همان را به چند ثانیه می‌رساند.
     همه‌ی آینه‌ها شکست خوردند = رشته‌ی خالی + پیام صادقانه در last_error."""
-    global last_error
+    global last_error, _down_until
+    if time.monotonic() < _down_until:
+        # فیوز روشن: شکستِ کاملِ تازه ثبت شده — فوری fallback تا UI منتظرِ
+        # تایم‌اوت نماند (مثلاً هر حرفِ تایپ‌شده در جست‌وجوی نماد).
+        return ""
     fetch = _fetch or get_text
     errs: List[str] = []
     pool = ThreadPoolExecutor(max_workers=len(HOSTS),
@@ -124,6 +199,7 @@ def _fetch_text(path: str, _fetch: Optional[_TextFetch] = None,
                 txt = fut.result()
                 if txt and str(txt).strip():
                     last_error = None
+                    _down_until = 0.0          # موفقیت → فیوز خاموش
                     return str(txt)
                 errs.append(f"{host}: پاسخ خالی")
             except Exception as e:  # noqa: BLE001
@@ -131,6 +207,7 @@ def _fetch_text(path: str, _fetch: Optional[_TextFetch] = None,
     finally:
         # منتظر بقیه‌ی آینه‌ها نمی‌مانیم — برنده برگشته است
         pool.shutdown(wait=False, cancel_futures=True)
+    _down_until = time.monotonic() + DOWN_BACKOFF   # فیوز روشن: ۶۰ ثانیه استراحت
     last_error = ("سرورهای بورس تهران پاسخ ندادند (" + " · ".join(errs[:2]) + ") — "
                   "احتمالاً دسترسی از خارج از ایران بسته است؛ اجرای لوکال از داخل ایران کار می‌کند.")
     return ""
@@ -229,7 +306,9 @@ def _parse_search(raw: str) -> List[Dict[str, Any]]:
 
 
 def search(query: str, _fetch: Optional[_TextFetch] = None) -> List[Dict[str, Any]]:
-    """جست‌وجوی نماد بر اساس نام فارسی/لاتین. خالی → فیلتر محلیِ دیده‌بان."""
+    """جست‌وجوی نماد در سه لایه: زنده‌ی TSETMC → فیلتر دیده‌بان → فهرست داخلی.
+    لایه‌ی سوم بدون شبکه است؛ یافتنِ نماد همیشه کار می‌کند حتی وقتی سرور بورس
+    از سرور ابری در دسترس نیست (گرفتنِ قیمت هنوز به TSETMC نیاز دارد)."""
     q = norm_fa(query)
     if not q:
         return []
@@ -238,10 +317,14 @@ def search(query: str, _fetch: Optional[_TextFetch] = None) -> List[Dict[str, An
     rows = _parse_search(raw)
     if rows:
         return rows
-    # fallback: فیلتر محلی روی دیده‌بان (کش‌شده)
+    # fallback ۱: فیلتر محلی روی دیده‌بان (کش‌شده)
     mw = market_watch(_fetch)
     ql = q.lower()
-    return [r for r in mw if ql in r["symbol"].lower() or q in r["name"]][:20]
+    hits = [r for r in mw if ql in r["symbol"].lower() or q in r["name"]][:20]
+    if hits:
+        return hits
+    # fallback ۲: فهرست داخلی ~۱۴۰۰ نماد — همیشه در دسترس
+    return static_search(q)
 
 
 # ---------------------------------------------------------------- تاریخ روزانه

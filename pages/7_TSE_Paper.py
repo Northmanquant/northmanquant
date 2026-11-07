@@ -87,6 +87,8 @@ with st.container(border=True):
         if price <= 0:
             st.error(tr("قیمت این نماد گرفته نشد — چند لحظه بعد دوباره امتحان کن.",
                         "Price fetch failed — try again shortly."))
+            if T.last_error:
+                st.caption("⚠️ " + tr("دلیل: ", "Reason: ") + T.last_error)
         else:
             st.caption(
                 (tr("قیمت زنده", "Live price") if live else tr("آخرین قیمت پایانی", "Last close"))

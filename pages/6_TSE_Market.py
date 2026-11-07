@@ -197,6 +197,8 @@ with st.container(border=True):
         if df.empty:
             st.error(tr("تاریخ روزانه‌ی این نماد گرفته نشد — چند لحظه بعد دوباره امتحان کن.",
                         "Daily history failed — try again shortly."))
+            if T.last_error:
+                st.caption("⚠️ " + tr("دلیل: ", "Reason: ") + T.last_error)
             st.stop()
         d = df.tail(420).copy().reset_index(drop=True)
         d = add_indicators(d)

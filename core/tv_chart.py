@@ -1608,12 +1608,16 @@ function fmtRem(ms){ if(ms<=0) return '00:00';
 setInterval(function(){
   const c=CAND(); if(!c.length || !mainSeries) return;
   const a=c[c.length-1];
-  const cls = a[4]>=a[1] ? '#26a69a' : '#ef5350';
+  /* قیمت زنده‌ی موتور هشدار (اگر تیک تازه <۹۰ث) جلوی قیمت کهنه‌ی کندل دیده می‌شود */
+  let px=a[4], liveNow=false;
+  try{ const L=window.__nqLivePx;
+    if(L && isFinite(L.v) && L.v>0 && (Date.now()-L.at)<90000){ px=L.v; liveNow=true; } }catch(e){}
+  const cls = px>=a[1] ? '#26a69a' : '#ef5350';
   const pc = c.length>1? c[c.length-2][4] : a[1];
-  const chg = pc? ((a[4]-pc)/pc*100):0;
+  const chg = pc? ((px-pc)/pc*100):0;
   const rem = (a[0]+SEC())*1000 - Date.now();
-  cdown.innerHTML = '<span style="color:'+cls+'">'+fmtP(a[4])+' '+(chg>=0?'+':'')+chg.toFixed(2)+'%'
-                  + '</span><span style="color:#f59e0b">⏱ '+fmtRem(rem)+'</span>';
+  cdown.innerHTML = '<span style="color:'+cls+'">'+fmtP(px)+' '+(chg>=0?'+':'')+chg.toFixed(2)+'%'
+                  + '</span><span style="color:#f59e0b">⏱ '+fmtRem(rem)+(liveNow?' <span style="color:#26a69a">●</span>':'')+'</span>';
 }, 500);
 
 /* ---------- منوی نوع چارت -------------------------------------------- */
@@ -1753,8 +1757,8 @@ _ALERT_JS = """
 /* ---------- هشدار قیمتی (🔔) — ذخیره محلی + سینک کلود + تریگر زنده ----------
    • ابزار «هشدار» یا دکمه‌ی 🔔 → کلیک روی چارت در قیمت هدف → خط نارنجی چین‌چین
    • کلیک روی خط هشدار (یا دابل‌کلیک) = حذف
-   • تریگر زنده: کریپتو هر ۲۰ ثانیه قیمت زنده از Binance؛ بقیه بازارها روی
-     آخرین قیمتِ کندل هنگام بازشدن چارت چک می‌شوند + چکر سروری (Actions) پشتیبان است
+   • تریگر زنده: کریپتو هر ۲۰ ثانیه قیمت زنده از ۴ منبع با مهلت (بایننس ×۲،
+     کریپتوکمپیر، کوین‌گکو)؛ بقیه بازارها روی آخرین قیمت کندل + چکر سروری (Actions)
    • بدون کلید کلود هم کار می‌کند (فقط localStorage) */
 (function(){
   const symKey  = ()=> (String(DATA.symbol||'')||'NQ').toUpperCase().replace(/\\s+/g,'_');
@@ -1837,16 +1841,40 @@ _ALERT_JS = """
 
   /* ---------- تریگر ---------- */
   function lastClosePrice(){ try{ const c=CAND(); return (c && c.length)? c[c.length-1][4] : null; }catch(e){ return null; } }
+  /* ضد «گیر کردن»: هر منبع قیمت مهلت ۵ ثانیه‌ای دارد — قبلاً fetch بی‌مهلت بود و
+     از شبکه‌هایی که بایننس را فیلتر می‌کنند، اتصال معلق می‌ماند و کل چکِ هشدار
+     تا ابد قفل می‌شد (checking هرگز آزاد نمی‌شد). اگر بایننس در دسترس نبود،
+     جمع‌کننده‌های عمومی (کریپتوکمپیر/کوین‌گکو) که از شبکه‌های محدود هم معمولاً
+     باز می‌شوند امتحان می‌شوند؛ هیچ‌کدام هم نیامد → آخرین کندل چارت. */
+  function fetchTOms(url, ms){ const ctl=new AbortController();
+    const t=setTimeout(()=>ctl.abort(), ms||5000);
+    return fetch(url, {signal:ctl.signal}).finally(()=>clearTimeout(t)); }
+  const CG_IDS = { BTC:'bitcoin', ETH:'ethereum', SOL:'solana', XRP:'ripple',
+    BNB:'binancecoin', DOGE:'dogecoin', ADA:'cardano', TRX:'tron',
+    TON:'the-open-network', AVAX:'avalanche-2', LINK:'chainlink',
+    DOT:'polkadot', LTC:'litecoin', MATIC:'matic-network', SHIB:'shiba-inu' };
   async function livePrice(){
     if(!isCrypto()) return null;
     const sym = binSym();
-    for(const h of ['https://data-api.binance.vision','https://api.binance.com']){
+    const base = symDisp().split('/')[0].split('-')[0].trim().toUpperCase();
+    const hosts = [
+      ['https://data-api.binance.vision/api/v3/ticker/price?symbol='+sym, j=>parseFloat(j&&j.price)],
+      ['https://api.binance.com/api/v3/ticker/price?symbol='+sym,         j=>parseFloat(j&&j.price)],
+      ['https://min-api.cryptocompare.com/data/price?fsym='+base+'&tsyms=USDT,USD',
+        j=>{ const v = j && (j.USDT!=null? j.USDT : j.USD); return parseFloat(v); }]
+    ];
+    const cg = CG_IDS[base];
+    if(cg) hosts.push(['https://api.coingecko.com/api/v3/simple/price?ids='+cg+'&vs_currencies=usd',
+      j=> (j && j[cg])? parseFloat(j[cg].usd) : NaN]);
+    for(const h of hosts){
       try{
-        const r = await fetch(h+'/api/v3/ticker/price?symbol='+sym);
+        const r = await fetchTOms(h[0], 5000);
         if(!r.ok) continue;
-        const j = await r.json();
-        const v = parseFloat(j && j.price);
-        if(isFinite(v) && v>0) return v;
+        const v = h[1](await r.json());
+        if(isFinite(v) && v>0){
+          try{ window.__nqLivePx = {v:v, at:Date.now()}; }catch(e){}
+          return v;
+        }
       }catch(e){}
     }
     return null;
@@ -1856,7 +1884,9 @@ _ALERT_JS = """
     if(checking) return; checking=true;
     try{
       if(!ALERTS.some(a=>a.active)) return;
-      const live = await livePrice();
+      /* خط امانی ۹ ثانیه‌ای: هر چه شد چک تمام می‌شود — قفل checking تا ابد نمی‌ماند */
+      const live = await Promise.race([livePrice(),
+        new Promise(r=>setTimeout(()=>r(null), 9000))]);
       const px = (live!=null)? live : lastClosePrice();
       if(px==null) return;
       const nowIso = new Date().toISOString();

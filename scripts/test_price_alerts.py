@@ -81,6 +81,12 @@ for frag in ("fetchTOms", "ctl.abort()", "cryptocompare", "coingecko",
              "Promise.race([livePrice()", "9000", "__nqLivePx"):
     ok(frag in _src, f"ضدگیرِ قیمت زنده «{frag}»")
 
+# نسخه‌ی موازی: منابع همزمان (اولین موفق برنده) + ۳ صرافی ایران‌پسند +
+# وضعیت سه‌حالته چیپ (سبز/نارنجی/✕) + چک فوری بلافاصله بعد از رسم هشدار
+for frag in ("function anyOk", "okx.com/api/v5/market/ticker", "api.bybit.com/v5/market/tickers",
+             "api.gateio.ws/api/v4/spot/tickers", "__nqLiveState", "checkAlerts(); }catch(e){}"):
+    ok(frag in _src, f"موازی‌سازی قیمت زنده «{frag}»")
+
 # پل اسکوپ: _MAIN_JS همین نام‌ها را سراسری صدا می‌زند — بدون export مرورگر کرش می‌کند
 # (باگ واقعی: ReferenceError: addAlert is not defined — فقط در مرورگر، نه در سیم node)
 for fn in ("addAlert", "removeAlert", "alertHit"):
@@ -226,6 +232,7 @@ vm.runInThisContext(ALERTJS_SRC, {filename:'alert.js'});
   assert(L[1].active===true, 'هشدار below دست‌نخورده');
   assert(toasts.some(t=>t.indexOf('🔔')>=0 && t.indexOf('۱۱۰')>=0 || t.indexOf('110')>=0), 'توست تریگر آمد');
   assert(JSON.parse(store['nqtv:al:BTC/USDT'])[0].active===false, 'وضعیت تریگر ذخیره شد');
+  assert(globalThis.__nqLiveState && globalThis.__nqLiveState.st==='ok', 'وضعیت چیپ ● سبز (تیک زنده) ثبت شد');
 
   // ۷) حذف با ایندکس (مسیر کلیک/دابل‌کلیک/✕ همین تابع است)
   tickerPrice = null;
@@ -246,7 +253,13 @@ vm.runInThisContext(ALERTJS_SRC, {filename:'alert.js'});
   const belowAl = L.find(a=>Number(a.price)===90);
   assert(belowAl && belowAl.active===false && belowAl.trigger_price===89,
          'تریگر با منبع جایگزین (کریپتوکمپیر) — ضدگیر');
+  // نسخه‌ی موازی: هر ۷ منبع همزمان شلیک می‌شوند — ۳ منبع تازه باید در لاگ fetch باشند
+  const tried = log.get.map(String).join(' ');
+  assert(tried.indexOf('okx.com')>=0 && tried.indexOf('bybit.com')>=0 && tried.indexOf('gateio.ws')>=0,
+         'منابع تازه OKX/Bybit/Gate همزمان شلیک شدند');
   ccPrice = null;
+  await api.checkAlerts();   // همه‌ی منابع خراب → ✕ قرمز
+  assert(globalThis.__nqLiveState && globalThis.__nqLiveState.st==='fail', 'وضعیت ✕ قرمز (همه‌ی منابع رد) ثبت شد');
 
   // ۱۰) رسم هشدار روی بوم استاب نمی‌شکند و خط/برچسب می‌کشد
   globalThis.__nqDrawAlerts();

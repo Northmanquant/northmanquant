@@ -1608,16 +1608,22 @@ function fmtRem(ms){ if(ms<=0) return '00:00';
 setInterval(function(){
   const c=CAND(); if(!c.length || !mainSeries) return;
   const a=c[c.length-1];
-  /* قیمت زنده‌ی موتور هشدار (اگر تیک تازه <۹۰ث) جلوی قیمت کهنه‌ی کندل دیده می‌شود */
-  let px=a[4], liveNow=false;
+  /* قیمت زنده‌ی موتور هشدار (اگر تیک تازه <۹۰ث) جلوی قیمت کهنه‌ی کندل دیده می‌شود.
+     نشانگر وضعیت شبکه: ● سبز = تیک زنده‌ی تازه · ● نارنجی = در حال گرفتن قیمت · ✕ قرمز = همه‌ی منابع رد شدند */
+  let px=a[4], liveNow=false, liveSt=null;
   try{ const L=window.__nqLivePx;
     if(L && isFinite(L.v) && L.v>0 && (Date.now()-L.at)<90000){ px=L.v; liveNow=true; } }catch(e){}
+  try{ const ST=window.__nqLiveState;
+    if(ST && (Date.now()-ST.at)<90000) liveSt=ST.st; }catch(e){}
   const cls = px>=a[1] ? '#26a69a' : '#ef5350';
   const pc = c.length>1? c[c.length-2][4] : a[1];
   const chg = pc? ((px-pc)/pc*100):0;
   const rem = (a[0]+SEC())*1000 - Date.now();
+  const dot = liveNow? ' <span style="color:#26a69a">●</span>'
+            : liveSt==='wait'? ' <span style="color:#f59e0b">●</span>'
+            : liveSt==='fail'? ' <span style="color:#ef5350">✕</span>' : '';
   cdown.innerHTML = '<span style="color:'+cls+'">'+fmtP(px)+' '+(chg>=0?'+':'')+chg.toFixed(2)+'%'
-                  + '</span><span style="color:#f59e0b">⏱ '+fmtRem(rem)+(liveNow?' <span style="color:#26a69a">●</span>':'')+'</span>';
+                  + '</span><span style="color:#f59e0b">⏱ '+fmtRem(rem)+dot+'</span>';
 }, 500);
 
 /* ---------- منوی نوع چارت -------------------------------------------- */
@@ -1801,6 +1807,8 @@ _ALERT_JS = """
     ALERTS.push(a);
     if(ALERTS.length>100) ALERTS = ALERTS.slice(-100);
     updateBadge(); saveAlerts();
+    /* چک فوری: تا ۵ث بعد از رسم، وضعیت زنده و تریگر بررسی شود — نه ۲۰ث صبر */
+    try{ checkAlerts(); }catch(e){}
     toast('🔔 هشدار ثبت شد '+(a.dir==='above'?'⬆ بالای ':'⬇ زیر ')+fmtP(price)+(isCrypto()? ' — هنگام رسیدن قیمت مطلع می‌شوی':''));
   }
   function removeAlert(i){ if(i<0 || i>=ALERTS.length) return;
@@ -1841,14 +1849,25 @@ _ALERT_JS = """
 
   /* ---------- تریگر ---------- */
   function lastClosePrice(){ try{ const c=CAND(); return (c && c.length)? c[c.length-1][4] : null; }catch(e){ return null; } }
-  /* ضد «گیر کردن»: هر منبع قیمت مهلت ۵ ثانیه‌ای دارد — قبلاً fetch بی‌مهلت بود و
-     از شبکه‌هایی که بایننس را فیلتر می‌کنند، اتصال معلق می‌ماند و کل چکِ هشدار
-     تا ابد قفل می‌شد (checking هرگز آزاد نمی‌شد). اگر بایننس در دسترس نبود،
-     جمع‌کننده‌های عمومی (کریپتوکمپیر/کوین‌گکو) که از شبکه‌های محدود هم معمولاً
-     باز می‌شوند امتحان می‌شوند؛ هیچ‌کدام هم نیامد → آخرین کندل چارت. */
+  /* ضد «گیر کردن» قیمت زنده — نسخه‌ی موازی (هر ۷ منبع همزمان شلیک می‌شوند).
+     قبلاً منابع «پشت‌سرهم» امتحان می‌شدند: روی شبکه‌هایی که بایننس را drop می‌کنند
+     (اتصال معلق بدون RST) مهلت ۹ ثانیه‌ی چک پیش از رسیدن به منابع بعدی تمام می‌شد
+     و منابع سالم هرگز شانسی نداشتند — دقیقاً علت «نقطه‌ی سبز دیده نمی‌شود».
+     حالا اولین جواب سالم برنده است (حداکثر ۵ث) و قفل‌شدن ناممکن است.
+     منابع: بایننس میرور/اصلی + OKX + Bybit + Gate.io (معمولاً از شبکه‌های محدود
+     هم باز می‌شوند) + کریپتوکمپیر + کوین‌گکو. هیچ‌کدام نیامد → آخرین کندل چارت. */
   function fetchTOms(url, ms){ const ctl=new AbortController();
     const t=setTimeout(()=>ctl.abort(), ms||5000);
     return fetch(url, {signal:ctl.signal}).finally(()=>clearTimeout(t)); }
+  /* کوچک‌ترین جایگزین Promise.any — اولین موفق برنده، شکست فقط وقتی همه رد شوند */
+  function anyOk(list){
+    return new Promise((res, rej)=>{
+      let n=list.length, fails=0;
+      if(!n){ rej(new Error('empty')); return; }
+      list.forEach(p=>Promise.resolve(p).then(res,
+        ()=>{ if(++fails===n) rej(new Error('allfail')); }));
+    });
+  }
   const CG_IDS = { BTC:'bitcoin', ETH:'ethereum', SOL:'solana', XRP:'ripple',
     BNB:'binancecoin', DOGE:'dogecoin', ADA:'cardano', TRX:'tron',
     TON:'the-open-network', AVAX:'avalanche-2', LINK:'chainlink',
@@ -1860,46 +1879,64 @@ _ALERT_JS = """
     const hosts = [
       ['https://data-api.binance.vision/api/v3/ticker/price?symbol='+sym, j=>parseFloat(j&&j.price)],
       ['https://api.binance.com/api/v3/ticker/price?symbol='+sym,         j=>parseFloat(j&&j.price)],
+      ['https://www.okx.com/api/v5/market/ticker?instId='+base+'-USDT',   j=>{ const d=j&&j.data; return parseFloat(d&&d[0]&&d[0].last); }],
+      ['https://api.bybit.com/v5/market/tickers?category=spot&symbol='+sym, j=>{ const l=j&&j.result&&j.result.list; return parseFloat(l&&l[0]&&l[0].lastPrice); }],
+      ['https://api.gateio.ws/api/v4/spot/tickers?currency_pair='+base+'_USDT', j=>{ const g=j&&j[0]; return parseFloat(g&&g.last); }],
       ['https://min-api.cryptocompare.com/data/price?fsym='+base+'&tsyms=USDT,USD',
         j=>{ const v = j && (j.USDT!=null? j.USDT : j.USD); return parseFloat(v); }]
     ];
     const cg = CG_IDS[base];
     if(cg) hosts.push(['https://api.coingecko.com/api/v3/simple/price?ids='+cg+'&vs_currencies=usd',
       j=> (j && j[cg])? parseFloat(j[cg].usd) : NaN]);
-    for(const h of hosts){
-      try{
-        const r = await fetchTOms(h[0], 5000);
-        if(!r.ok) continue;
-        const v = h[1](await r.json());
-        if(isFinite(v) && v>0){
-          try{ window.__nqLivePx = {v:v, at:Date.now()}; }catch(e){}
-          return v;
-        }
-      }catch(e){}
-    }
-    return null;
-  }
-  let checking=false;
-  async function checkAlerts(){
-    if(checking) return; checking=true;
     try{
-      if(!ALERTS.some(a=>a.active)) return;
-      /* خط امانی ۹ ثانیه‌ای: هر چه شد چک تمام می‌شود — قفل checking تا ابد نمی‌ماند */
-      const live = await Promise.race([livePrice(),
-        new Promise(r=>setTimeout(()=>r(null), 9000))]);
-      const px = (live!=null)? live : lastClosePrice();
-      if(px==null) return;
-      const nowIso = new Date().toISOString();
-      let hits=0;
-      for(const a of ALERTS){
-        if(!a.active) continue;
-        const ap = parseFloat(a.price); if(!isFinite(ap)) continue;
-        const hit = (a.dir==='below')? (px<=ap) : (px>=ap);
-        if(hit){ a.active=false; a.triggered_at=nowIso; a.trigger_price=px; hits++;
-          toast('🔔 هشدار: '+symDisp()+' '+(a.dir==='below'?'به زیر ':'به بالای ')+fmtP(ap)+' رسید — قیمت: '+fmtP(px)); }
-      }
-      if(hits){ beep(); updateBadge(); saveAlerts(); }
-    }finally{ checking=false; }
+      const v = await anyOk(hosts.map(h=> (async()=>{
+        const r = await fetchTOms(h[0], 5000);
+        if(!r.ok) throw new Error('http '+r.status);
+        const p = h[1](await r.json());
+        if(!isFinite(p) || p<=0) throw new Error('badpx');
+        return p;
+      })()));
+      try{ window.__nqLivePx = {v:v, at:Date.now()};
+           window.__nqLiveState = {st:'ok', at:Date.now()}; }catch(e){}
+      return v;
+    }catch(e){
+      try{ window.__nqLiveState = {st:'fail', at:Date.now()}; }catch(e2){}
+      return null;
+    }
+  }
+  /* اشتراک پرومیز در-جریان: اگر چکی در جریان باشد، فراخوانی جدید به همان می‌پیوندد
+     (به‌جای قورت‌دادن) — حلقه‌ی تریگر ALERTS را بعد از رسیدن قیمت می‌خواند، پس
+     هشدارهای تازه‌ی افزود‌شده در میانه‌ی چک هم پوشش داده می‌شوند. */
+  let inFlight=null;
+  function checkAlerts(){
+    if(inFlight) return inFlight;
+    inFlight = (async()=>{
+      try{
+        /* همین یک میکروتیک: بدنه هرگز همگام تمام نمی‌شود — وگرنه finally
+           (inFlight=null) قبل از انتصاب اجرا می‌شد و پرومیزِ مرده برای همیشه
+           می‌ماند و همه‌ی چک‌های بعدی به آن می‌پیوستند (باگ واقعی تست شد) */
+        await 0;
+        if(!ALERTS.some(a=>a.active)) return;
+        try{ window.__nqLiveState = {st:'wait', at:Date.now()}; }catch(e){}
+        /* خط امانی ۹ ثانیه‌ای: هر چه شد چک تمام می‌شود — قفلِ ابدی ناممکن است؛
+           خود livePrice موازی است و حداکثر ۵ث طول می‌کشد */
+        const live = await Promise.race([livePrice(),
+          new Promise(r=>setTimeout(()=>r(null), 9000))]);
+        const px = (live!=null)? live : lastClosePrice();
+        if(px==null) return;
+        const nowIso = new Date().toISOString();
+        let hits=0;
+        for(const a of ALERTS){
+          if(!a.active) continue;
+          const ap = parseFloat(a.price); if(!isFinite(ap)) continue;
+          const hit = (a.dir==='below')? (px<=ap) : (px>=ap);
+          if(hit){ a.active=false; a.triggered_at=nowIso; a.trigger_price=px; hits++;
+            toast('🔔 هشدار: '+symDisp()+' '+(a.dir==='below'?'به زیر ':'به بالای ')+fmtP(ap)+' رسید — قیمت: '+fmtP(px)); }
+        }
+        if(hits){ beep(); updateBadge(); saveAlerts(); }
+      }finally{ inFlight=null; }
+    })();
+    return inFlight;
   }
   setInterval(checkAlerts, 20000);
   setTimeout(checkAlerts, 1500);

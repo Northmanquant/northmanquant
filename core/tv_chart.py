@@ -1909,6 +1909,10 @@ _ALERT_JS = """
   updateBadge();
   window.__nqAlertApi = { addAlert:addAlert, removeAlert:removeAlert, alertHit:alertHit,
                           checkAlerts:checkAlerts, list:()=>ALERTS };
+  /* پل اسکوپ: هندلرهای _MAIN_JS (ابزار هشدار، کلیک/دابل‌کلیک روی خط) همین نام‌های
+     سراسری را صدا می‌زنند — بدون این پل ReferenceError می‌داد، هشدار اصلاً ثبت
+     نمی‌شد و کلیک روی چارت بی‌صدا کرش می‌کرد (باگ «هیچی نشون داده نمی‌شه») */
+  window.addAlert=addAlert; window.removeAlert=removeAlert; window.alertHit=alertHit;
 
   /* ---------- همگام‌سازی ابری هشدارها (Supabase — اختیاری) ---------- */
   (function(){

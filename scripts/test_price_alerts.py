@@ -81,6 +81,11 @@ for frag in ("fetchTOms", "ctl.abort()", "cryptocompare", "coingecko",
              "Promise.race([livePrice()", "9000", "__nqLivePx"):
     ok(frag in _src, f"ضدگیرِ قیمت زنده «{frag}»")
 
+# پل اسکوپ: _MAIN_JS همین نام‌ها را سراسری صدا می‌زند — بدون export مرورگر کرش می‌کند
+# (باگ واقعی: ReferenceError: addAlert is not defined — فقط در مرورگر، نه در سیم node)
+for fn in ("addAlert", "removeAlert", "alertHit"):
+    ok(("window." + fn + "=") in _ALERT_JS, f"پل اسکوپ window.{fn} در _ALERT_JS")
+
 _yml = (ROOT / ".github" / "workflows" / "price-alerts.yml").read_text(encoding="utf-8")
 ok("check_price_alerts.py" in _yml and "cron:" in _yml, "ورک‌فلو چکر را اجرا می‌کند (کرون)")
 _cksrc = (ROOT / "scripts" / "check_price_alerts.py").read_text(encoding="utf-8")
@@ -182,6 +187,10 @@ vm.runInThisContext(ALERTJS_SRC, {filename:'alert.js'});
 (async () => {
   const api = globalThis.__nqAlertApi;
   assert(api && typeof api.addAlert==='function', 'api هشدار در دسترس است');
+  // پل اسکوپ — بدون این، هندلر کلیک _MAIN_JS در مرورگر ReferenceError می‌دهد
+  assert(typeof globalThis.addAlert==='function', 'window.addAlert صادر شد');
+  assert(typeof globalThis.removeAlert==='function', 'window.removeAlert صادر شد');
+  assert(typeof globalThis.alertHit==='function', 'window.alertHit صادر شد');
   await sleep(80);   // reconcile اول (کلود خالی) تمام شود
 
   // ۱) کلود خالی + محلی خالی → فقط مُهر، بدون push

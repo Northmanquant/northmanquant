@@ -25,6 +25,13 @@ def _pools_cached() -> tuple:
     return OP.fetch_llama_pools()
 
 
+@st.cache_data(ttl=86400, show_spinner=False)
+def _sites_cached() -> dict:
+    """نقشه‌ی slug→وب‌سایت رسمی — کش ۲۴ ساعته؛ خطا یعنی نقشه‌ی خالی (نه کرش)."""
+    sites, _err = OP.fetch_project_urls()
+    return sites
+
+
 st.title("🌱 " + tr("فارم و ایردراپ رایگان — با داده‌ی واقعی", "Farm & Free Airdrops — real data only"))
 hint(tr(
     "اینجا سه چیز هست: ① بازدهِ زنده‌ی استخرهای DeFi مستقیم از DefiLlama با تفکیک «APY واقعیِ کارمزدی» "
@@ -71,7 +78,8 @@ with t1:
         sel_chains = st.multiselect(tr("زنجیره‌ها (خالی = همه)", "Chains (empty = all)"),
                                     options=OP.top_chains(rows))
         picks = OP.honest_pools(rows, min_tvl=min_tvl_m * 1e6, stable_only=stable_only,
-                                chains=sel_chains or None, max_apy=float(max_apy), top=top_n)
+                                chains=sel_chains or None, max_apy=float(max_apy), top=top_n,
+                                sites=_sites_cached())
 
         m1, m2, m3, m4 = st.columns(4)
         m1.metric(tr("استخرهای پایش‌شده", "Pools tracked"), f"{len(rows):,}")
@@ -82,7 +90,25 @@ with t1:
             m4.metric(tr("بالاترین امتیاز صداقت", "Top honesty score"),
                       f"{max(p['score'] for p in picks)}")
         if picks:
+            # ورود مستقیم به سه برتر — یک کلیک، داخل پروژه
+            st.markdown(f"**🚀 {tr('سه برتر — ورود مستقیم', 'Top 3 — enter directly')}**")
+            cols3 = st.columns(3)
+            for i, p in enumerate(picks[:3]):
+                with cols3[i]:
+                    st.markdown(
+                        f"<div dir='rtl' style='border:1px solid rgba(148,163,184,.35);border-radius:12px;"
+                        f"padding:10px 12px;margin-bottom:4px'><b>{p['project']}</b><br>"
+                        f"<span style='font-size:12px;opacity:.85'>{p['chain']} · {p['symbol']} · "
+                        f"{tr('امتیاز', 'Score')} {p['score']} · APY {p['apy_base']:.1f}%</span></div>",
+                        unsafe_allow_html=True)
+                    st.link_button("🌐 " + tr("ورود به پروژه", "Open project"),
+                                   p["site"] or p["url"], use_container_width=True)
+                    st.link_button("📊 " + tr("صفحه‌ی استخر", "Pool page"),
+                                   p["url"], use_container_width=True)
+
             sc_lbl = tr("امتیاز صداقت", "Honesty score")
+            pool_lbl = tr("🔗 صفحه‌ی استخر", "🔗 Pool page")
+            site_lbl = tr("🌐 سایت پروژه", "🌐 Project site")
             df = pd.DataFrame([{
                 tr("پروژه", "Project"): p["project"],
                 tr("زنجیره", "Chain"): p["chain"],
@@ -94,6 +120,8 @@ with t1:
                 tr("نوسان", "Volatility"): round(p["sigma"], 3),
                 tr("پیش‌بینی DefiLlama", "Prediction"): p["predicted"] or "—",
                 sc_lbl: p["score"],
+                pool_lbl: p["url"],
+                site_lbl: p["site"],
             } for p in picks])
             st.dataframe(
                 df.sort_values(sc_lbl, ascending=False),
@@ -104,7 +132,18 @@ with t1:
                     tr("APY پاداش ٪", "Reward APY %"): st.column_config.NumberColumn(format="%.2f"),
                     tr("APY ۳۰روزه ٪", "30d APY %"): st.column_config.NumberColumn(format="%.2f"),
                     sc_lbl: st.column_config.ProgressColumn(min_value=0, max_value=100, format="%d"),
+                    pool_lbl: st.column_config.LinkColumn(pool_lbl, display_text="باز کن ↗"),
+                    site_lbl: st.column_config.LinkColumn(site_lbl, display_text="وب‌سایت ↗"),
                 })
+            st.caption(tr(
+                "👆 روی «باز کن ↗» کلیک کن تا وارد صفحه‌ی استخر شوی (نمودار و تاریخچه‌ی بازده) و روی "
+                "«وب‌سایت ↗» تا سایت رسمی پروژه باز شود — لینک سایت‌ها مستقیم از فهرست پروتکل‌های "
+                "DefiLlama می‌آید، نه گوگل؛ وقتی خالی است یعنی آدرس رسمی معتبری ثبت نشده — در گوگل "
+                "دنبالش نگرد، از همین‌جا بی‌خطر رد شو.",
+                "👆 Click 'Open ↗' to enter the pool page (chart + yield history) and 'Website ↗' for "
+                "the project's official site — site links come straight from DefiLlama's protocol "
+                "index, not Google; empty means no verified official address — don't hunt it on "
+                "Google, safely skip it."))
             st.caption(tr(
                 "🌾 APY کارمزدی = سودِ واقعی از کارمزد/نرخ وام (همان که وارد رتبه می‌شود) · APY پاداش = "
                 "توکن ایمی‌شونده که معمولاً به‌محض فروش می‌ریزد و در امتیاز لحاظ نشده · نوسان (sigma) "
@@ -172,6 +211,25 @@ with t2:
         ],
     ):
         st.markdown(f"- 🚩 {flag}")
+    st.divider()
+    st.markdown(f"**🧪 {tr('خودت چک کن — ابزارهای راستی‌آزمایی با لینک مستقیم', 'Check it yourself — verification tools with direct links')}**")
+    st.caption(tr(
+        "به جای اینکه اسم پروژه را در گوگل بزنی (جایی که اولین نتیجه‌ها اغلب سایت‌های فیشینگِ تبلیغ‌شده‌اند)، "
+        "از همین‌جا با یک کلیک وارد ابزار رسمیِ هر بررسی شو:",
+        "Instead of googling the project name (where top results are often advertised phishing sites), "
+        "click straight into the official tool for each check:"))
+    for r in range(0, len(OP.VERIFY_TOOLS), 2):
+        tc1, tc2 = st.columns(2)
+        for j, col in enumerate((tc1, tc2)):
+            idx = r + j
+            if idx >= len(OP.VERIFY_TOOLS):
+                break
+            t = OP.VERIFY_TOOLS[idx]
+            with col:
+                st.link_button(f"🔎 {t['name']}", t["url"], use_container_width=True)
+                st.markdown(
+                    f"<div dir='rtl' style='font-size:13px;opacity:.9;margin-top:-6px'>"
+                    f"{tr(t['what'], t['what_en'])}</div>", unsafe_allow_html=True)
 
 # --------------------------------------------------------------------------- #
 # تب ۳ — تست‌نت/ایردراپ                                                       #
@@ -184,10 +242,22 @@ with t3:
         "The only genuinely 'free' category with payout history: testnets — you play on an experimental "
         "network with valueless tokens; if the project launches, early testers get an allocation. Not "
         "guaranteed — each entry is a lottery ticket. Real cost: your time."))
+    st.link_button("🪂 " + tr("ورود به فهرست زنده‌ی تست‌نت‌ها (مرجع بررسی‌شده)",
+                             "Open the live testnet list (vetted source)"),
+                   OP.AIRDROP_SOURCE_URL, use_container_width=True)
     st.dataframe(
         pd.DataFrame(OP.testnet_rows()), width="stretch", hide_index=True,
         column_config={"منبع": st.column_config.LinkColumn(
             "منبع" if LANG != "en" else "Source", display_text="airdropalert ↗")})
+    st.warning(tr(
+        "🧭 «چطور وارد پروژه شوم؟» — روی دکمه یا ستون «airdropalert ↗» کلیک کن؛ در صفحه‌ی مرجع، نام همان "
+        "پروژه را پیدا کن و از لینکِ رسمیِ داخل همان صفحه واردش شو. عمداً لینک مستقیمِ دست‌ساز اینجا "
+        "نمی‌گذاریم: دامنه‌های جعلی (فیشینگ) در دنیای ایردراپ بیداد می‌کنند و یک حرف جابه‌جا در آدرس یعنی "
+        "کیف پول خالی. همیشه دامنه را با چشم خودت چک کن.",
+        "🧭 'How do I enter the project?' — click the button or the 'airdropalert ↗' column; find the "
+        "project name on the source page and enter via the official link inside it. We deliberately "
+        "avoid hand-written direct links: fake (phishing) domains run rampant in airdrops and one "
+        "swapped letter in a URL means an emptied wallet. Always read the domain with your own eyes."))
     h1, h2 = st.columns(2)
     with h1:
         st.markdown(f"**🧭 {tr('شروع از صفر', 'Starting from zero')}**")

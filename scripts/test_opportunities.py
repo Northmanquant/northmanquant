@@ -8,9 +8,12 @@
      مرتب‌سازی امتیاز، تحمل ردیف خراب، بازه‌ی ۰-۱۰۰، جریمه‌ی پیش‌بینی Down
   ۴) scam_check: قاعده‌ی قطعی seed=۱۰۰، کف ۸۵ برای وعده‌ی تضمینی، سبزها کم می‌کنند،
      پایه‌ی بی‌طرف ۲۲، سطح‌بندی، tips
-  ۵) محتوای دست‌چین: TESTNET_HUNTS/SYBIL_RULES/STARTER_GUIDE + ترجمه‌ها + سؤال‌ها
-  ۶) شبکه‌ی زنده (نرم): اگر اینترنت بود fetch واقعی؛ وگرنه ردِ نرم
-اجرای صفر-ادعا: بخش‌های ۲-۵ بدون شبکه‌ی واقعی‌اند.
+  ۵) ورود مستقیم: clean_site (فقط http(s))، fetch_project_urls (فیل-سافت +
+     پالایش URL خراب)، اتصال site در honest_pools، VERIFY_TOOLS،
+     مارکرهای لینک صفحه (LinkColumn/link_button/باز کن ↗)
+  ۶) محتوای دست‌چین: TESTNET_HUNTS/SYBIL_RULES/STARTER_GUIDE + ترجمه‌ها + سؤال‌ها
+  ۷) شبکه‌ی زنده (نرم): اگر اینترنت بود fetch واقعی؛ وگرنه ردِ نرم
+اجرای صفر-ادعا: بخش‌های ۲-۶ بدون شبکه‌ی واقعی‌اند.
 """
 from __future__ import annotations
 
@@ -179,7 +182,62 @@ _seedq = next(q for q in OP.SCAM_QUESTIONS if q["key"] == "seed")
 ok(_seedq.get("hard") is True, "سؤال seed قاعده‌ی قطعی (hard) دارد")
 ok(all(q.get("en") for q in OP.SCAM_QUESTIONS), "همه‌ی سؤال‌ها ترجمه‌ی انگلیسی دارند")
 
-# ---------------------------------------------------------------- ۵) محتوا
+# ---------------------------------------------------------------- ۵) ورود مستقیم
+section("ورود مستقیم (clean_site + fetch_project_urls + VERIFY_TOOLS)")
+ok(OP.clean_site("https://lido.fi/") == "https://lido.fi/", "URL سالم دست‌نخورده برمی‌گردد")
+ok(OP.clean_site("  https://axis.to ") == "https://axis.to", "فاصله‌های ابتدا/انتها پاک می‌شود")
+ok(OP.clean_site("http://x.io") == "http://x.io", "http ساده هم مجاز است (ولی https ترجیح)")
+ok(OP.clean_site("") == "" and OP.clean_site(None) == "", "خالی/None → رشته‌ی خالی")
+ok(OP.clean_site(" ") == "" and OP.clean_site("javascript:alert(1)") == "",
+   "فاصله‌ی خالی و scheme غیر http → خالی (لینک جعلی سم است)")
+ok(OP.clean_site("ftp://files.io") == "" and OP.clean_site("defillama.com") == "",
+   "ftp و URL بدون scheme رد می‌شوند")
+
+# موفقیت: پاسخ با URLهای سالم + خراب + اسلاگ تکراری
+_net.get_json = lambda *a, **k: {"protocols": [
+    {"slug": "lido", "url": "https://lido.fi/"},
+    {"slug": "fermiswap", "url": " "},               # خراب → حذف
+    {"slug": "weird", "url": "javascript:x"},        # خراب → حذف
+    {"noslug": True},                                  # آشغال → حذف
+    {"slug": "axis", "url": " https://axis.to "},     # پاک‌سازی می‌شود
+]}
+_sites, _serr = OP.fetch_project_urls()
+ok(_serr is None and _sites == {"lido": "https://lido.fi/", "axis": "https://axis.to"},
+   f"نقشه‌ی سایت‌ها: فقط URLهای سالم ({_sites})")
+_net.get_json = _boom
+_sites2, _serr2 = OP.fetch_project_urls()
+ok(_sites2 == {} and _serr2 is not None and "TimeoutError" in _serr2,
+   f"شبکه‌ی مرده: ({{}}, «{_serr2}») — فیل-سافت بدون raise")
+_net.get_json = _ORIG_GETJSON
+
+# اتصال site در honest_pools
+WITH_SITES = OP.honest_pools(FIX, min_tvl=1e7, stable_only=True, top=15,
+                             sites={"good-stable": "https://good.example"})
+_a = next(p for p in WITH_SITES if p["id"] == "a")
+_f2 = next(p for p in WITH_SITES if p["id"] == "f")
+ok(_a["site"] == "https://good.example", "site از نقشه به استخر متصل شد")
+ok(_f2["site"] == "", "اسلاگ غایب → site خالی (نه حدس)")
+NO_SITES = OP.honest_pools(FIX, min_tvl=1e7, stable_only=True, top=15)
+ok(all(p["site"] == "" for p in NO_SITES), "بدون نقشه هم همه site خالی دارند (بدون کرش)")
+
+# VERIFY_TOOLS
+ok(len(OP.VERIFY_TOOLS) >= 5, f"≥۵ ابزار راستی‌آزمایی ({len(OP.VERIFY_TOOLS)})")
+ok(all(str(t.get("url", "")).startswith("https://") for t in OP.VERIFY_TOOLS),
+   "همه‌ی ابزارها لینک https دارند")
+ok(all(t.get("name") and t.get("what") and t.get("what_en") for t in OP.VERIFY_TOOLS),
+   "هر ابزار نام + توضیح فارسی/انگلیسی دارد")
+_known = {"defillama.com", "gopluslabs.io", "de.fi", "tokensniffer.com",
+          "certik.com", "dappradar.com"}
+_hosts = {t["url"].split("//", 1)[1].rstrip("/") for t in OP.VERIFY_TOOLS}
+ok(_hosts <= _known or all(any(h == k or h.endswith("." + k) or h.startswith(k) for k in _known)
+                           for h in _hosts), f"دامنه‌ها فقط ابزارهای شناخته‌شده‌اند ({_hosts})")
+
+# مارکرهای لینک در صفحه
+for frag in ("LinkColumn", "st.link_button", "OP.fetch_project_urls", "باز کن ",
+             "وب‌سایت ", "OP.VERIFY_TOOLS", "sites=_sites_cached", "سه برتر"):
+    ok(frag in _pg, f"مارکر ورود مستقیم صفحه «{frag.strip()}»")
+
+# ---------------------------------------------------------------- ۶) محتوا
 section("محتوای دست‌چین")
 ok(len(OP.TESTNET_HUNTS) >= 6, f"≥۶ تست‌نت دست‌چین ({len(OP.TESTNET_HUNTS)})")
 ok(all(h.get("name") and h.get("kind") and h.get("note") and h.get("added")
@@ -199,7 +257,7 @@ _rows3 = OP.testnet_rows()
 ok(_rows3 and all(r.get("نام") and r.get("هزینه") == "۰ — فقط زمان" for r in _rows3),
    "testnet_rows: جدول فارسی با هزینه‌ی صفر")
 
-# ---------------------------------------------------------------- ۶) شبکه‌ی زنده
+# ---------------------------------------------------------------- ۷) شبکه‌ی زنده
 section("شبکه‌ی زنده (نرم — اگر اینترنت بود)")
 try:
     lrows, lerr = OP.fetch_llama_pools(timeout=12)
@@ -208,10 +266,25 @@ try:
         _PASS += 1
     else:
         ok(lerr is None and len(lrows) > 1000, f"fetch واقعی: {len(lrows):,} استخر زنده")
-        live = OP.honest_pools(lrows, min_tvl=1e7, stable_only=True, max_apy=80.0, top=10)
-        ok(len(live) >= 3, f"فیلتر صداقت روی داده‌ی واقعی: {len(live)} استخر برتر")
-        ok(all(p["apy_base"] > 0 and p["tvl_usd"] >= 1e7 for p in live),
-           "استخرهای واقعی: APY مثبت و TVL ≥ ۱۰M")
+        lsites, lserr = OP.fetch_project_urls(timeout=40)
+        if lserr and not lsites:
+            print(f"  ⚠ protocols در دسترس نبود ({lserr}) — ردِ نرم")
+            _PASS += 1
+        else:
+            ok(len(lsites) > 1000 and "lido" in lsites,
+               f"نقشه‌ی واقعی سایت‌ها: {len(lsites):,} پروژه (lido → {lsites.get('lido', '—')})")
+            ok(all(v.startswith(("http://", "https://")) for v in lsites.values()),
+               "همه‌ی URLهای واقعی http(s) هستند")
+            live = OP.honest_pools(lrows, min_tvl=1e7, stable_only=True, max_apy=80.0, top=10,
+                                   sites=lsites)
+            ok(len(live) >= 3, f"فیلتر صداقت روی داده‌ی واقعی: {len(live)} استخر برتر")
+            ok(all(p["apy_base"] > 0 and p["tvl_usd"] >= 1e7 for p in live),
+               "استخرهای واقعی: APY مثبت و TVL ≥ ۱۰M")
+            ok(all(p["url"].startswith("https://defillama.com/yields/pool/") for p in live),
+               "لینک صفحه‌ی استخر همه‌ی برترها معتبر است")
+            _with_site = sum(1 for p in live if p["site"])
+            ok(_with_site >= len(live) // 2,
+               f"حداقل نصف برترها وب‌سایت رسمی دارند ({_with_site}/{len(live)})")
 except Exception as e:  # noqa: BLE001
     print(f"  ⚠ استثنای غیرمنتظره در تست زنده — ردِ نرم: {type(e).__name__}: {e}")
     _PASS += 1

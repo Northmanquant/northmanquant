@@ -13,6 +13,13 @@
      (درخواست Seed Phrase = ۱۰۰ خطر، بی‌چون‌وچرا).
   ۳) 🪂 تست‌نت/ایردراپ — فهرست دست‌چینِ هزینه‌ی صفر (فقط زمان) + قواعد ضدسفل.
 
+هر فرصتِ نمایش‌داده‌شده «ورود مستقیم» دارد: ستون لینکِ صفحه‌ی استخر در
+DefiLlama (نمودار + تاریخچه) و ستون «وب‌سایت رسمی» که از همان فهرست کامل
+پروتکل‌های DefiLlama حل می‌شود — یعنی کاربر با یک کلیک وارد پروژه می‌شود،
+نه اینکه نامش را در گوگل بگردد (جایی که لینک‌های فیشینگ کمین کرده‌اند).
+برای تست‌نت‌ها عمداً لینک مستقیمِ دست‌ساز نمی‌گذاریم: دامنه‌ی هر پروژه
+از صفحه‌ی مرجعِ بررسی‌شده باز می‌شود تا لینک جعلی جای نگیرد.
+
 تمام درخواست‌های شبکه fail-soft هستند: خطا raise نمی‌شود، به‌صورت پیام
 خوانا به صفحه برمی‌گردد و بدون اینترنت هم صفحه کار می‌کند.
 """
@@ -22,6 +29,7 @@ import math
 from typing import Any, Dict, List, Optional, Tuple
 
 LLAMA_YIELDS_URL = "https://yields.llama.fi/pools"
+LLAMA_PROTOCOLS_URL = "https://api.llama.fi/protocols"
 POOL_URL = "https://defillama.com/yields/pool/{pid}"
 AIRDROP_SOURCE_URL = "https://airdropalert.com/testnet-airdrops"
 
@@ -46,6 +54,44 @@ def fetch_llama_pools(timeout: float = 15.0) -> Tuple[List[dict], Optional[str]]
         return rows, None
     except Exception as e:  # noqa: BLE001
         return [], (f"{type(e).__name__}: {e}")[:180]
+
+
+def clean_site(url: Any) -> str:
+    """URL وب‌سایت را پاک‌سازی و اعتبارسنجی می‌کند — فقط http(s) واقعی.
+
+    خروجی خالی یعنی «آدرس رسمی معتبری نداریم» — هرگز حدس نمی‌زنیم؛ لینک
+    اشتباه یا جعلی در بخش ضدکلاهبرداری سم است.
+    """
+    u = str(url or "").strip()
+    if not u.lower().startswith(("http://", "https://")):
+        return ""
+    return u
+
+
+def fetch_project_urls(timeout: float = 30.0) -> Tuple[Dict[str, str], Optional[str]]:
+    """نقشه‌ی slug→وب‌سایت رسمی از فهرست کامل پروتکل‌های DefiLlama.
+
+    یک درخواستِ واحد (~۹MB، کش ۲۴ ساعته در صفحه) برای ~۵هزار پروژه؛ آدرس
+    غلط/خالی (فاصله، رشته‌ی غیر http) کنار گذاشته می‌شود. fail-soft: خطا
+    یعنی ({}, پیام) — صفحه بدون این نقشه هم با لینک استخر کار می‌کند.
+    """
+    try:
+        from core.net import get_json
+        d = get_json(LLAMA_PROTOCOLS_URL, timeout=timeout, retries=1)
+        rows = d.get("protocols") if isinstance(d, dict) else d
+        if not isinstance(rows, list):
+            return {}, "ساختار پاسخ protocols ناشناخته بود"
+        sites: Dict[str, str] = {}
+        for p in rows:
+            if not isinstance(p, dict):
+                continue
+            slug = str(p.get("slug") or "")
+            site = clean_site(p.get("url"))
+            if slug and site:
+                sites[slug] = site
+        return sites, None
+    except Exception as e:  # noqa: BLE001
+        return {}, (f"{type(e).__name__}: {e}")[:180]
 
 
 def _f(v: Any, default: float = 0.0) -> float:
@@ -77,7 +123,8 @@ def honesty_score(p: dict) -> int:
 
 def honest_pools(rows: Optional[List[dict]], *, min_tvl: float = 10_000_000.0,
                  stable_only: bool = True, chains: Optional[List[str]] = None,
-                 max_apy: float = 80.0, top: int = 15) -> List[dict]:
+                 max_apy: float = 80.0, top: int = 15,
+                 sites: Optional[Dict[str, str]] = None) -> List[dict]:
     """فیلترِ «صداقت» + امتیازدهی + مرتب‌سازی. ورودی خراب/ناقص را می‌بلعد.
 
     قواعد صادقانه:
@@ -119,6 +166,7 @@ def honest_pools(rows: Optional[List[dict]], *, min_tvl: float = 10_000_000.0,
             "stablecoin": bool(p.get("stablecoin")),
             "predicted": str((p.get("predictions") or {}).get("predictedClass") or ""),
             "url": POOL_URL.format(pid=p.get("id") or p.get("pool") or ""),
+            "site": clean_site((sites or {}).get(str(p.get("project") or ""))),
             "score": 0,
         }
         it["score"] = honesty_score(it)
@@ -172,6 +220,29 @@ SCAM_QUESTIONS: List[Dict[str, Any]] = [
     {"key": "track", "kind": "green", "weight": 10,
      "q": "سابقه‌ی چندساله دارد و گزارش برداشت موفق از انجمن‌های مستقل زیاد است؟",
      "en": "Multi-year track record with many independent withdrawal success reports?"},
+]
+
+# ابزارهای راستی‌آزمایی با لینک مستقیم — همه‌ی این‌ها سایت‌های شناخته‌شده‌ی
+# عمومی‌اند؛ کاربر با یک کلیک همان چیزی را چک می‌کند که چک‌لیست می‌پرسد.
+VERIFY_TOOLS: List[Dict[str, str]] = [
+    {"name": "DefiLlama", "url": "https://defillama.com",
+     "what": "TVL و رتبه‌ی واقعی هر پروژه‌ی DeFi — اگر پروژه‌ای اینجا نیست، یعنی پول جدی داخلش نیست",
+     "what_en": "Real TVL and ranking of every DeFi project — if it is not here, there is no serious money in it"},
+    {"name": "GoPlus Security", "url": "https://gopluslabs.io",
+     "what": "اسکن قرارداد/توکن: تله‌پـ، مالیات پنهان، دسترسی مالک — آدرس قرارداد را بچسبان",
+     "what_en": "Contract/token scan: honeypot, hidden tax, owner powers — paste the contract address"},
+    {"name": "De.Fi Scanner", "url": "https://de.fi/scanner",
+     "what": "اسکن امنیتی قرارداد با نمره‌ی خطر — چک سریع پیش از هر تعامل",
+     "what_en": "Contract security scanner with a risk score — quick check before any interaction"},
+    {"name": "TokenSniffer", "url": "https://tokensniffer.com",
+     "what": "اسکن سریع قرارداد + گزارش شباهت به قراردادهای کلاهبرداری شناخته‌شده",
+     "what_en": "Quick contract scan + similarity to known scam contracts"},
+    {"name": "CertiK", "url": "https://www.certik.com",
+     "what": "چک ممیزی رسمی — اگر ادعای «ممیزی‌شده» دارند، اینجا گزارشش را ببین نه در سایت خودشان",
+     "what_en": "Official audit check — if they claim 'audited', see the report here, not on their own site"},
+    {"name": "DappRadar", "url": "https://dappradar.com",
+     "what": "فعالیت واقعی کاربران روزانه — پروژه‌ی مرده فقط عدد ساختگی روی صفحه دارد",
+     "what_en": "Real daily user activity — a dead project only has fake numbers on its own page"},
 ]
 
 SCAM_TIPS_BY_LEVEL = {

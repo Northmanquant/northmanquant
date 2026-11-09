@@ -4,6 +4,9 @@
   🌾 فارمینگ — پولی: بازده واقعی DeFi از DefiLlama (واریز سرمایه لازم است)
   ⛏️ ماینینگ — سه دنیا: موبایلی (رایگان) / هاردواری (پولی) / ابری (پرخطر)
   🎁 رایگان — تست‌نت/ایردراپ: هزینه‌ی صفر، فقط زمان
+  🤖 میدان کاوشگرها — ۵ ایجنت فرصت‌ها را تست می‌کنند، داور بهترین برنامه را
+     انتخاب می‌کند؛ برنامه‌ی برنده = چک‌لیستِ اجرای دستیِ کاربر (ایجنت‌ها
+     کلیک/لاگین نمی‌کنند — ضدسفل + امنیت کلید)
   🛡 ضدکلاهبرداری — چک‌لیست + ابزارهای راستی‌آزمایی
 فلسفه: «رایگان + سود خوب + مطمئن» با هم وجود ندارند — سود واقعی سرمایه،
 زمان یا مهارت می‌گیرد."""
@@ -13,6 +16,7 @@ import pandas as pd
 import streamlit as st
 
 from core import opportunities as OP
+from core import scouts as SC
 from core.help import hint
 from core.i18n import get_lang, setup_i18n, tr
 
@@ -80,10 +84,11 @@ for (_ic, _ti, _co, _clr, _de), _c in zip(_chips, st.columns(4)):
             f"<span style='font-size:12px;opacity:.85'>{_de}</span></div>",
             unsafe_allow_html=True)
 
-t_farm, t_mine, t_free, t_scam = st.tabs([
+t_farm, t_mine, t_free, t_scout, t_scam = st.tabs([
     tr("🌾 فارمینگ — پولی (سرمایه لازم)", "🌾 Farming — paid (needs capital)"),
     tr("⛏️ ماینینگ — رایگان یا پولی", "⛏️ Mining — free or paid"),
     tr("🎁 رایگان — بدون سرمایه", "🎁 Free — zero capital"),
+    tr("🤖 میدان کاوشگرها — بهترین را انتخاب کن", "🤖 Scout arena — let the best plan win"),
     tr("🛡 ضدکلاهبرداری", "🛡 Anti-scam"),
 ])
 
@@ -293,7 +298,73 @@ with t_free:
         "recommendation; re-check weekly."))
 
 # --------------------------------------------------------------------------- #
-# تب ۴ — ضدکلاهبرداری                                                         #
+# تب ۴ — میدان کاوشگرها (ایجنت‌ها)                                           #
+# --------------------------------------------------------------------------- #
+with t_scout:
+    st.caption(tr(
+        "۵ ایجنت با استراتژی‌های متفاوت روی همین داده‌ی زنده‌ی صفحه مسابقه می‌دهند: هرکدام فرصت‌ها را "
+        "تست می‌کند (استخر زنده است؟ پیش‌بینی Down؟ نوسان بالا؟ در بودجه‌ی پول/زمانش جا می‌شود؟)، "
+        "برنامه‌ی شخصی می‌سازد و داورِ قطعی بهترین را انتخاب می‌کند. برنامه‌ی برنده = چک‌لیستِ اجرای تو.",
+        "5 agents with different strategies compete on this page's live data: each tests every "
+        "opportunity (pool alive? prediction Down? high sigma? fits its money/time budget?), builds "
+        "a personal plan, and a deterministic judge picks the best. The winner's plan = your checklist."))
+    st.info(tr(
+        "🧑‍⚖️ مرزِ صادقانه: ایجنت‌ها «انجام نمی‌دهند» — کلیک، لاگین و کیف پول فقط با توست. چرا؟ "
+        "سیستم‌های ضدسفلِ خودِ پروژه‌ها بات‌ها را یکجا حذف می‌کنند و کلیدِ داخل اپ یعنی خطر. "
+        "ایجنت تست می‌کند و انتخاب می‌کند؛ اجرا با انسان است — این همان کاری است که نتیجه می‌دهد.",
+        "🧑‍⚖️ Honest boundary: agents do not execute — clicking, login and wallets stay human-only. "
+        "Anti-Sybil systems wipe bots in one sweep and keys inside an app are a liability. Agents "
+        "test and choose; humans execute — that is what actually pays."))
+    if st.button("🚀 " + tr("اجرای میدان — مسابقه روی داده‌ی زنده", "Run the arena — race on live data"),
+                 type="primary"):
+        _rows_s, _err_s = _pools_cached()
+        _judged = SC.run_arena(_rows_s, OP.TESTNET_HUNTS)
+        if _err_s:
+            st.caption(tr(
+                f"⚠️ داده‌ی استخرها الان نرسید ({_err_s}) — مسابقه با تست‌نت‌های محلی برگزار شد؛ "
+                "چند دقیقه بعد دوباره اجرا کن تا استخرها هم در مسابقه باشند.",
+                f"⚠️ Pool data did not arrive ({_err_s}) — the race ran on local testnets only; rerun "
+                "in a few minutes to include pools."))
+        for _i, _r in enumerate(_judged):
+            _a, _pl = _r["agent"], _r["plan"]
+            _hdr = (f"🏆 {_a['icon']} {tr(_a['name'], _a['name_en'])} — {_r['score']}/100"
+                    if _i == 0 else f"{_a['icon']} {tr(_a['name'], _a['name_en'])} — {_r['score']}/100")
+            _box = st.container() if _i == 0 else st.expander(_hdr)
+            with _box:
+                if _i == 0:
+                    st.markdown(f"### 🏆 {tr(_a['name'], _a['name_en'])} — {_r['score']}/100")
+                st.progress(min(int(_r["score"]), 100) / 100.0)
+                st.caption(f"{tr(_a['style'], _a['style_en'])} · "
+                           f"{tr(_r['verdict'], _r['verdict_en'])}")
+                if _pl["steps"]:
+                    st.markdown(tr(
+                        f"**برنامه ({_pl['total_time']} دقیقه در روز):**",
+                        f"**The plan ({_pl['total_time']} min/day):**"))
+                    for _j, _s in enumerate(_pl["steps"], 1):
+                        _cfa, _cen = SC.cost_for(_s["kind"])
+                        _cost = _cfa if LANG != "en" else _cen
+                        st.markdown(
+                            f"- **{_j}) {tr(_s['title'], _s['title_en'])}** · "
+                            f"{_cost} · ⏱ ~{_s['time_min']} دقیقه — {tr(_s['why'], _s['why_en'])}")
+                else:
+                    st.info(tr("برنامه‌ای ساخته نشد — داده‌ی ورودی خالی بود.",
+                               "No plan was built — the input data was empty."))
+                for _n in _L(_pl.get("notes", []), _pl.get("notes_en", [])):
+                    st.caption(f"ℹ️ {_n}")
+                if _r["flags"]:
+                    st.caption("🚩 " + tr(
+                        "فلگ‌های داور: " + "، ".join(_r["flags"]),
+                        "Judge flags: " + ", ".join(_r["flags"])))
+    st.caption(tr(
+        "چرا باتِ اجرا نمی‌سازیم؟ تجربه‌ی کل صنعت: کیف پول‌های هم‌الگو (اسکریپتی) توسط سیستم ضدسفل "
+        "یکجا حذف می‌شوند و چند ماه فعالیت، صفر می‌شود؛ به‌علاوه هیچ اپی نباید کلید تو را ببیند. "
+        "برنامه‌ی ایجنت + اجرای دستیِ تو = امن، انسانی و مؤثر.",
+        "Why no execution bot? Industry-wide experience: look-alike scripted wallets get wiped by "
+        "anti-Sybil systems in one sweep, and no app should ever see your keys. Agent plan + your "
+        "manual execution = safe, human, effective."))
+
+# --------------------------------------------------------------------------- #
+# تب ۵ — ضدکلاهبرداری                                                         #
 # --------------------------------------------------------------------------- #
 with t_scam:
     st.caption(tr(

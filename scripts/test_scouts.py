@@ -215,10 +215,18 @@ ok(all(isinstance(r["score"], int) for r in _j3), "بدون داده هم مسا
 # ---------------------------------------------------------------- ۶) صفحه + minutes
 section("مارکرهای صفحه و داده")
 _pg_txt = (ROOT / "pages" / "9_Farm_Airdrops.py").read_text(encoding="utf-8")
-for frag in ("میدان کاوشگرها", "فقط پروژه‌های رایگان", "قانون میدان", "بودجه‌ی صفر",
+for frag in ("میدان کاوشگرها", "نتیجه‌ی ایجنت‌ها همین‌جاست", "قانون میدان", "بودجه‌ی صفر",
              "SC.run_arena", "SC.cost_for", "🏆", "اجرای میدان",
              "مرزِ صادقانه", "چرا باتِ اجرا نمی‌سازیم", "from core import scouts as SC"):
-    ok(frag in _pg_txt, f"مارکر تب ایجنت «{frag}»")
+    ok(frag in _pg_txt, f"مارکر میدان «{frag}»")
+ok("t_scout" not in _pg_txt, "تب جداگانه‌ی ایجنت حذف شد — میدان دیگر تب مستقل ندارد")
+ok("t_farm, t_mine, t_free, t_scam = st.tabs(" in _pg_txt, "صفحه ۴ تب دارد")
+ok("· 🤖 ایجنت‌ها" in _pg_txt, "برچسب تب فارمینگ جای ایجنت‌ها را نشان می‌دهد")
+_i_farm = _pg_txt.index("with t_farm:")
+_i_mine = _pg_txt.index("with t_mine:")
+_i_arena = _pg_txt.index("میدان کاوشگرها — نتیجه‌ی ایجنت‌ها")
+ok(_i_farm < _i_arena < _i_mine,
+   "میدان کاوشگرها داخل ناحیه‌ی تب فارمینگ است (بعد از استخرها، قبل از تب ماینینگ)")
 ok(all(isinstance(h.get("minutes"), int) and h["minutes"] >= 5 for h in OP.TESTNET_HUNTS),
    f"همه‌ی {len(OP.TESTNET_HUNTS)} تست‌نت فیلد minutes دارند (بودجه‌ی زمانی ایجنت‌ها)")
 

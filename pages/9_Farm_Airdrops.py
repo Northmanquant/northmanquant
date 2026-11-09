@@ -88,7 +88,7 @@ t_farm, t_mine, t_free, t_scout, t_scam = st.tabs([
     tr("🌾 فارمینگ — پولی (سرمایه لازم)", "🌾 Farming — paid (needs capital)"),
     tr("⛏️ ماینینگ — رایگان یا پولی", "⛏️ Mining — free or paid"),
     tr("🎁 رایگان — بدون سرمایه", "🎁 Free — zero capital"),
-    tr("🤖 میدان کاوشگرها — بهترین را انتخاب کن", "🤖 Scout arena — let the best plan win"),
+    tr("🤖 میدان کاوشگرها — فقط پروژه‌های رایگان", "🤖 Scout arena — free projects only"),
     tr("🛡 ضدکلاهبرداری", "🛡 Anti-scam"),
 ])
 
@@ -302,12 +302,19 @@ with t_free:
 # --------------------------------------------------------------------------- #
 with t_scout:
     st.caption(tr(
-        "۵ ایجنت با استراتژی‌های متفاوت روی همین داده‌ی زنده‌ی صفحه مسابقه می‌دهند: هرکدام فرصت‌ها را "
-        "تست می‌کند (استخر زنده است؟ پیش‌بینی Down؟ نوسان بالا؟ در بودجه‌ی پول/زمانش جا می‌شود؟)، "
-        "برنامه‌ی شخصی می‌سازد و داورِ قطعی بهترین را انتخاب می‌کند. برنامه‌ی برنده = چک‌لیستِ اجرای تو.",
-        "5 agents with different strategies compete on this page's live data: each tests every "
-        "opportunity (pool alive? prediction Down? high sigma? fits its money/time budget?), builds "
-        "a personal plan, and a deterministic judge picks the best. The winner's plan = your checklist."))
+        "۵ ایجنت با استراتژی‌های متفاوت مسابقه می‌دهند — اما فقط سراغ پروژه‌های 🟢 رایگان می‌روند، از هر دو دنیا: "
+        "تست‌نت‌ها و فارمِ نقاطِ بدون سرمایه (سمت فارمینگ) و ماینینگِ موبایلی (سمت ماینینگ). استخرهای پولیِ "
+        "فارمینگ را زنده تست می‌کنند (زنده است؟ پیش‌بینی Down؟ نوسان بالا؟) اما هرگز وارد برنامه نمی‌شوند — "
+        "تعداد ردشده‌ها در یادداشتِ هر برنامه می‌آید. برنامه‌ی برنده = چک‌لیستِ اجرای تو.",
+        "5 agents with different strategies compete — but they only pick 🟢 free projects, from both worlds: "
+        "testnets and zero-capital points farming (the farming side) and mobile mining (the mining side). "
+        "Paid yield pools are live-tested (alive? prediction Down? high sigma?) but never enter a plan — "
+        "the rejected count is in each plan's notes. The winner's plan = your checklist."))
+    st.success(tr(
+        "🌿 قانون میدان: بودجه‌ی صفر برای همه‌ی ایجنت‌ها. هر ایجنتی که گامِ پولی بگذارد از داور ۴۵ نمره جریمه می‌گیرد؛ "
+        "فارمینگِ پولی (واریز سرمایه) و ماینینگِ سخت‌افزاری/ابری از ابتدا به این میدان راه ندارند.",
+        "🌿 Arena law: zero budget for every agent. Any agent that adds a paid step takes a 45-point penalty; "
+        "paid farming (capital deposit) and hardware/cloud mining never enter this arena."))
     st.info(tr(
         "🧑‍⚖️ مرزِ صادقانه: ایجنت‌ها «انجام نمی‌دهند» — کلیک، لاگین و کیف پول فقط با توست. چرا؟ "
         "سیستم‌های ضدسفلِ خودِ پروژه‌ها بات‌ها را یکجا حذف می‌کنند و کلیدِ داخل اپ یعنی خطر. "

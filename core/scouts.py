@@ -2,28 +2,38 @@
 """core/scouts.py — میدان کاوشگرها (Scout Arena) برای فرصت‌های فارم/ماینینگ/رایگان
 ====================================================================================
 پرسش کاربر: «یک بخش ایجنت درست کن که برن تست کن یا انجامشون بدن — اونایی رو که
-بهترین انجام بدن.»
+بهترین انجام بدن.» و سپس: «میخوام بیشترش روی پروژه‌های رایگان باشن ایجنت‌ها نه
+پولی — هرکدومشون چه فارمینگ چه ماینینگ.»
+
+**قانون میدان (درخواست صریح کاربر): بودجه‌ی صفر برای همه‌ی ایجنت‌ها.**
+ایجنت‌ها فقط سراغ پروژه‌های 🟢 رایگان می‌روند — از هر دو دنیا:
+  • سمت فارمینگ: تست‌نت‌ها (kind=free) و فارمِ نقاط بدون سرمایه (kind=points)
+  • سمت ماینینگ: ماینینگ موبایلیِ رایگان (kind=mining — رایگان اما لاتاری)
+فارمینگِ پولی (واریز سرمایه) و ماینینگ سخت‌افزاری/ابری هرگز وارد برنامه
+نمی‌شوند. استخرهای بازدهِ DefiLlama فقط **تست** می‌شوند (زنده است؟ پیش‌بینی
+Down؟ نوسان؟) و اگر پولی باشند، در یادداشتِ برنامه شمرده و رد می‌شوند — داور
+هم برای هر گامِ پولی، برای هر ایجنتی، جریمه‌ی سنگین می‌گذارد.
 
 مرزِ صادقانه (نوشته‌شده در صفحه هم هست): ایجنت‌ها **انجام نمی‌دهند** — کلیک،
 لاگین، کیف پول و تراکنش فقط با انسان. چرا؟ سیستم‌های ضدسفل (Sybil) خودِ
 پروژه‌ها بات‌ها را یکجا حذف می‌کنند و کلیدِ داخل اپ یعنی خطر. چیزی که ایجنت‌ها
 «می‌کنند» این است:
-  ۱) **تست** — هر فرصت را با داده‌ی واقعی می‌سنجند: استخر زنده است؟ TVL نمرده؟
-     پیش‌بینی DefiLlama «Down» است؟ نوسان بالاست؟ در بودجه‌ی پول/زمانِ ایجنت
-     جا می‌شود؟ (پاس‌نشدن‌ها حذف می‌شوند.)
-  ۲) **انجامِ انتخاب** — از میان زنده‌ها، برنامه‌ی شخصیِ مرتب‌شده می‌سازند با
-     دلیل، دقیقه/روز و نشان هزینه (🟢/🔴).
+  ۱) **تست** — هر فرصت را با داده‌ی واقعی می‌سنجند؛ پولی‌ها را رد می‌کنند.
+  ۲) **انجامِ انتخاب** — از میان رایگان‌های تست‌شده، برنامه‌ی شخصیِ مرتب‌شده
+     می‌سازند با دلیل، دقیقه/روز و نشان هزینه (🟢).
   ۳) **داوری** — داورِ قطعیِ همین ماژول برنامه‌ها را نمره می‌دهد: تخطی از
-     بودجه‌ی صفر، سرریز زمان، تنوع، ناهماهنگی ریسک با شخصیت. بهترین برنامه
-     برنده است و به چک‌لیستِ اجرای دستیِ کاربر تبدیل می‌شود.
+     بودجه‌ی صفر (برای همه)، سرریز زمان، تنوع، پوششِ دو دنیا (فارم+ماین).
+     بهترین برنامه برنده است و به چک‌لیستِ اجرای دستیِ کاربر تبدیل می‌شود.
 
-۵ شخصیت با استراتژی متفاوت: 🆓 صفر-پول · 🛡 محتاط · ⚡ جاه‌طلب · ⏱ کم‌وقت ·
-🧮 ریاضی‌دان (EV صریح). همه‌ی توابع قطعی و fail-soft هستند — داده‌ی خراب/خالی
-کرش نمی‌سازد؛ بدون اینترنت هم با تست‌نت‌های محلی مسابقه کامل برگزار می‌شود.
+۵ شخصیت با استراتژی متفاوت روی همان میدانِ رایگان: 🆓 صفر-پول (ارزان‌ترین‌ها
+اول) · 🛡 محتاط (جاافتاده‌ترین‌ها، بدون لاتاری) · ⚡ جاه‌طلب (بیشترین پوشش) ·
+⏱ کم‌وقت (۱۵ دقیقه سفت‌وسخت) · 🧮 ریاضی‌دان (کمینه‌سازی قیمتِ زمانی؛ EV پولی
+لاتاری‌ها نامعین است و صادقانه «نامعین» نوشته می‌شود). همه‌ی توابع قطعی و
+fail-soft هستند — داده‌ی خراب/خالی کرش نمی‌سازد؛ بدون اینترنت هم با
+تست‌نت‌های محلی مسابقه کامل برگزار می‌شود.
 """
 from __future__ import annotations
 
-import math
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.opportunities import COST_FREE, COST_PAID, honest_pools
@@ -32,6 +42,7 @@ from core.opportunities import COST_FREE, COST_PAID, honest_pools
 COST_FOR: Dict[str, Tuple[str, str]] = {
     "free": (COST_FREE, "🟢 Free"),
     "paid": (COST_PAID, "🔴 Paid"),
+    "points": ("🟢 رایگان — نقاط", "🟢 Free — points"),
     "mining": ("🟢 رایگان — لاتاری", "🟢 Free — lottery"),
 }
 
@@ -42,64 +53,62 @@ def cost_for(kind: str) -> Tuple[str, str]:
 
 
 # --------------------------------------------------------------------------- #
-# شخصیت‌ها — پنج ایجنت، پنج استراتژی                                          #
+# شخصیت‌ها — پنج ایجنت، پنج استراتژی، یک میدانِ مشترکِ رایگان                  #
 # --------------------------------------------------------------------------- #
-# فیلدهای _min_tvl/_max_apy/_stable_only/_top = پارامترهای فیلتر صداقتِ خودش؛
-# budget: free (هیچ پولی نه) / paid (سرمایه دارد ولی این ایجنت‌ها تست‌نت را هم
-# دوست دارند) / any. risk: ۰ (محتاط) تا ۱ (جاه‌طلب). time_budget: دقیقه/روز.
+# قانون مشترک (به درخواست کاربر): هیچ ایجنتی گامِ پولی نمی‌گذارد — تفاوت
+# استراتژی‌ها فقط در «کدام رایگان‌ها را و به چه ترتیبی» برمی‌دارند.
+# budget: free (هیچ پولی نه) / paid / any — همه در میدانِ فقط-رایگان مسابقه
+# می‌دهند؛ فیلد بودجه فقط برای جریمه‌ی ایمنیِ داور می‌ماند.
+# risk: ۰ (محتاط) تا ۱ (جاه‌طلب). time_budget: دقیقه/روز.
 SCOUT_AGENTS: List[Dict[str, Any]] = [
     {
         "key": "zero", "icon": "🆓",
         "name": "صفر-پول", "name_en": "Zero-Budget",
-        "style": "حتی یک دلار هم خرج نمی‌کند — فقط زمان؛ هر فرصتِ پولی را رد می‌کند.",
-        "style_en": "Never spends a dollar — time only; rejects anything that costs money.",
+        "style": "حتی یک دلار هم خرج نمی‌کند — ارزان‌ترین‌ها بر حسب دقیقه: ماینینگ، نقاط، کوتاه‌ترین تست‌نت‌ها.",
+        "style_en": "Never spends a dollar — picks by minutes: mining, points, then shortest testnets.",
         "budget": "free", "risk": 0.2, "time_budget": 30,
-        "_min_tvl": 1e7, "_max_apy": 40.0, "_stable_only": True, "_top": 5,
     },
     {
         "key": "cautious", "icon": "🛡",
         "name": "محتاط", "name_en": "Cautious",
-        "style": "فقط استیبلِ بلوچیپ با نوسان کم و TVL سنگین؛ بازده پایین ولی بی‌دردسر.",
-        "style_en": "Only blue-chip stables, low volatility, heavy TVL; modest but calm yield.",
-        "budget": "any", "risk": 0.1, "time_budget": 20,
-        "_min_tvl": 5e7, "_max_apy": 30.0, "_stable_only": True, "_top": 8,
+        "style": "جاافتاده‌ترین تست‌نت (قدیمی‌ترین) + فارمِ نقاط؛ لاتاریِ ماینینگ را نه چون گران است، چون نامعین است نمی‌پسندد.",
+        "style_en": "Longest-running testnet + points farming; skips the mining lottery — not because it costs, but because it's uncertain.",
+        "budget": "free", "risk": 0.1, "time_budget": 20,
     },
     {
         "key": "aggressive", "icon": "⚡",
         "name": "جاه‌طلب", "name_en": "Aggressive",
-        "style": "بالاترین بازده ممکن از دلِ فیلترِ صداقت — حتی غیراستیبل با زیان ناپایدار.",
-        "style_en": "Highest yield that still passes the honesty filter — even non-stables with IL.",
-        "budget": "any", "risk": 0.7, "time_budget": 60,
-        "_min_tvl": 3e7, "_max_apy": 80.0, "_stable_only": False, "_top": 12,
+        "style": "بیشترین پوششِ رایگان ممکن: ماینینگ + نقاط + همه‌ی تست‌نت‌ها تا سقف ۶۰ دقیقه — بلیت‌های لاتاری بیشتر.",
+        "style_en": "Maximum free coverage: mining + points + every testnet up to 60 minutes — more lottery tickets.",
+        "budget": "free", "risk": 0.7, "time_budget": 60,
     },
     {
         "key": "busy", "icon": "⏱",
         "name": "کم‌وقت", "name_en": "Time-Poor",
-        "style": "بیشترین ارزش در کمترین دقیقه — بودجه‌ی ۱۵ دقیقه در روز، نه یک ثانیه بیشتر.",
-        "style_en": "Most value per minute — a hard 15-minute daily budget, not a second more.",
-        "budget": "any", "risk": 0.4, "time_budget": 15,
-        "_min_tvl": 1e7, "_max_apy": 50.0, "_stable_only": True, "_top": 10,
+        "style": "۱۵ دقیقه در روز، نه یک ثانیه بیشتر — دو دنیا در یک ربع: ماینینگ موبایلی + فارمِ نقاط.",
+        "style_en": "15 minutes a day, not a second more — both worlds in a quarter: mobile mining + points farming.",
+        "budget": "free", "risk": 0.4, "time_budget": 15,
     },
     {
         "key": "quant", "icon": "🧮",
         "name": "ریاضی‌دان", "name_en": "Quant",
-        "style": "EV صریح: بازده کارمزدی × (۱ − نوسان) × اعتبار TVL — عدد بی‌احساس، بی‌های‌وهو.",
-        "style_en": "Explicit EV: fee APY × (1 − sigma) × TVL credibility — cold, honest math.",
-        "budget": "any", "risk": 0.5, "time_budget": 40,
-        "_min_tvl": 2e7, "_max_apy": 60.0, "_stable_only": True, "_top": 12,
+        "style": "EV پولی لاتاری‌ها نامعین است؛ تنها کمیتِ قطعی قیمتِ زمانی است — کمینه‌سازی دقیقه با پوششِ هر دو دنیا.",
+        "style_en": "The money-EV of lotteries is unknowable; the only hard quantity is the time price — minimize minutes, cover both worlds.",
+        "budget": "free", "risk": 0.5, "time_budget": 40,
     },
 ]
 
 
 # --------------------------------------------------------------------------- #
-# تستِ هر فرصت با داده‌ی واقعی                                                #
+# تستِ فرصت‌ها با داده‌ی واقعی                                                #
 # --------------------------------------------------------------------------- #
 def _persona_pools(agent: dict, pools: Optional[List[dict]]) -> List[dict]:
-    """فیلتر صداقت با پارامترهای شخصیت + تستِ زنده — fail-soft روی داده‌ی خراب.
+    """تستِ زنده‌ی استخرها با فیلتر صداقتِ شخصیت — fail-soft روی داده‌ی خراب.
 
-    «تست» ایجنت: APY صفر/بیش‌حد → حذف؛ پیش‌بینی Down → حذف (استخر در حال
-    ریختن بازده برای همه‌ی شخصیت‌ها جذاب نیست)؛ نوسانِ بالا برای شخصیتِ
-    محتاط → حذف؛ TVL زیر کفِ شخصیت → حذف.
+    «تست» ایجنت روی استخرها: APY صفر/بیش‌حد → حذف؛ پیش‌بینی Down → حذف؛
+    نوسانِ بالا برای شخصیتِ محتاط → حذف؛ TVL زیر کفِ شخصیت → حذف.
+    خروجی فقط برای «شمارشِ ردشده‌ها» است — طبق قانون میدان، هیچ استخرِ پولی
+    وارد برنامه نمی‌شود.
     """
     if not isinstance(pools, list) or not pools:
         return []
@@ -124,23 +133,22 @@ def _persona_pools(agent: dict, pools: Optional[List[dict]]) -> List[dict]:
     return out
 
 
-def _pool_step(p: dict) -> dict:
-    """یک استخرِ نرمال‌شده → گامِ برنامه با دلیل و نشان هزینه."""
-    il = " ⚠️ استیبل نیست (زیان ناپایدار ممکن است)" if not p.get("stablecoin") else ""
-    il_en = " ⚠️ not a stable (impermanent loss possible)" if not p.get("stablecoin") else ""
-    return {
-        "kind": "paid",
-        "title": f"{p.get('project', '?')} · {p.get('chain', '?')} ({p.get('symbol', '?')})",
-        "title_en": f"{p.get('project', '?')} · {p.get('chain', '?')} ({p.get('symbol', '?')})",
-        "time_min": 10,
-        "why": (f"APY کارمزدی {float(p.get('apy_base') or 0.0):.1f}٪ · "
-                f"TVL {float(p.get('tvl_usd') or 0.0) / 1e6:.0f}M$ · "
-                f"امتیاز صداقت {p.get('score', 0)} · نوسان {float(p.get('sigma') or 0.0):.2f}{il}"),
-        "why_en": (f"Fee APY {float(p.get('apy_base') or 0.0):.1f}% · "
-                   f"TVL ${float(p.get('tvl_usd') or 0.0) / 1e6:.0f}M · "
-                   f"honesty {p.get('score', 0)} · sigma {float(p.get('sigma') or 0.0):.2f}{il_en}"),
-        "flags": ["high_sigma"] if float(p.get("sigma") or 0.0) > 0.1 else [],
-    }
+_EN2FA_DIGITS = str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹")
+
+
+def _pool_reject_note(live: List[dict], pools: Optional[List[dict]]) -> Tuple[str, str]:
+    """یادداشتِ «تست شد، رد شد» برای استخرهای پولی — بسته به وضعیت داده."""
+    if not isinstance(pools, list) or not pools:
+        return ("داده‌ی استخرها نرسید — مسابقه روی رایگان‌های محلی برگزار شد؛ رفرش بعدی استخرها هم تست می‌شوند.",
+                "Pool data did not arrive — the race ran on local free items; next refresh will test pools too.")
+    if not live:
+        return ("هیچ استخری از فیلتر صداقت نگذشت — برنامه‌ی فقط-رایگان بدون ردشده‌ی زنده.",
+                "No pool passed the honesty filter — the free-only plan has nothing to reject.")
+    n = str(len(live)).translate(_EN2FA_DIGITS)
+    return (f"تست زنده: {n} استخر از فیلتر صداقت گذشت اما پولی است (واریز لازم دارد) — "
+            "طبق قانون میدانِ فقط-رایگان از برنامه حذف شد؛ جزئیاتش در تب «فارمینگ».",
+            f"Live test: {len(live)} pools passed the honesty filter but are paid (deposit required) — "
+            "dropped per the free-only arena law; see the Farming tab.")
 
 
 def _testnet_step(h: dict) -> dict:
@@ -156,6 +164,16 @@ def _testnet_step(h: dict) -> dict:
     }
 
 
+_POINTS_STEP: dict = {
+    "kind": "points",
+    "title": "فارمِ نقاط — کمپین نقاطِ پروژه‌ای تازه از منبع ایردراپ",
+    "title_en": "Points farming — a fresh project's points campaign from the airdrop source",
+    "time_min": 10,
+    "why": "فارمینگ بدون سرمایه: فقط تعامل با محصول و ثبت نقاط برای ایردراپِ احتمالی — پولی واریز نمی‌شود، فقط وقت.",
+    "why_en": "Farming without capital: just use the product and log points for a possible airdrop — no deposit, only time.",
+    "flags": [],
+}
+
 _MINING_STEP: dict = {
     "kind": "mining",
     "title": "ماینینگ موبایلی — یک اپ از تب ماینینگ",
@@ -166,107 +184,113 @@ _MINING_STEP: dict = {
     "flags": [],
 }
 
+_FREE_FARM_SIDE = {"free", "points"}      # سمت فارمینگِ رایگان
+_FREE_MINE_SIDE = {"mining"}              # سمت ماینینگِ رایگان
+
 
 # --------------------------------------------------------------------------- #
-# ساختِ برنامه — استراتژیِ هر شخصیت                                           #
+# ساختِ برنامه — استراتژیِ هر شخصیت روی میدانِ فقط-رایگان                      #
 # --------------------------------------------------------------------------- #
 def build_plan(agent: dict, pools: Optional[List[dict]],
                testnets: Optional[List[dict]]) -> dict:
-    """برنامه‌ی شخصیِ ایجنت از میان فرصت‌های تست‌شده — قطعی و بدون شبکه.
+    """برنامه‌ی شخصیِ ایجنت از میان رایگان‌های تست‌شده — قطعی و بدون شبکه.
 
+    قانون مشترک: استخرها زنده تست می‌شوند اما هیچ‌وقت وارد برنامه نمی‌شوند
+    (پولی‌اند) — تعداد ردشده‌ها در یادداشت می‌آید.
     خروجی: {"agent_key", "steps", "total_time", "has_paid", "notes", "notes_en"}
     """
     key = str(agent.get("key") or "?")
     tb = int(agent.get("time_budget") or 30)
     tn = [h for h in (testnets or []) if isinstance(h, dict)]
-    tn.sort(key=lambda h: int(h.get("minutes") or 15))
+    live = _persona_pools(agent, pools)
+    rej_fa, rej_en = _pool_reject_note(live, pools)
     steps: List[dict] = []
-    notes: List[str] = []
-    notes_en: List[str] = []
+    notes: List[str] = [rej_fa]
+    notes_en: List[str] = [rej_en]
 
     if key == "zero":
-        # فقط فرصت‌های بی‌هزینه تا سقفِ بودجه‌ی زمانی + یک گام ماینینگ موبایلی
+        # ارزان‌ترین‌ها بر حسب دقیقه: ماینینگ + نقاط + کوتاه‌ترین تست‌نت‌ها تا سقف بودجه
+        tn.sort(key=lambda h: (int(h.get("minutes") or 15), str(h.get("name") or "")))
         acc = 0
-        for h in tn:
-            m = int(h.get("minutes") or 15)
-            if acc + m <= tb - 5:
-                steps.append(_testnet_step(h))
-                acc += m
-        if acc + 5 <= tb:
+        if 5 <= tb:
             steps.append(dict(_MINING_STEP))
             acc += 5
-        notes.append("استخرهای بازده به سرمایه نیاز دارند — این ایجنت فقط زمان خرج می‌کند.")
-        notes_en.append("Yield pools need capital — this agent spends only time.")
-
-    elif key == "cautious":
-        live = _persona_pools(agent, pools)
-        acc = 0
-        for p in live[:2]:                      # دو استخرِ سنگین و آرام
-            steps.append(_pool_step(p))
+        if acc + 10 <= tb:
+            steps.append(dict(_POINTS_STEP))
             acc += 10
-        for h in tn[:2]:                        # دو لاتاریِ کوتاه (بی‌ریسک)
+        for h in tn:
             m = int(h.get("minutes") or 15)
             if acc + m <= tb:
                 steps.append(_testnet_step(h))
                 acc += m
-        if not live:
-            notes.append("استخری با سقفِ محافظه‌کارانه زنده نماند — فقط تست‌نت‌ها.")
-            notes_en.append("No pool survived the conservative filter — testnets only.")
+
+    elif key == "cautious":
+        # جاافتاده‌ترین تست‌نت (قدیمی‌ترینِ added) + نقاط؛ بدون لاتاریِ ماینینگ
+        tn.sort(key=lambda h: (str(h.get("added") or ""), int(h.get("minutes") or 15),
+                               str(h.get("name") or "")))
+        acc = 0
+        if acc + 10 <= tb:
+            steps.append(dict(_POINTS_STEP))
+            acc += 10
+        for h in tn:
+            m = int(h.get("minutes") or 15)
+            if acc + m <= tb:
+                steps.append(_testnet_step(h))
+                acc += m
+                break                       # یک لاتاریِ جاافتاده کافی است
+        notes.append("لاتاریِ ماینینگِ موبایلی برای این ایجنت نامعین است — وقت معین می‌رود سراغ جاافتاده‌ترین‌ها.")
+        notes_en.append("The mobile-mining lottery is too uncertain for this agent — fixed time goes to the longest-running ones.")
 
     elif key == "aggressive":
-        live = sorted(_persona_pools(agent, pools),
-                      key=lambda p: -float(p.get("apy_base") or 0.0))[:3]
+        # بیشترین پوششِ رایگان: ماینینگ + نقاط + همه‌ی تست‌نت‌ها (کوتاه‌تر اول)
+        tn.sort(key=lambda h: (int(h.get("minutes") or 15), str(h.get("name") or "")))
         acc = 0
-        for p in live:
-            steps.append(_pool_step(p))
-            acc += 10
-        if tn:
-            steps.append(_testnet_step(tn[0]))
-            acc += int(tn[0].get("minutes") or 15)
-        if len(live) < 3:
-            notes.append("کمتر از ۳ استخرِ پر بازده از فیلتر گذشت — بقیه زنده نماندند.")
-            notes_en.append("Fewer than 3 high-yield pools passed the live tests.")
+        steps.append(dict(_MINING_STEP))
+        acc += 5
+        steps.append(dict(_POINTS_STEP))
+        acc += 10
+        for h in tn:
+            m = int(h.get("minutes") or 15)
+            if acc + m <= tb:
+                steps.append(_testnet_step(h))
+                acc += m
+        notes.append("هر گام این برنامه رایگان است؛ بلیت بیشتر فقط یعنی دقیقه‌ی بیشتر، نه دلار بیشتر.")
+        notes_en.append("Every step here is free; more tickets only means more minutes, not more dollars.")
 
     elif key == "busy":
+        # ۱۵ دقیقه سفت‌وسخت: دو دنیا در یک ربع — ماینینگ + نقاط
         acc = 0
-        if tn:
-            m = int(tn[0].get("minutes") or 15)
-            if m <= tb:                         # تنها یک لاتاریِ کوتاه
-                steps.append(_testnet_step(tn[0]))
-                acc += m
-        live = sorted(_persona_pools(agent, pools), key=lambda p: -int(p.get("score") or 0))
-        if live and acc + 10 <= tb:             # یک استخر اگر بودجه‌ی دقیقه بماند
-            steps.append(_pool_step(live[0]))
+        if acc + 5 <= tb:
+            steps.append(dict(_MINING_STEP))
+            acc += 5
+        if acc + 10 <= tb:
+            steps.append(dict(_POINTS_STEP))
             acc += 10
-        notes.append("قانونِ این ایجنت: ۱۵ دقیقه در روز — نه یک ثانیه بیشتر.")
-        notes_en.append("This agent's law: 15 minutes a day — not a second more.")
+        notes.append("قانونِ این ایجنت: ۱۵ دقیقه در روز — نه یک ثانیه بیشتر؛ تست‌نت‌ها برای روزهای زمان‌دار.")
+        notes_en.append("This agent's law: 15 minutes a day — not a second more; testnets belong to longer days.")
 
     elif key == "quant":
-        # EV صریح: بازده کارمزدی × (۱ − نوسان نرمال‌شده) × اعتبار TVL (لگاریتمی)
-        live = _persona_pools(agent, pools)
-        evd: List[Tuple[float, dict]] = []
-        for p in live:
-            apy = max(float(p.get("apy_base") or 0.0), 0.0)
-            sig = min(max(float(p.get("sigma") or 0.0), 0.0), 0.5)
-            cred = min(math.log10(max(float(p.get("tvl_usd") or 0.0), 1.0) / 1e6 + 1.0) / 2.0, 1.0)
-            evd.append((apy * (1.0 - sig) * cred, p))
-        evd.sort(key=lambda x: -x[0])
+        # EV پولی لاتاری‌ها نامعین است — کمیتِ قطعی: قیمتِ زمانی. کمینه‌سازی دقیقه + پوشش دو دنیا.
+        tn.sort(key=lambda h: (int(h.get("minutes") or 15), str(h.get("name") or "")))
         acc = 0
-        for ev, p in evd[:3]:
-            st = _pool_step(p)
-            st["ev"] = round(ev, 2)
-            st["why"] += f" · EV {st['ev']:.2f}"
-            st["why_en"] += f" · EV {st['ev']:.2f}"
-            steps.append(st)
+        if 5 <= tb:
+            steps.append(dict(_MINING_STEP))
+            acc += 5
+        if acc + 10 <= tb:
+            steps.append(dict(_POINTS_STEP))
             acc += 10
-        if tn and acc + int(tn[0].get("minutes") or 15) <= tb:
-            steps.append(_testnet_step(tn[0]))   # یک لاتاری: EV نامعین، هزینه صفر
-            acc += int(tn[0].get("minutes") or 15)
-        if not evd:
-            notes.append("داده‌ی زنده نرسید — EV فقط روی تست‌نت‌ها قابل محاسبه نیست؛ برنامه‌ی حداقلی.")
-            notes_en.append("No live data — EV is not computable for testnets; minimal plan.")
+        for h in tn:
+            m = int(h.get("minutes") or 15)
+            if acc + m <= tb:
+                steps.append(_testnet_step(h))
+                acc += m
+        for st in steps:
+            st["ev"] = float(st.get("time_min") or 0)
+            st["why"] += f" · EV پولی: نامعین (لاتاری) — قیمتِ قطعی: فقط {st['time_min']} دقیقه"
+            st["why_en"] += f" · money-EV: unknowable (lottery) — the hard price: only {st['time_min']} min"
     else:
         # شخصیت ناشناخته → برنامه‌ی حداقلیِ امن (فقط یک تست‌نت کوتاه)
+        tn.sort(key=lambda h: (int(h.get("minutes") or 15), str(h.get("name") or "")))
         if tn:
             steps.append(_testnet_step(tn[0]))
 
@@ -287,9 +311,11 @@ def build_plan(agent: dict, pools: Optional[List[dict]],
 def judge_plan(agent: dict, plan: dict) -> Tuple[int, List[str]]:
     """(نمره، فلگ‌ها) — قواعد قطعی؛ بدون شبکه، بدون شانس.
 
-    تخطی از بودجه‌ی صفر = سنگین‌ترین جریمه؛ سرریزِ زمان جریمه‌ی متناسب؛
-    تنوع نوع گام پاداش؛ ناهماهنگی ریسک با شخصیتِ محتاط جریمه؛ گامِ EV صریح
-    پاداش؛ لاتاریِ رایگان برای ایجنت‌های سرمایه‌دار پاداشِ گزینه‌ای.
+    قانون میدان (درخواست کاربر): **هر گامِ پولی برای هر ایجنتی جریمه‌ی سنگین
+    دارد** — این میدان بودجه‌ی صفر دارد. سرریزِ زمان جریمه‌ی متناسب؛ تنوعِ نوع
+    گام پاداش؛ پوششِ دو دنیا (فارمِ رایگان + ماینینگِ رایگان) پاداشِ ویژه؛
+    پوششِ ≥۴ گام پاداش؛ گامِ EV صریح پاداش؛ ناهماهنگی ریسک با شخصیتِ محتاط
+    جریمه (زنجیره‌ی ایمنی برای گام‌های پرنوسانِ آینده).
     """
     steps = [s for s in (plan.get("steps") or []) if isinstance(s, dict)]
     score = 55.0 if steps else 5.0
@@ -297,25 +323,26 @@ def judge_plan(agent: dict, plan: dict) -> Tuple[int, List[str]]:
     budget = str(agent.get("budget") or "any")
     tb = max(int(agent.get("time_budget") or 30), 1)
 
-    if budget == "free" and plan.get("has_paid"):
+    if plan.get("has_paid"):
+        # بودجه‌ی صفر قانونِ همه‌ی ایجنت‌هاست — نه فقط صفر-پول (به درخواست کاربر)
         score -= 45.0
         flags.append("budget_violation")
     excess = int(plan.get("total_time") or 0) - tb
     if excess > 0:
         score -= min(30.0, excess / tb * 30.0)
         flags.append("time_over")
-    if len({s.get("kind") for s in steps}) >= 2:
+    kinds = {str(s.get("kind") or "") for s in steps}
+    if len(kinds) >= 2:
         score += 8.0
+    if (kinds & _FREE_FARM_SIDE) and (kinds & _FREE_MINE_SIDE):
+        score += 10.0                   # پوششِ دو دنیا: فارمینگِ رایگان + ماینینگِ رایگان
+    if len(steps) >= 4:
+        score += 5.0                    # پوششِ گسترده‌تر از حداقل
     if float(agent.get("risk", 0.5)) <= 0.2 and any(
             "high_sigma" in (s.get("flags") or []) or "predicted_down" in (s.get("flags") or [])
             for s in steps):
         score -= 15.0
         flags.append("risk_mismatch")
-    if float(agent.get("risk", 0.5)) >= 0.6 and steps and all(s.get("kind") != "paid" for s in steps):
-        score -= 8.0
-        flags.append("too_timid")
-    if budget != "free" and any(s.get("kind") in ("free", "mining") for s in steps):
-        score += 5.0
     if any("ev" in s for s in steps):
         score += 5.0
     return int(round(max(0.0, min(100.0, score)))), flags

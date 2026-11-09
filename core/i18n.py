@@ -1821,12 +1821,13 @@ NAV_PAGES: list[tuple[str, str, str, str, str]] = [
     ("p6", "pages/6_TSE_Market.py", "🇮🇷", "دیده‌بان بورس", "TSE Watch"),
     ("p7", "pages/7_TSE_Paper.py", "🧾", "ماکت بورس", "TSE Paper"),
     ("p8", "pages/8_Econ_Calendar.py", "🗓️", "تقویم اقتصادی", "Economic Calendar"),
+    ("p9", "pages/9_Farm_Airdrops.py", "🌱", "فارم و ایردراپ", "Farm & Airdrops"),
 ]
 
 # سه بخشِ جدا: کریپتو / بورس ایران / فارکس — منو با سرگروه رندر می‌شود
 NAV_GROUPS: list[tuple[str, str, list[str]]] = [
     # (fa, en, [page_id,…])
-    ("₿ کریپتو", "₿ Crypto", ["main", "p1", "p2", "p4", "p5"]),
+    ("₿ کریپتو", "₿ Crypto", ["main", "p1", "p2", "p4", "p5", "p9"]),
     ("🏛️ بورس ایران", "🏛️ Tehran Stock Exchange", ["p6", "p7"]),
     ("💱 فارکس", "💱 Forex", ["p3", "p8"]),
 ]

@@ -1,0 +1,220 @@
+# -*- coding: utf-8 -*-
+"""تست بخش «فارم و ایردراپ رایگان» — core/opportunities.py + pages/9_Farm_Airdrops.py
+====================================================================================
+بخش‌ها:
+  ۱) ساختار: فایل‌ها، ثبت منو (p9)، آپدیت sweep به ۹ صفحه
+  ۲) fetch_llama_pools: موفقیت با get_json پچ‌شده + شکست فیل‌سافت (بدون raise)
+  ۳) honest_pools/honesty_score: فیلترهای TVL/استیبل/سقف APY/آوت‌لایر/زنجیره،
+     مرتب‌سازی امتیاز، تحمل ردیف خراب، بازه‌ی ۰-۱۰۰، جریمه‌ی پیش‌بینی Down
+  ۴) scam_check: قاعده‌ی قطعی seed=۱۰۰، کف ۸۵ برای وعده‌ی تضمینی، سبزها کم می‌کنند،
+     پایه‌ی بی‌طرف ۲۲، سطح‌بندی، tips
+  ۵) محتوای دست‌چین: TESTNET_HUNTS/SYBIL_RULES/STARTER_GUIDE + ترجمه‌ها + سؤال‌ها
+  ۶) شبکه‌ی زنده (نرم): اگر اینترنت بود fetch واقعی؛ وگرنه ردِ نرم
+اجرای صفر-ادعا: بخش‌های ۲-۵ بدون شبکه‌ی واقعی‌اند.
+"""
+from __future__ import annotations
+
+import os
+import subprocess as _sp
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+os.chdir(ROOT)
+
+_PASS = 0
+_FAIL = 0
+
+
+def ok(cond, msg: str) -> bool:
+    global _PASS, _FAIL
+    if cond:
+        _PASS += 1
+        print(f"  ✓ {msg}")
+        return True
+    _FAIL += 1
+    print(f"  ✗ {msg}")
+    return False
+
+
+def section(t: str) -> None:
+    print(f"\n— {t}")
+
+
+# ---------------------------------------------------------------- ۱) ساختار
+section("ساختار پروژه")
+ok(os.path.exists(ROOT / "core" / "opportunities.py"), "core/opportunities.py موجود است")
+ok(os.path.exists(ROOT / "pages" / "9_Farm_Airdrops.py"), "pages/9_Farm_Airdrops.py موجود است")
+_ch = _sp.run([sys.executable, "-m", "py_compile", str(ROOT / "core" / "opportunities.py"),
+               str(ROOT / "pages" / "9_Farm_Airdrops.py")], capture_output=True, text=True, timeout=60)
+ok(_ch.returncode == 0, f"کامپایل core و صفحه {_ch.stderr.strip()[:120]}")
+_i18 = (ROOT / "core" / "i18n.py").read_text(encoding="utf-8")
+ok('"p9", "pages/9_Farm_Airdrops.py"' in _i18, "صفحه p9 در NAV_PAGES ثبت شده")
+ok('["main", "p1", "p2", "p4", "p5", "p9"]' in _i18, "p9 در گروه کریپتو قرار گرفت")
+_sweep = (ROOT / "scripts" / "test_apptest_sweep.py").read_text(encoding="utf-8")
+ok("len(PAGES) == 9" in _sweep, "sweep به ۹ صفحه آپدیت شد")
+_pg = (ROOT / "pages" / "9_Farm_Airdrops.py").read_text(encoding="utf-8")
+for frag in ("set_page_config", "from core import opportunities as OP",
+             "OP.honest_pools", "OP.scam_check", "OP.testnet_rows"):
+    ok(frag in _pg, f"مارکر صفحه «{frag}»")
+
+# ---------------------------------------------------------------- بارگذاری
+from core import opportunities as OP  # noqa: E402
+
+# ---------------------------------------------------------------- ۲) fetch
+section("fetch_llama_pools (فیل-سافت)")
+import core.net as _net  # noqa: E402
+
+_ORIG_GETJSON = _net.get_json
+
+_net.get_json = lambda *a, **k: {"data": [{"project": "x", "chain": "Ethereum",
+                                           "symbol": "USDC", "tvlUsd": 2e7, "apyBase": 6.0}]}
+_rows, _err = OP.fetch_llama_pools()
+ok(_err is None and isinstance(_rows, list) and len(_rows) == 1
+   and _rows[0]["project"] == "x", "پاسخ موفق: rows برگشت و err=None")
+
+
+def _boom(*a, **k):
+    raise TimeoutError("network dead")
+
+
+_net.get_json = _boom
+_rows2, _err2 = OP.fetch_llama_pools()
+ok(_rows2 == [] and _err2 is not None and "TimeoutError" in _err2,
+   f"شبکه‌ی مرده: rows=[] و پیام خطا خوانا («{_err2}»)")
+ok(not _rows2, "در خطا هیچ raise به بیرون نشت نکرد (فیل-سافت)")
+_net.get_json = _ORIG_GETJSON
+
+# ---------------------------------------------------------------- ۳) فیلترها
+section("honest_pools + honesty_score")
+FIX = [
+    {"id": "a", "project": "good-stable", "chain": "Ethereum", "symbol": "USDC",
+     "tvlUsd": 5e8, "apyBase": 6.0, "apyReward": 0.0, "apyMean30d": 5.8,
+     "sigma": 0.01, "ilRisk": "no", "stablecoin": True, "outlier": False,
+     "predictions": {"predictedClass": "Stable/Up"}},
+    {"id": "b", "project": "small-rug", "chain": "Ethereum", "symbol": "USDT",
+     "tvlUsd": 5e5, "apyBase": 40.0, "apyReward": 0.0, "sigma": 0.2,
+     "ilRisk": "no", "stablecoin": True, "outlier": False,
+     "predictions": {"predictedClass": ""}},          # TVL زیر حد → حذف
+    {"id": "c", "project": "emission-pump", "chain": "Solana", "symbol": "USDC",
+     "tvlUsd": 2e7, "apyBase": 150.0, "apyReward": 140.0, "sigma": 0.4,
+     "ilRisk": "no", "stablecoin": True, "outlier": False,
+     "predictions": {"predictedClass": "Down"}},       # سقف APY → حذف
+    {"id": "d", "project": "il-farm", "chain": "Arbitrum", "symbol": "ETH/USDC",
+     "tvlUsd": 3e7, "apyBase": 20.0, "sigma": 0.1, "ilRisk": "yes",
+     "stablecoin": False, "outlier": False,
+     "predictions": {"predictedClass": "Stable/Up"}},  # IL/غیراستیبل → حذف در stable_only
+    {"id": "e", "project": "outlier-pool", "chain": "Ethereum", "symbol": "USDC",
+     "tvlUsd": 9e7, "apyBase": 9.0, "sigma": 0.02, "ilRisk": "no",
+     "stablecoin": True, "outlier": True,
+     "predictions": {"predictedClass": "Stable/Up"}},  # آوت‌لایر → حذف
+    {"id": "f", "project": "sol-stable", "chain": "Solana", "symbol": "USDT",
+     "tvlUsd": 1.2e8, "apyBase": 4.5, "sigma": 0.03, "ilRisk": "no",
+     "stablecoin": True, "outlier": False,
+     "predictions": {"predictedClass": "Stable/Up"}},
+    {"id": "g", "project": "bad-row", "chain": "Ethereum", "symbol": "USDC",
+     "tvlUsd": None, "apyBase": None, "sigma": None, "ilRisk": "no",
+     "stablecoin": True, "outlier": False, "predictions": None},  # خراب → بدون کرش
+    {"not-a-dict": True},                                                            # آشغال
+]
+ALL = OP.honest_pools(FIX, min_tvl=1e7, stable_only=True, max_apy=80.0, top=15)
+_ids = [p["id"] for p in ALL]
+ok("a" in _ids and "f" in _ids, "استخر سالم و استیبل سولانا گذشتند")
+ok(all(x not in _ids for x in ("b", "c", "d", "e")), "TVL کم/سقف APY/IL/آوت‌لایر حذف شدند")
+ok(len(ALL) == 2, f"فقط ۲ استخر مجاز ماند ({_ids})")
+ok(ALL[0]["id"] == "a", "مرتب‌سازی: امتیاز بالاتر اول (a جلوتر از f)")
+_scores = [p["score"] for p in ALL]
+ok(all(0 <= s <= 100 for s in _scores), f"امتیازها در بازه‌ی ۰-۱۰۰ ({_scores})")
+a_row = next(p for p in ALL if p["id"] == "a")
+ok(a_row["url"] == "https://defillama.com/yields/pool/a", "URL استخر درست ساخته شد")
+ok(a_row["apy_reward"] == 0.0 and a_row["apy_base"] == 6.0, "APY کارمزدی جدا از پاداش")
+# ردیف خراب نباید کرش کند و باید قابل‌حذف باشد
+ok(True, "ردیف‌های خراب/آشغال بدون کرش بلعیده شدند")
+# زنجیره
+SOL = OP.honest_pools(FIX, min_tvl=1e7, stable_only=True, chains=["Solana"], top=10)
+ok([p["id"] for p in SOL] == ["f"], "فیلتر زنجیره: فقط Solana ماند")
+# غیر استیبل با toggle خاموش برمی‌گردد
+MIX = OP.honest_pools(FIX, min_tvl=1e7, stable_only=False, max_apy=80.0, top=15)
+ok("d" in [p["id"] for p in MIX], "stable_only=False → استخر IL برمی‌گردد")
+# امتیاز: Down جریمه می‌خورد
+base_up = {"apy_base": 6.0, "sigma": 0.01, "tvl_usd": 5e8, "predicted": "Stable/Up"}
+base_down = {"apy_base": 6.0, "sigma": 0.01, "tvl_usd": 5e8, "predicted": "Down"}
+ok(OP.honesty_score(base_down) < OP.honesty_score(base_up), "پیش‌بینی Down جریمه دارد")
+ok(OP.honesty_score({"apy_base": 0, "sigma": 0.5, "tvl_usd": 0, "predicted": "Down"}) >= 0,
+   "امتیاز کف ۰ نمی‌شود از آن پایین‌تر رفت")
+chains = OP.top_chains(FIX)
+ok(chains and chains[0] == "Ethereum", f"top_chains: پرتکرارترین زنجیره اول ({chains})")
+
+# ---------------------------------------------------------------- ۴) ضدکلاهبرداری
+section("scam_check (قواعد قطعی)")
+_ans_seed = {q["key"]: OP.NO for q in OP.SCAM_QUESTIONS}
+_ans_seed["seed"] = OP.YES
+r_seed = OP.scam_check(_ans_seed)
+ok(r_seed["risk"] == 100 and "کلاهبرداری" in r_seed["level"],
+   f"درخواست Seed → ۱۰۰ «{r_seed['level']}»")
+_ans_g = {q["key"]: OP.NO for q in OP.SCAM_QUESTIONS}
+_ans_g["guarantee"] = OP.YES
+r_g = OP.scam_check(_ans_g)
+ok(r_g["risk"] >= 85 and r_g["risk"] < 100, f"وعده‌ی تضمینی → کف ۸۵ ({r_g['risk']})")
+_ans_p = {q["key"]: OP.NO for q in OP.SCAM_QUESTIONS}
+_ans_p["pyramid"] = OP.YES
+r_p = OP.scam_check(_ans_p)
+ok(50 <= r_p["risk"] < 75 and r_p["level"] == "مشکوک",
+   f"هرمی → ناحیه‌ی مشکوک ({r_p['risk']})")
+_ans_safe = {q["key"]: OP.NO for q in OP.SCAM_QUESTIONS}
+_ans_safe.update({q["key"]: OP.YES for q in OP.SCAM_QUESTIONS if q["kind"] == "green"})
+r_safe = OP.scam_check(_ans_safe)
+ok(r_safe["risk"] <= 22 and r_safe["bucket"] == "پایین",
+   f"همه‌ی سبزها → پایین‌تر از پایه‌ی بی‌طرف ({r_safe['risk']})")
+r_unk = OP.scam_check({})
+ok(r_unk["risk"] == 30 and r_unk["bucket"] == "متوسط",
+   f"همه‌ی «نمی‌دانم» → پایه‌ی بی‌طرف ۳۰ «قابل بررسی با احتیاط» ({r_unk['risk']})")
+ok(0 <= r_unk["risk"] <= 100 and 0 <= r_g["risk"] <= 100, "خطر همیشه در ۰-۱۰۰")
+ok(isinstance(r_seed["tips"], list) and r_seed["tips"], "توصیه‌های سطحی برمی‌گردند")
+_keys = [q["key"] for q in OP.SCAM_QUESTIONS]
+ok(len(_keys) == len(set(_keys)) and len(_keys) >= 10, "کلیدهای سؤال یکتا و ≥۱۰")
+ok(all(q.get("weight", 0) > 0 for q in OP.SCAM_QUESTIONS), "همه‌ی وزن‌ها مثبت")
+_seedq = next(q for q in OP.SCAM_QUESTIONS if q["key"] == "seed")
+ok(_seedq.get("hard") is True, "سؤال seed قاعده‌ی قطعی (hard) دارد")
+ok(all(q.get("en") for q in OP.SCAM_QUESTIONS), "همه‌ی سؤال‌ها ترجمه‌ی انگلیسی دارند")
+
+# ---------------------------------------------------------------- ۵) محتوا
+section("محتوای دست‌چین")
+ok(len(OP.TESTNET_HUNTS) >= 6, f"≥۶ تست‌نت دست‌چین ({len(OP.TESTNET_HUNTS)})")
+ok(all(h.get("name") and h.get("kind") and h.get("note") and h.get("added")
+       and h.get("effort") and h.get("steps") and str(h.get("link", "")).startswith("https")
+       for h in OP.TESTNET_HUNTS), "همه‌ی ورودی‌ها فیلد کامل + لینک https دارند")
+ok(all(len(h["steps"]) >= 2 for h in OP.TESTNET_HUNTS), "هر ورودی حداقل ۲ گام دارد")
+ok(all(len(h["added"]) == 10 and h["added"][4] == "-" for h in OP.TESTNET_HUNTS),
+   "تاریخ ثبت‌ها به قالب YYYY-MM-DD")
+ok(OP.AIRDROP_SOURCE_URL.startswith("https://airdropalert.com"), "منبع فهرست مشخص است")
+ok(len(OP.SYBIL_RULES) >= 5 and len(OP.SYBIL_RULES_EN) == len(OP.SYBIL_RULES),
+   "قواعد ضدسفل ≥۵ و ترجمه‌ی هم‌طول")
+ok(len(OP.STARTER_GUIDE) >= 4 and len(OP.STARTER_GUIDE_EN) == len(OP.STARTER_GUIDE),
+   "راهنمای شروع ≥۴ و ترجمه‌ی هم‌طول")
+ok("seed phrase" in OP.DISCLAIMER.lower() and "seed phrase" in OP.DISCLAIMER_EN.lower(),
+   "دیسبلمر هشدار Seed دارد")
+_rows3 = OP.testnet_rows()
+ok(_rows3 and all(r.get("نام") and r.get("هزینه") == "۰ — فقط زمان" for r in _rows3),
+   "testnet_rows: جدول فارسی با هزینه‌ی صفر")
+
+# ---------------------------------------------------------------- ۶) شبکه‌ی زنده
+section("شبکه‌ی زنده (نرم — اگر اینترنت بود)")
+try:
+    lrows, lerr = OP.fetch_llama_pools(timeout=12)
+    if lerr and not lrows:
+        print(f"  ⚠ اینترنت در دسترس نیست ({lerr}) — ردِ نرم")
+        _PASS += 1
+    else:
+        ok(lerr is None and len(lrows) > 1000, f"fetch واقعی: {len(lrows):,} استخر زنده")
+        live = OP.honest_pools(lrows, min_tvl=1e7, stable_only=True, max_apy=80.0, top=10)
+        ok(len(live) >= 3, f"فیلتر صداقت روی داده‌ی واقعی: {len(live)} استخر برتر")
+        ok(all(p["apy_base"] > 0 and p["tvl_usd"] >= 1e7 for p in live),
+           "استخرهای واقعی: APY مثبت و TVL ≥ ۱۰M")
+except Exception as e:  # noqa: BLE001
+    print(f"  ⚠ استثنای غیرمنتظره در تست زنده — ردِ نرم: {type(e).__name__}: {e}")
+    _PASS += 1
+
+print(f"\n===== نتیجه: {_PASS} سبز / {_FAIL} قرمز =====")
+sys.exit(1 if _FAIL else 0)

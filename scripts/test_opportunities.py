@@ -210,15 +210,33 @@ ok(_sites2 == {} and _serr2 is not None and "TimeoutError" in _serr2,
    f"شبکه‌ی مرده: ({{}}, «{_serr2}») — فیل-سافت بدون raise")
 _net.get_json = _ORIG_GETJSON
 
-# اتصال site در honest_pools
+# اتصال site در honest_pools — لینک عمق‌دار (APP_LINKS) بر نقشه‌ی پروتکل‌ها اولویت دارد
+ok(len(OP.APP_LINKS) >= 10, f"≥۱۰ لینک عمق‌دار ({len(OP.APP_LINKS)})")
+ok(all(u.startswith("https://") for u in OP.APP_LINKS.values()),
+   "همه‌ی لینک‌های عمق‌دار https دارند")
+ok(all("?ref=" not in u and "utm_" not in u and " " not in u for u in OP.APP_LINKS.values()),
+   "لینک‌ها بدون پارامتر معرفی/ردیابی (ref/utm) و بدون فاصله")
+ok(all(s == s.lower() for s in OP.APP_LINKS), "کلیدهای نقشه = اسلاگ‌های پایین‌حرف DefiLlama")
+_AA = [{"id": "z", "project": "aave-v3", "chain": "Ethereum", "symbol": "aEthUSDC",
+        "tvlUsd": 5e7, "apyBase": 4.0, "sigma": 0.01, "ilRisk": "no",
+        "stablecoin": True, "outlier": False,
+        "predictions": {"predictedClass": "Stable/Up"}}]
+_R = OP.honest_pools(_AA, min_tvl=1e7, top=5)
+ok(bool(_R) and _R[0]["site"] == OP.APP_LINKS["aave-v3"] and _R[0]["site_kind"] == "app",
+   f"aave-v3 بدون هیچ نقشه‌ای → لینک عمق‌دار ({_R[0]['site'] if _R else '—'})")
+_R2 = OP.honest_pools(_AA, min_tvl=1e7, top=5, sites={"aave-v3": "https://aave.com"})
+ok(_R2[0]["site"] == OP.APP_LINKS["aave-v3"] and _R2[0]["site_kind"] == "app",
+   "لینک عمق‌دار بر homepage پروتکل‌ها اولویت دارد")
 WITH_SITES = OP.honest_pools(FIX, min_tvl=1e7, stable_only=True, top=15,
                              sites={"good-stable": "https://good.example"})
 _a = next(p for p in WITH_SITES if p["id"] == "a")
 _f2 = next(p for p in WITH_SITES if p["id"] == "f")
-ok(_a["site"] == "https://good.example", "site از نقشه به استخر متصل شد")
-ok(_f2["site"] == "", "اسلاگ غایب → site خالی (نه حدس)")
+ok(_a["site"] == "https://good.example" and _a["site_kind"] == "site",
+   "پروژه‌ی خارج از نقشه با سایت شناخته → kind «site»")
+ok(_f2["site"] == "" and _f2["site_kind"] == "", "اسلاگ غایب → site خالی (نه حدس)")
 NO_SITES = OP.honest_pools(FIX, min_tvl=1e7, stable_only=True, top=15)
-ok(all(p["site"] == "" for p in NO_SITES), "بدون نقشه هم همه site خالی دارند (بدون کرش)")
+ok(all(p["site"] == "" and p["site_kind"] == "" for p in NO_SITES),
+   "بدون نقشه هم همه site خالی دارند (بدون کرش)")
 
 # VERIFY_TOOLS
 ok(len(OP.VERIFY_TOOLS) >= 5, f"≥۵ ابزار راستی‌آزمایی ({len(OP.VERIFY_TOOLS)})")
@@ -234,7 +252,8 @@ ok(_hosts <= _known or all(any(h == k or h.endswith("." + k) or h.startswith(k) 
 
 # مارکرهای لینک در صفحه
 for frag in ("LinkColumn", "st.link_button", "OP.fetch_project_urls", "باز کن ",
-             "وب‌سایت ", "OP.VERIFY_TOOLS", "sites=_sites_cached", "سه برتر"):
+             "ورود ↗", "OP.VERIFY_TOOLS", "sites=_sites_cached", "سه برتر",
+             "site_kind", "بخش فارم"):
     ok(frag in _pg, f"مارکر ورود مستقیم صفحه «{frag.strip()}»")
 
 # ---------------------------------------------------------------- ۶) محتوا
@@ -282,6 +301,10 @@ try:
                "استخرهای واقعی: APY مثبت و TVL ≥ ۱۰M")
             ok(all(p["url"].startswith("https://defillama.com/yields/pool/") for p in live),
                "لینک صفحه‌ی استخر همه‌ی برترها معتبر است")
+            ok(all(p["site_kind"] in ("", "app", "site") for p in live),
+               "site_kind همه‌ی برترها معتبر (خالی/site/app)")
+            _apps = [p["project"] for p in live if p["site_kind"] == "app"]
+            print(f"  ℹ لینک عمق‌دار در برترهای زنده: {_apps}")
             _with_site = sum(1 for p in live if p["site"])
             ok(_with_site >= len(live) // 2,
                f"حداقل نصف برترها وب‌سایت رسمی دارند ({_with_site}/{len(live)})")

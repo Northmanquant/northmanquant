@@ -101,14 +101,15 @@ with t1:
                         f"<span style='font-size:12px;opacity:.85'>{p['chain']} · {p['symbol']} · "
                         f"{tr('امتیاز', 'Score')} {p['score']} · APY {p['apy_base']:.1f}%</span></div>",
                         unsafe_allow_html=True)
-                    st.link_button("🌐 " + tr("ورود به پروژه", "Open project"),
-                                   p["site"] or p["url"], use_container_width=True)
+                    _btn = (tr("🌾 ورود به بخش فارم", "🌾 Go to the farm page")
+                            if p["site_kind"] == "app" else tr("🌐 ورود به پروژه", "🌐 Open project"))
+                    st.link_button(_btn, p["site"] or p["url"], use_container_width=True)
                     st.link_button("📊 " + tr("صفحه‌ی استخر", "Pool page"),
                                    p["url"], use_container_width=True)
 
             sc_lbl = tr("امتیاز صداقت", "Honesty score")
             pool_lbl = tr("🔗 صفحه‌ی استخر", "🔗 Pool page")
-            site_lbl = tr("🌐 سایت پروژه", "🌐 Project site")
+            site_lbl = tr("🌐 ورود مستقیم", "🌐 Direct entry")
             df = pd.DataFrame([{
                 tr("پروژه", "Project"): p["project"],
                 tr("زنجیره", "Chain"): p["chain"],
@@ -133,17 +134,19 @@ with t1:
                     tr("APY ۳۰روزه ٪", "30d APY %"): st.column_config.NumberColumn(format="%.2f"),
                     sc_lbl: st.column_config.ProgressColumn(min_value=0, max_value=100, format="%d"),
                     pool_lbl: st.column_config.LinkColumn(pool_lbl, display_text="باز کن ↗"),
-                    site_lbl: st.column_config.LinkColumn(site_lbl, display_text="وب‌سایت ↗"),
+                    site_lbl: st.column_config.LinkColumn(site_lbl, display_text="ورود ↗"),
                 })
             st.caption(tr(
-                "👆 روی «باز کن ↗» کلیک کن تا وارد صفحه‌ی استخر شوی (نمودار و تاریخچه‌ی بازده) و روی "
-                "«وب‌سایت ↗» تا سایت رسمی پروژه باز شود — لینک سایت‌ها مستقیم از فهرست پروتکل‌های "
-                "DefiLlama می‌آید، نه گوگل؛ وقتی خالی است یعنی آدرس رسمی معتبری ثبت نشده — در گوگل "
-                "دنبالش نگرد، از همین‌جا بی‌خطر رد شو.",
-                "👆 Click 'Open ↗' to enter the pool page (chart + yield history) and 'Website ↗' for "
-                "the project's official site — site links come straight from DefiLlama's protocol "
-                "index, not Google; empty means no verified official address — don't hunt it on "
-                "Google, safely skip it."))
+                "👆 «باز کن ↗» نمودار و تاریخچه‌ی بازده‌ی استخر را باز می‌کند؛ «ورود ↗» مستقیم می‌رود سراغ "
+                "خود پروژه — برای پروژه‌های شناخته‌شده (Aave، Kamino، Pendle، Lido، Jupiter و…) این لینک "
+                "مستقیم به صفحه‌ی اپ/فارم می‌رسد، نه صفحه‌ی شلوغِ خانه‌ی سایت. لینک‌ها از ایندکس رسمی "
+                "DefiLlama و نقشه‌ی بررسی‌شده‌ی خودمان می‌آیند، نه گوگل؛ وقتی خالی است یعنی آدرس رسمی "
+                "معتبری ثبت نشده — دنبالش نگرد، از همین‌جا بی‌خطر رد شو.",
+                "👆 'Open ↗' shows the pool chart and yield history; 'Enter ↗' goes straight to the "
+                "project — for well-known ones (Aave, Kamino, Pendle, Lido, Jupiter…) it lands directly "
+                "on the app/farm page, not the busy marketing home. Links come from DefiLlama's official "
+                "index and our vetted map, not Google; empty means no verified official address — don't "
+                "hunt it, safely skip it."))
             st.caption(tr(
                 "🌾 APY کارمزدی = سودِ واقعی از کارمزد/نرخ وام (همان که وارد رتبه می‌شود) · APY پاداش = "
                 "توکن ایمی‌شونده که معمولاً به‌محض فروش می‌ریزد و در امتیاز لحاظ نشده · نوسان (sigma) "

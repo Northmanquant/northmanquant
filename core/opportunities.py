@@ -151,9 +151,11 @@ def honest_pools(rows: Optional[List[dict]], *, min_tvl: float = 10_000_000.0,
             continue
         if chains and str(p.get("chain", "")) not in chains:
             continue
+        slug = str(p.get("project") or "")
+        site = clean_site(APP_LINKS.get(slug) or (sites or {}).get(slug))
         it = {
             "id": str(p.get("id") or p.get("pool") or ""),
-            "project": str(p.get("project") or "?"),
+            "project": slug,
             "chain": str(p.get("chain") or "?"),
             "symbol": str(p.get("symbol") or "?"),
             "tvl_usd": tvl,
@@ -166,7 +168,8 @@ def honest_pools(rows: Optional[List[dict]], *, min_tvl: float = 10_000_000.0,
             "stablecoin": bool(p.get("stablecoin")),
             "predicted": str((p.get("predictions") or {}).get("predictedClass") or ""),
             "url": POOL_URL.format(pid=p.get("id") or p.get("pool") or ""),
-            "site": clean_site((sites or {}).get(str(p.get("project") or ""))),
+            "site": site,
+            "site_kind": "app" if (slug in APP_LINKS and site) else ("site" if site else ""),
             "score": 0,
         }
         it["score"] = honesty_score(it)
@@ -244,6 +247,32 @@ VERIFY_TOOLS: List[Dict[str, str]] = [
      "what": "فعالیت واقعی کاربران روزانه — پروژه‌ی مرده فقط عدد ساختگی روی صفحه دارد",
      "what_en": "Real daily user activity — a dead project only has fake numbers on its own page"},
 ]
+
+# لینک‌های عمق‌دار — مستقیم به صفحه‌ی اپ/فارمِ هر پروژه، نه صفحه‌ی تبلیغاتی اصلی.
+# چرا؟ پرسش کاربر: «داخل سایت که می‌شی خیلی شلوغ و گمراه‌کننده‌ست؛ جوری بچین که
+# مستقیم به همون قسمت فارم بره.» هر URL قبل از ورود به این نقشه با curl زنده
+# راستی‌آزمایی شده (۹ نوامبر ۲۰۲۶)؛ ۴۰۳/۴۲۹ فقط بات‌بلاکِ کلاودفلر است نه لینک خراب.
+# قاعده: URL نامطمئن هرگز وارد نمی‌شود — خالی بهتر از حدس است (لینک جعلی سم است).
+APP_LINKS: Dict[str, str] = {
+    "aave-v3": "https://app.aave.com",
+    "kamino-lend": "https://app.kamino.finance",
+    "pendle-v2": "https://app.pendle.finance",
+    "spark-savings": "https://app.spark.fi",
+    "jupiter-staked-sol": "https://jup.ag/tokens/jupSOL",
+    "lido": "https://stake.lido.fi",
+    "rocket-pool": "https://stake.rocketpool.net",
+    "maple": "https://app.maple.finance",
+    "frax": "https://app.frax.finance",
+    "compound-v3": "https://app.compound.finance",
+    "ether.fi-stake": "https://app.ether.fi",
+    "ether.fi-liquid": "https://app.ether.fi",
+    "usual-usd0": "https://app.usual.money",
+    "usual-eth0": "https://app.usual.money",
+    "usual-eur0": "https://app.usual.money",
+    "ethena-usde": "https://app.ethena.fi",
+    "axis": "https://app.axis.to",
+    "tori-finance": "https://app.tori.finance",
+}
 
 SCAM_TIPS_BY_LEVEL = {
     "قطعی": [

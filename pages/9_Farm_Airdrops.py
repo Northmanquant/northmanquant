@@ -1,7 +1,12 @@
-"""فارم و ایردراپ رایگان — داده‌ی واقعی، نه وعده
-بازده واقعی DeFi از API رایگان DefiLlama + آزمایشگر ضدکلاهبرداری +
-فهرست دست‌چین تست‌نت/ایردراپ با هزینه‌ی صفر. فلسفه: «رایگان + سود خوب +
-مطمئن» با هم وجود ندارند — سود واقعی سرمایه، زمان یا مهارت می‌گیرد."""
+"""فارم و ماینینگ — اول دسته‌بندی، بعد ورود
+دسته‌بندی ۴گانه به درخواست کاربر («بیشترشون رایگان نیستن… گیج نشن و دنبالش
+نگردن»): هر فرصت با برچسب هزینه (🟢 رایگان / 🔴 پولی) و در تبِ خودش:
+  🌾 فارمینگ — پولی: بازده واقعی DeFi از DefiLlama (واریز سرمایه لازم است)
+  ⛏️ ماینینگ — سه دنیا: موبایلی (رایگان) / هاردواری (پولی) / ابری (پرخطر)
+  🎁 رایگان — تست‌نت/ایردراپ: هزینه‌ی صفر، فقط زمان
+  🛡 ضدکلاهبرداری — چک‌لیست + ابزارهای راستی‌آزمایی
+فلسفه: «رایگان + سود خوب + مطمئن» با هم وجود ندارند — سود واقعی سرمایه،
+زمان یا مهارت می‌گیرد."""
 from __future__ import annotations
 
 import pandas as pd
@@ -11,7 +16,7 @@ from core import opportunities as OP
 from core.help import hint
 from core.i18n import get_lang, setup_i18n, tr
 
-st.set_page_config(page_title="فارم و ایردراپ | Farm & Airdrops", page_icon="🌱", layout="wide")
+st.set_page_config(page_title="فارم و ماینینگ | Farm & Mining", page_icon="🌱", layout="wide")
 LANG = setup_i18n(page="p9")
 
 
@@ -32,24 +37,67 @@ def _sites_cached() -> dict:
     return sites
 
 
-st.title("🌱 " + tr("فارم و ایردراپ رایگان — با داده‌ی واقعی", "Farm & Free Airdrops — real data only"))
+st.title("🌱 " + tr("فارم و ماینینگ — اول دسته‌بندی، بعد ورود",
+                    "Farm & Mining — categories first, then enter"))
 hint(tr(
-    "اینجا سه چیز هست: ① بازدهِ زنده‌ی استخرهای DeFi مستقیم از DefiLlama با تفکیک «APY واقعیِ کارمزدی» "
-    "از «APY توکن پاداشِ ایمی‌شونده» و امتیازِ صداقت؛ ② یک آزمایشگر ضدکلاهبرداری که هر پروژه‌ای را با "
-    "چک‌لیست وزن‌دار می‌سنجد؛ ③ فهرست تست‌نت‌های فعال با هزینه‌ی صفر (فقط زمان). قانون طلایی: "
+    "چهار دسته، همان‌طور که از هر چیزی انتظار داری: 🌾 فارمینگ (🔴 پولی — استخرهای بازده واقعی که "
+    "برای شروع باید سرمایه واریز کنی) · ⛏️ ماینینگ (سه دنیای متفاوت: موبایلیِ 🟢 رایگان، هاردواریِ "
+    "🔴 پولی، ابریِ 🔴 پرخطر) · 🎁 رایگان (تست‌نت و ایردراپ — بدون حتی یک دلار، فقط زمان) · 🛡 "
+    "ضدکلاهبرداری. نشانِ 🟢/🔴 کنار هر چیز می‌گوید از تو پول می‌خواهند یا زمان. قانون طلایی: "
     "«رایگان + سود خوب + مطمئن» با هم وجود ندارند — هر کس هر سه را قول داد، کلاهبردار است.",
-    "Three things live here: ① live DeFi pool yields straight from DefiLlama, separating real fee APY "
-    "from emitted reward APY, with an honesty score; ② a scam-checker with a weighted checklist; "
-    "③ curated zero-cost testnet hunts. Golden rule: 'free + high profit + guaranteed' never coexist."))
-
-t1, t2, t3 = st.tabs([tr("🌾 بازده واقعی", "🌾 Real yields"),
-                      tr("🛡 آزمایشگر ضدکلاهبرداری", "🛡 Scam checker"),
-                      tr("🪂 تست‌نت/ایردراپ رایگان", "🪂 Testnet/airdrop hunts")])
+    "Four categories: 🌾 farming (🔴 paid yield pools — you must deposit), ⛏️ mining (three different "
+    "worlds: 🟢 free mobile, 🔴 paid hardware, 🔴 risky cloud), 🎁 free (testnets & airdrops — zero "
+    "dollars, time only) and 🛡 anti-scam. The 🟢/🔴 tag on everything says whether it wants your "
+    "money or your time. Golden rule: 'free + high profit + guaranteed' never coexist."))
 
 # --------------------------------------------------------------------------- #
-# تب ۱ — بازده واقعی                                                          #
+# نوار دسته‌بندی — چهار کارت، همان چهار کلمه‌ای که کاربر خواست                 #
 # --------------------------------------------------------------------------- #
-with t1:
+_chips = [
+    ("🌾", tr("فارمینگ", "Farming"),
+     tr("🔴 پولی — سرمایه لازم", "🔴 Paid — needs capital"), "#ef4444",
+     tr("استخرهای بازده واقعی؛ برای شروع باید واریز کنی.",
+        "Real yield pools; you must deposit to start.")),
+    ("⛏️", tr("ماینینگ", "Mining"),
+     tr("🟢 موبایلی / 🔴 هاردواری و ابری", "🟢 mobile / 🔴 hardware & cloud"), "#f59e0b",
+     tr("سه دنیای متفاوت با یک نام — تفاوتشان را بدان.",
+        "Three different worlds, one name — know the difference.")),
+    ("🎁", tr("رایگان", "Free"),
+     tr("🟢 بدون حتی ۱ دلار — فقط زمان", "🟢 zero dollars — time only"), "#16a34a",
+     tr("تست‌نت و ایردراپ: پول نمی‌خواهد، تضمین هم ندارد.",
+        "Testnets and airdrops: no money, no guarantees.")),
+    ("🔴", tr("پولی", "Paid"),
+     tr("اول پول، بعد سود", "money first, profit later"), "#ef4444",
+     tr("هر بخشی با این نشان یعنی سرمایه لازم دارد.",
+        "Anything with this tag needs capital.")),
+]
+for (_ic, _ti, _co, _clr, _de), _c in zip(_chips, st.columns(4)):
+    with _c:
+        st.markdown(
+            f"<div dir='rtl' style='border:1px solid rgba(148,163,184,.35);border-radius:12px;"
+            f"padding:8px 10px;margin-bottom:2px'><b>{_ic} {_ti}</b><br>"
+            f"<span style='font-size:12px;font-weight:800;color:{_clr}'>{_co}</span><br>"
+            f"<span style='font-size:12px;opacity:.85'>{_de}</span></div>",
+            unsafe_allow_html=True)
+
+t_farm, t_mine, t_free, t_scam = st.tabs([
+    tr("🌾 فارمینگ — پولی (سرمایه لازم)", "🌾 Farming — paid (needs capital)"),
+    tr("⛏️ ماینینگ — رایگان یا پولی", "⛏️ Mining — free or paid"),
+    tr("🎁 رایگان — بدون سرمایه", "🎁 Free — zero capital"),
+    tr("🛡 ضدکلاهبرداری", "🛡 Anti-scam"),
+])
+
+# --------------------------------------------------------------------------- #
+# تب ۱ — فارمینگ (پولی)                                                       #
+# --------------------------------------------------------------------------- #
+with t_farm:
+    st.error(tr(
+        "🔴 این بخش پولی است — برای شروع در هر استخر باید سرمایه واریز کنی. «رایگان» اینجا فقط یعنی "
+        "نمایشِ داده رایگان است، نه شرکتِ بدون پول. قاعده: با کمترین مبلغ شروع کن و اولین برداشت را "
+        "هرچه زودتر تست کن.",
+        "🔴 This section is paid — every pool requires a deposit to enter. 'Free' here only means the "
+        "data display is free, not that participation costs nothing. Rule: start with the smallest "
+        "amount and test your first withdrawal as soon as possible."))
     rows, err = _pools_cached()
     if err:
         st.warning(tr(
@@ -99,7 +147,9 @@ with t1:
                         f"<div dir='rtl' style='border:1px solid rgba(148,163,184,.35);border-radius:12px;"
                         f"padding:10px 12px;margin-bottom:4px'><b>{p['project']}</b><br>"
                         f"<span style='font-size:12px;opacity:.85'>{p['chain']} · {p['symbol']} · "
-                        f"{tr('امتیاز', 'Score')} {p['score']} · APY {p['apy_base']:.1f}%</span></div>",
+                        f"{tr('امتیاز', 'Score')} {p['score']} · APY {p['apy_base']:.1f}%</span><br>"
+                        f"<span style='font-size:12px;font-weight:800;color:#ef4444'>{OP.COST_PAID} — "
+                        f"{tr('سرمایه لازم', 'capital needed')}</span></div>",
                         unsafe_allow_html=True)
                     _btn = (tr("🌾 ورود به بخش فارم", "🌾 Go to the farm page")
                             if p["site_kind"] == "app" else tr("🌐 ورود به پروژه", "🌐 Open project"))
@@ -164,9 +214,88 @@ with t1:
                        "No pool passes these filters — relax the APY cap or TVL floor."))
 
 # --------------------------------------------------------------------------- #
-# تب ۲ — آزمایشگر ضدکلاهبرداری                                                #
+# تب ۲ — ماینینگ (سه دنیا)                                                    #
 # --------------------------------------------------------------------------- #
-with t2:
+with t_mine:
+    st.caption(tr(
+        "کلمه‌ی «ماینینگ» سه دنیای کاملاً متفاوت را پوشش می‌دهد — اشتباه گرفتنشان گران تمام می‌شود. "
+        "اول دسته را تشخیص بده، بعد تصمیم بگیر. هیچ‌کدام از این سه، «پولِ آسان» نیستند.",
+        "'Mining' covers three completely different worlds — confusing them is expensive. Identify the "
+        "category first, decide second. None of the three is 'easy money'."))
+    for _col, _k in zip(st.columns(3), OP.MINING_KINDS):
+        with _col:
+            st.markdown(
+                f"<div dir='rtl' style='border:1px solid rgba(148,163,184,.35);border-radius:12px;"
+                f"padding:10px 12px'><b>{_k['icon']} {tr(_k['title'], _k['title_en'])}</b><br>"
+                f"<span style='font-size:13px;font-weight:800;color:{_k['color']}'>"
+                f"{tr(_k['cost'], _k['cost_en'])}</span><br>"
+                f"<span style='font-size:12px;opacity:.9'>{tr(_k['what'], _k['what_en'])}</span></div>",
+                unsafe_allow_html=True)
+    st.divider()
+    for _k in OP.MINING_KINDS:
+        st.markdown(f"**{_k['icon']} {tr(_k['title'], _k['title_en'])} · "
+                    f"{tr(_k['cost'], _k['cost_en'])} — {tr(_k['verdict'], _k['verdict_en'])}**")
+        for _r in _L(_k["rules"], _k["rules_en"]):
+            st.markdown(f"- {_r}")
+    st.info(tr(
+        "⚖️ قبل از هر ورود: تب «ضدکلاهبرداری» را کامل کن — ۱۰ سؤال + ابزارهای راستی‌آزمایی با لینک مستقیم.",
+        "⚖️ Before entering anything: complete the Anti-scam tab — 10 questions + verification tools "
+        "with direct links."))
+
+# --------------------------------------------------------------------------- #
+# تب ۳ — رایگان (تست‌نت/ایردراپ)                                              #
+# --------------------------------------------------------------------------- #
+with t_free:
+    st.success(tr(
+        "🟢 رایگان — بدون حتی یک دلار؛ هزینه‌ی واقعی فقط زمان تو است. هر «فرصت رایگانی» که از تو پول "
+        "خواست، رایگان نیست — برو تب «ضدکلاهبرداری».",
+        "🟢 Free — not even one dollar; the real cost is your time. Any 'free opportunity' that asks "
+        "for money is not free — go to the Anti-scam tab."))
+    st.caption(tr(
+        "تنها دسته‌ی «رایگانِ واقعی» با سابقه‌ی پرداخت: تست‌نت‌ها — روی شبکه‌ی آزمایشی با توکنِ بی‌ارزش "
+        "بازی می‌کنی؛ اگر پروژه توکن واقعی بدهد، تسترهای اولیه سهم می‌گیرند. تضمینی نیست — هر ورودی یک "
+        "بلیت لاتاری است. هزینه‌ی واقعی: زمان.",
+        "The only genuinely 'free' category with payout history: testnets — you play on an experimental "
+        "network with valueless tokens; if the project launches, early testers get an allocation. Not "
+        "guaranteed — each entry is a lottery ticket. Real cost: your time."))
+    st.link_button("🪂 " + tr("ورود به فهرست زنده‌ی تست‌نت‌ها (مرجع بررسی‌شده)",
+                             "Open the live testnet list (vetted source)"),
+                   OP.AIRDROP_SOURCE_URL, use_container_width=True)
+    st.dataframe(
+        pd.DataFrame(OP.testnet_rows()), width="stretch", hide_index=True,
+        column_config={"منبع": st.column_config.LinkColumn(
+            "منبع" if LANG != "en" else "Source", display_text="airdropalert ↗")})
+    st.warning(tr(
+        "🧭 «چطور وارد پروژه شوم؟» — روی دکمه یا ستون «airdropalert ↗» کلیک کن؛ در صفحه‌ی مرجع، نام همان "
+        "پروژه را پیدا کن و از لینکِ رسمیِ داخل همان صفحه واردش شو. عمداً لینک مستقیمِ دست‌ساز اینجا "
+        "نمی‌گذاریم: دامنه‌های جعلی (فیشینگ) در دنیای ایردراپ بیداد می‌کنند و یک حرف جابه‌جا در آدرس یعنی "
+        "کیف پول خالی. همیشه دامنه را با چشم خودت چک کن.",
+        "🧭 'How do I enter the project?' — click the button or the 'airdropalert ↗' column; find the "
+        "project name on the source page and enter via the official link inside it. We deliberately "
+        "avoid hand-written direct links: fake (phishing) domains run rampant in airdrops and one "
+        "swapped letter in a URL means an emptied wallet. Always read the domain with your own eyes."))
+    h1, h2 = st.columns(2)
+    with h1:
+        st.markdown(f"**🧭 {tr('شروع از صفر', 'Starting from zero')}**")
+        for step in _L(OP.STARTER_GUIDE, OP.STARTER_GUIDE_EN):
+            st.markdown(f"- {step}")
+    with h2:
+        st.markdown(f"**🛰 {tr('قواعد ضدسفل (Sybil)', 'Anti-Sybil rules')}**")
+        for rule in _L(OP.SYBIL_RULES, OP.SYBIL_RULES_EN):
+            st.markdown(f"- {rule}")
+    st.markdown(tr(
+        "⛏️ ماینینگ موبایلی هم بدون پول است — اما بلیت لاتاری است؛ قواعدش در تب «ماینینگ».",
+        "⛏️ Mobile mining is free too — but a lottery ticket; its rules live in the Mining tab."))
+    st.caption(tr(
+        f"فهرست دست‌چین‌شده (بررسی: نوامبر ۲۰۲۶) — منبع زنده: {OP.AIRDROP_SOURCE_URL} · ترتیب هیچ‌گونه "
+        "توصیه‌ای نیست؛ هر هفته دوباره چک کن.",
+        f"Hand-curated (checked: Nov 2026) — live source: {OP.AIRDROP_SOURCE_URL} · ordering is not a "
+        "recommendation; re-check weekly."))
+
+# --------------------------------------------------------------------------- #
+# تب ۴ — ضدکلاهبرداری                                                         #
+# --------------------------------------------------------------------------- #
+with t_scam:
     st.caption(tr(
         "پروژه‌ای که می‌خواهی امتحانش کنی را در ذهنت بگیر و به ۱۰ سؤال جواب بده — «نمی‌دانم» هم پاسخ "
         "بی‌طرف است. اگر «بله»ی اول برایت پیش آمد، اصلاً ادامه نده.",
@@ -233,47 +362,5 @@ with t2:
                 st.markdown(
                     f"<div dir='rtl' style='font-size:13px;opacity:.9;margin-top:-6px'>"
                     f"{tr(t['what'], t['what_en'])}</div>", unsafe_allow_html=True)
-
-# --------------------------------------------------------------------------- #
-# تب ۳ — تست‌نت/ایردراپ                                                       #
-# --------------------------------------------------------------------------- #
-with t3:
-    st.caption(tr(
-        "تنها دسته‌ی «رایگانِ واقعی» با سابقه‌ی پرداخت: تست‌نت‌ها — روی شبکه‌ی آزمایشی با توکنِ بی‌ارزش "
-        "بازی می‌کنی؛ اگر پروژه توکن واقعی بدهد، تسترهای اولیه سهم می‌گیرند. تضمینی نیست — هر ورودی یک "
-        "بلیت لاتاری است. هزینه‌ی واقعی: زمان.",
-        "The only genuinely 'free' category with payout history: testnets — you play on an experimental "
-        "network with valueless tokens; if the project launches, early testers get an allocation. Not "
-        "guaranteed — each entry is a lottery ticket. Real cost: your time."))
-    st.link_button("🪂 " + tr("ورود به فهرست زنده‌ی تست‌نت‌ها (مرجع بررسی‌شده)",
-                             "Open the live testnet list (vetted source)"),
-                   OP.AIRDROP_SOURCE_URL, use_container_width=True)
-    st.dataframe(
-        pd.DataFrame(OP.testnet_rows()), width="stretch", hide_index=True,
-        column_config={"منبع": st.column_config.LinkColumn(
-            "منبع" if LANG != "en" else "Source", display_text="airdropalert ↗")})
-    st.warning(tr(
-        "🧭 «چطور وارد پروژه شوم؟» — روی دکمه یا ستون «airdropalert ↗» کلیک کن؛ در صفحه‌ی مرجع، نام همان "
-        "پروژه را پیدا کن و از لینکِ رسمیِ داخل همان صفحه واردش شو. عمداً لینک مستقیمِ دست‌ساز اینجا "
-        "نمی‌گذاریم: دامنه‌های جعلی (فیشینگ) در دنیای ایردراپ بیداد می‌کنند و یک حرف جابه‌جا در آدرس یعنی "
-        "کیف پول خالی. همیشه دامنه را با چشم خودت چک کن.",
-        "🧭 'How do I enter the project?' — click the button or the 'airdropalert ↗' column; find the "
-        "project name on the source page and enter via the official link inside it. We deliberately "
-        "avoid hand-written direct links: fake (phishing) domains run rampant in airdrops and one "
-        "swapped letter in a URL means an emptied wallet. Always read the domain with your own eyes."))
-    h1, h2 = st.columns(2)
-    with h1:
-        st.markdown(f"**🧭 {tr('شروع از صفر', 'Starting from zero')}**")
-        for step in _L(OP.STARTER_GUIDE, OP.STARTER_GUIDE_EN):
-            st.markdown(f"- {step}")
-    with h2:
-        st.markdown(f"**🛰 {tr('قواعد ضدسفل (Sybil)', 'Anti-Sybil rules')}**")
-        for rule in _L(OP.SYBIL_RULES, OP.SYBIL_RULES_EN):
-            st.markdown(f"- {rule}")
-    st.caption(tr(
-        f"فهرست دست‌چین‌شده (بررسی: نوامبر ۲۰۲۶) — منبع زنده: {OP.AIRDROP_SOURCE_URL} · ترتیب هیچ‌گونه "
-        "توصیه‌ای نیست؛ هر هفته دوباره چک کن.",
-        f"Hand-curated (checked: Nov 2026) — live source: {OP.AIRDROP_SOURCE_URL} · ordering is not a "
-        "recommendation; re-check weekly."))
 
 st.warning(tr(f"⚠️ {OP.DISCLAIMER}", f"⚠️ {OP.DISCLAIMER_EN}"))

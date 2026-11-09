@@ -12,6 +12,8 @@
      پالایش URL خراب)، اتصال site در honest_pools، VERIFY_TOOLS،
      مارکرهای لینک صفحه (LinkColumn/link_button/باز کن ↗)
   ۶) محتوای دست‌چین: TESTNET_HUNTS/SYBIL_RULES/STARTER_GUIDE + ترجمه‌ها + سؤال‌ها
+  ۶ب) دسته‌بندی ۴گانه: COST_FREE/COST_PAID + MINING_KINDS (سه دنیا، فقط موبایلی
+     رایگان، قواعد کلیدی هر دنیا) + مارکرهای تب‌های تازه‌ی صفحه
   ۷) شبکه‌ی زنده (نرم): اگر اینترنت بود fetch واقعی؛ وگرنه ردِ نرم
 اجرای صفر-ادعا: بخش‌های ۲-۶ بدون شبکه‌ی واقعی‌اند.
 """
@@ -273,8 +275,40 @@ ok(len(OP.STARTER_GUIDE) >= 4 and len(OP.STARTER_GUIDE_EN) == len(OP.STARTER_GUI
 ok("seed phrase" in OP.DISCLAIMER.lower() and "seed phrase" in OP.DISCLAIMER_EN.lower(),
    "دیسبلمر هشدار Seed دارد")
 _rows3 = OP.testnet_rows()
-ok(_rows3 and all(r.get("نام") and r.get("هزینه") == "۰ — فقط زمان" for r in _rows3),
-   "testnet_rows: جدول فارسی با هزینه‌ی صفر")
+ok(_rows3 and all(r.get("نام") and r.get("هزینه") == "🟢 رایگان — فقط زمان" for r in _rows3),
+   "testnet_rows: جدول فارسی با نشان «🟢 رایگان — فقط زمان»")
+
+# ---------------------------------------------------------------- ۶ب) دسته‌بندی
+section("دسته‌بندی ۴گانه (رایگان/پولی) + ماینینگ")
+ok(OP.COST_FREE == "🟢 رایگان" and "رایگان" in OP.COST_FREE, "برچسب هزینه‌ی رایگان")
+ok("پولی" in OP.COST_PAID, "برچسب هزینه‌ی پولی")
+_kinds = OP.MINING_KINDS
+ok(len(_kinds) == 3, f"سه دنیای ماینینگ ({len(_kinds)})")
+ok([k["key"] for k in _kinds] == ["mobile", "hardware", "cloud"],
+   "کلیدها به ترتیب: mobile / hardware / cloud")
+ok(_kinds[0]["free"] is True and not _kinds[1]["free"] and not _kinds[2]["free"],
+   "فقط ماینینگ موبایلی رایگان است")
+ok(all(k.get("icon") and k.get("title") and k.get("title_en") and k.get("cost")
+       and k.get("cost_en") and k.get("what") and k.get("what_en")
+       and k.get("verdict") and k.get("verdict_en") and k.get("color") for k in _kinds),
+   "هر دنیا: آیکن/عنوان/هزینه/توضیح/حکم + ترجمه‌ی انگلیسی")
+ok(all(len(k["rules"]) >= 4 and len(k["rules_en"]) == len(k["rules"]) for k in _kinds),
+   "قواعد هر دنیا ≥۴ و ترجمه‌ی هم‌طول")
+_mobile = _kinds[0]
+ok(any("پول پرداخت نکن" in r for r in _mobile["rules"])
+   and any("Seed" in r for r in _mobile["rules"]),
+   "قواعد طلایی موبایلی: «پول پرداخت نکن» + «Seed نده»")
+_hw = _kinds[1]
+ok(any("مجوز" in r for r in _hw["rules"]) and any("برق" in r for r in _hw["rules"]),
+   "قواعد هاردواری: مجوز قانونی + حساب برق")
+_cloud = _kinds[2]
+ok(any("ثابت" in r for r in _cloud["rules"]) and any("هرمی" in r for r in _cloud["rules"]),
+   "قواعد ابری: سود ثابت = دروغ + الگوی هرمی")
+ok("پرخطر" in _kinds[2]["cost"], "ابرای ابری «پولی و پرخطر» است نه فقط «پولی»")
+for frag in ("🎁 رایگان", "🌾 فارمینگ", "⛏️ ماینینگ", "OP.MINING_KINDS",
+             "OP.COST_PAID", "دسته‌بندی", "بدون سرمایه", "پرخطر"):
+    ok(frag in _pg, f"مارکر دسته‌بندی صفحه «{frag}»")
+ok("cost_en" in _pg and "title_en" in _pg, "صفحه هر دو زبان هزینه/عنوان را می‌شناسد")
 
 # ---------------------------------------------------------------- ۷) شبکه‌ی زنده
 section("شبکه‌ی زنده (نرم — اگر اینترنت بود)")

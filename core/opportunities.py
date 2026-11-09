@@ -5,13 +5,16 @@
 «رایگان + سود خوب + مطمئن» با هم وجود ندارند؛ سود واقعی همیشه سرمایه، زمان
 یا مهارت می‌گیرد.
 
-سه زیربخش:
-  ۱) 🌾 بازده واقعی DeFi — استخرهای زنده از API رایگان DefiLlama (بدون کلید،
+چهار زیربخش — دسته‌بندی ۴گانه به درخواست کاربر («گیج نشن و دنبالش نگردن»):
+  ۱) 🌾 فارمینگ — 🔴 پولی: استخرهای زنده از API رایگان DefiLlama (بدون کلید،
      بدون ثبت‌نام) با «امتیاز صداقت»: APY کارمزدی جدا از APY توکن پاداشِ
      ایمی‌شونده، نوسان بازده (sigma)، اعتبار TVL و پیش‌بینی خودِ DefiLlama.
-  ۲) 🛡 آزمایشگر ضدکلاهبرداری — چک‌لیست وزن‌دار ۱۰ سؤالی با قواعد قطعی
+     اینجا «رایگان» فقط یعنی نمایشِ داده رایگان است — برای شرکت باید سرمایه واریز کنی.
+  ۲) ⛏ ماینینگ — سه دنیای متفاوت با یک نام: موبایلی (🟢 رایگان، اما لاتاری)
+     / هاردواری ASIC (🔴 پولی) / ابری (🔴 پولی و پرخطر — پانزی).
+  ۳) 🎁 رایگان — تست‌نت/ایردراپ: فهرست دست‌چینِ هزینه‌ی صفر (فقط زمان) + قواعد ضدسفل.
+  ۴) 🛡 آزمایشگر ضدکلاهبرداری — چک‌لیست وزن‌دار ۱۰ سؤالی با قواعد قطعی
      (درخواست Seed Phrase = ۱۰۰ خطر، بی‌چون‌وچرا).
-  ۳) 🪂 تست‌نت/ایردراپ — فهرست دست‌چینِ هزینه‌ی صفر (فقط زمان) + قواعد ضدسفل.
 
 هر فرصتِ نمایش‌داده‌شده «ورود مستقیم» دارد: ستون لینکِ صفحه‌ی استخر در
 DefiLlama (نمودار + تاریخچه) و ستون «وب‌سایت رسمی» که از همان فهرست کامل
@@ -435,5 +438,120 @@ STARTER_GUIDE_EN = [
 def testnet_rows() -> List[Dict[str, str]]:
     """ردیف‌های آماده‌ی جدول صفحه — از TESTNET_HUNTS با فیلدهای فارسی."""
     return [{"نام": h["name"], "نوع": h["kind"], "یادداشت": h["note"],
-             "هزینه": "۰ — فقط زمان", "زمان لازم": h["effort"],
+             "هزینه": "🟢 رایگان — فقط زمان", "زمان لازم": h["effort"],
              "ثبت‌شده": h["added"], "منبع": h["link"]} for h in TESTNET_HUNTS]
+
+
+# --------------------------------------------------------------------------- #
+# ۴) دسته‌بندی هزینه + ماینینگ — «رایگان» یا «پولی»، بدون خاکستری             #
+# --------------------------------------------------------------------------- #
+# دو برچسبِ ساده که کنار هر فرصت تکرار می‌شود تا کاربر همان نگاهِ اول بداند
+# از او چه می‌خواهند: پول یا زمان. به درخواست کاربر: «دسته‌بندی کن: فارمینگ،
+# ماینینگ، رایگان، پولی — گیج نشن و دنبالش نگردن».
+COST_FREE = "🟢 رایگان"
+COST_PAID = "🔴 پولی"
+
+# «ماینینگ» سه دنیای کاملاً متفاوت با یک نام دارد؛ این‌ها را از هم جدا نکنیم،
+# کاربر اپ تپ‌کردن را با آسیک و قرارداد ابری اشتباه می‌گیرد — و دقیقاً همان‌جا
+# پولش را از دست می‌دهد. هر کارت: توضیح صادقانه + حکم نهایی + قواعد.
+MINING_KINDS: List[Dict[str, Any]] = [
+    {
+        "key": "mobile",
+        "icon": "📱",
+        "title": "ماینینگ موبایلی (اپ تپ‌کردن)",
+        "title_en": "Mobile mining (tap apps)",
+        "cost": COST_FREE,
+        "cost_en": "🟢 Free",
+        "color": "#16a34a",
+        "free": True,
+        "what": ("اپ‌هایی که می‌گویند «روی گوشی ماین کن» — واقعیت: گوشی توانِ ماین‌کردن بیت‌کوین را "
+                 "ندارد؛ این اپ‌ها در واقع به‌ازای توجه و دعوت دوستان، به تو «امتیاز/توکنِ آینده» "
+                 "بدهکار می‌شوند. پولِ اولیه نمی‌خواهد، اما تا وقتی توکن واقعاً وارد صرافی معتبر شود، "
+                 "ارزشش صفر فرض کن — بلیت لاتاری است، نه درآمد."),
+        "what_en": ("Apps that say 'mine on your phone' — reality: a phone cannot mine Bitcoin; these "
+                    "apps owe you 'points/future tokens' for your attention and referrals. No upfront "
+                    "money, but treat the value as zero until the token actually lists on a real "
+                    "exchange — a lottery ticket, not income."),
+        "verdict": "قاعده: رایگان تا آخر — اگر حتی یک ریال خواست، ببند و برو.",
+        "verdict_en": "Rule: free all the way — the moment it asks for money, close it and leave.",
+        "rules": [
+            "برای «فعال‌سازی برداشت» یا «ارتقای نرخ ماین» هرگز پول پرداخت نکن — ماینینگ موبایلی واقعی رایگان است؛ جایی که پول خواست یعنی کلاهبرداری.",
+            "Seed Phrase یا کلید خصوصی در هیچ اپی وارد نکن — هیچ اپ واقعی آن را نمی‌خواهد.",
+            "«دعوت کن، نرخ ماین ۲ برابر» یعنی سودِ اصلی از دعوت است (هرمی) — نه از محصول.",
+            "اپ را فقط از منبع رسمی خود پروژه (سایت/شبکه‌ی تأییدشده) نصب کن — اپ‌های تقلبیِ هم‌نام در استورها زیادند.",
+            "زمانت را بسنج: بیشتر از چند دقیقه در روز روی اپ‌هایی با آینده‌ی نامعلوم نگذار.",
+        ],
+        "rules_en": [
+            "Never pay for 'withdrawal activation' or 'mining-rate upgrade' — real mobile mining is free; anything asking money is a scam.",
+            "Never enter a seed phrase or private key into any app — no real app needs it.",
+            "'Invite friends, double your rate' means income from recruiting (pyramid), not the product.",
+            "Install the app only from the project's own verified source — copycat fake apps crowd the stores.",
+            "Watch your time: no more than a few minutes a day on apps with unknown futures.",
+        ],
+    },
+    {
+        "key": "hardware",
+        "icon": "🏭",
+        "title": "ماینینگ هاردواری (دستگاه آسیک)",
+        "title_en": "Hardware mining (ASIC)",
+        "cost": COST_PAID,
+        "cost_en": "🔴 Paid",
+        "color": "#ef4444",
+        "free": False,
+        "what": ("ماینینگ واقعی یعنی دستگاه تخصصی (ASIC) + برق ارزان + صدا و گرمای دائم. صداقتِ کامل: "
+                 "با برقِ گران، درآمدِ ماین معمولاً از هزینه‌ی برق کمتر می‌شود — یعنی ضررِ ماهانه؛ و "
+                 "دستگاه هر سال کهنه‌تر و کم‌بازده‌تر می‌شود. برای بیشتر افراد عادی، «خرید مستقیم همان "
+                 "سکه» ساده‌تر و کم‌دردسرتر است."),
+        "what_en": ("Real mining means a dedicated ASIC machine + cheap power + constant noise and heat. "
+                    "Full honesty: with expensive electricity, mining income is usually below the power "
+                    "bill — a monthly loss — and hardware depreciates yearly. For most people, just "
+                    "buying the coin directly is simpler."),
+        "verdict": "قاعده: اول حساب‌کتاب، بعد خرید — بدون برق ارزان شروع نکن.",
+        "verdict_en": "Rule: math first, then buy — never start without cheap power.",
+        "rules": [
+            "قبل از هر خریدی، درآمد روزانه‌ی دستگاه را با قیمت برقِ واقعی خودت حساب کن؛ اگر برق بیشتر از درآمد شد، یعنی ضرر خالص.",
+            "در ایران ماینینگ بدون مجوز رسمی غیرقانونی است — جریمه و ضبط دستگاه در میان است؛ فقط با مجوز رسمی و تعرفه‌ی اعلام‌شده.",
+            "قیمت دستگاه در بازار دست‌دوم سقوط می‌کند — نقدشوندگیِ آسیک کهنه پایین است.",
+            "«دستگاه به‌زودی هزینه‌اش را درمی‌آورد» را باور نکن — سهم تو از پاداش شبکه هر روز کم می‌شود.",
+        ],
+        "rules_en": [
+            "Before buying anything, compute the machine's daily income against your real power price; if power exceeds income, it is a net loss.",
+            "In Iran, unlicensed mining is illegal — fines and confiscation; only with an official license and its declared tariff.",
+            "Used ASIC prices collapse — resale liquidity is poor.",
+            "Don't believe 'it pays for itself soon' — your share of network rewards shrinks daily.",
+        ],
+    },
+    {
+        "key": "cloud",
+        "icon": "☁️",
+        "title": "ماینینگ ابری (فروش هشریت)",
+        "title_en": "Cloud mining (hashrate resale)",
+        "cost": "🔴 پولی و پرخطر",
+        "cost_en": "🔴 Paid & high-risk",
+        "color": "#ef4444",
+        "free": False,
+        "what": ("سایت‌هایی که «هشریت» می‌فروشند و می‌گویند سهمِ ماین تو را روزانه می‌ریزند. صداقتِ "
+                 "تلخ: اکثریتِ قاطعِ سایت‌های ماینینگ ابریِ تبلیغ‌شده پانزی‌اند — سودِ اعضای بعدی، "
+                 "خونِ توست. حتی قراردادهای شرکت‌های شناخته‌شده هم معمولاً از «همین پول را سکه بخر و "
+                 "نگه دار» بازدهی کمتری دارند."),
+        "what_en": ("Sites selling 'hashrate' that promise daily mining payouts. Bitter honesty: the "
+                    "overwhelming majority of advertised cloud-mining sites are Ponzi schemes — even "
+                    "contracts from established players usually underperform simply buying the coin."),
+        "verdict": "قاعده: اگر بیت‌کوین را باور داری، مستقیم سکه بخر — قرارداد ابری نخر.",
+        "verdict_en": "Rule: if you believe in the coin, buy it directly — skip cloud contracts.",
+        "rules": [
+            "سود روزانه‌ی ثابت («۱.۵٪ در روز») اعلام کنند → برو؛ هیچ ماینینگ واقعی سود ثابت نمی‌دهد.",
+            "«ماینینگ ابری رایگان» + کارمزد فعال‌سازی یا برداشت → طعمه است؛ برداشت بلاک می‌شود تا سپرده‌ی بیشتر بریزی.",
+            "سودِ دعوتِ دوست بیشتر از سودِ خود ماین باشد → هرمی است.",
+            "آدرس دفتر، مجوز یا گزارش مستقل از تجهیزات واقعی نداشته باشند → دروغِ پیش‌فرض است.",
+            "هر پروژه‌ای را خواستی امتحان کنی، اول تب «ضدکلاهبرداری» را کامل کن — همیشه.",
+        ],
+        "rules_en": [
+            "Fixed daily profit ('1.5% per day') → walk away; no real mining yields fixed profit.",
+            "'Free cloud mining' + activation/withdrawal fee → bait; withdrawals block until you deposit more.",
+            "Referral income larger than mining income → pyramid.",
+            "No verifiable office, license, or independent proof of real hardware → lie by default.",
+            "Before trying any of them, complete the Anti-scam tab first — always.",
+        ],
+    },
+]

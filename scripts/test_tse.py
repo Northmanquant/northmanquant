@@ -455,7 +455,7 @@ def t_nav_groups_consistency():
         assert os.path.exists(os.path.join(BASE_DIR, path)), f"missing page file: {path}"
     # سه بخش جدای کریپتو/بورس ایران/فارکس
     assert len(I.NAV_GROUPS) == 3
-    assert I.NAV_GROUPS[0][2] == ["main", "p1", "p2", "p4", "p5", "p9"]  # کریپتو + فارم
+    assert I.NAV_GROUPS[0][2] == ["main", "p1", "p2", "p4", "p5", "p9"]  # کریپتو + فرصت‌های رایگان
     assert I.NAV_GROUPS[1][2] == ["p6", "p7"]                          # بورس ایران
     assert I.NAV_GROUPS[2][2] == ["p3", "p8"]                          # فارکس + تقویم اقتصادی
 

@@ -1821,7 +1821,7 @@ NAV_PAGES: list[tuple[str, str, str, str, str]] = [
     ("p6", "pages/6_TSE_Market.py", "🇮🇷", "دیده‌بان بورس", "TSE Watch"),
     ("p7", "pages/7_TSE_Paper.py", "🧾", "ماکت بورس", "TSE Paper"),
     ("p8", "pages/8_Econ_Calendar.py", "🗓️", "تقویم اقتصادی", "Economic Calendar"),
-    ("p9", "pages/9_Farm_Airdrops.py", "🌱", "فارم و ماینینگ", "Farm & Mining"),
+    ("p9", "pages/9_Free_Opportunities.py", "🎁", "فرصت‌های رایگان", "Free Opportunities"),
 ]
 
 # سه بخشِ جدا: کریپتو / بورس ایران / فارکس — منو با سرگروه رندر می‌شود

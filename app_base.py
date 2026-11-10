@@ -34,6 +34,7 @@ from core import community_store as _cstore
 from core.community_store import render_backend_banner
 from core.i18n import setup_i18n, get_lang
 from core.net import get_json
+from core import signal_qc as SQ
 from core import trade_guard as _guard
 from core import trade_log as _tlog
 
@@ -2820,7 +2821,22 @@ def setup_stats_table(stats: dict) -> pd.DataFrame:
 
 def setup_plan(d: pd.DataFrame, levels: pd.DataFrame | None = None) -> dict:
     """Unified plan used by live analysis, scanner and image. Direction comes ONLY
-    from a validated setup; confidence = measured TP1 hit-rate."""
+    from a validated setup; confidence = measured TP1 hit-rate.
+
+    دروازه‌ی کیفیت سیگنال (QC): خروجی قبل از انتشار با `core/signal_qc.py` بازرسی
+    می‌شود — سلامتِ داده (OHLC/NaN/تکراری/ATR) و سلامتِ طرح (سِمتِ حدضرر و اهداف،
+    بازه‌ی منطقی R و ATR، سازگاری R:R، اعتماد فقط از آمارِ تست‌شده). هر ایرادِ
+    سخت = سقوطِ خودکار به «⏸ انتظار» با دلیلِ دقیقِ فارسی و مُهرِ QC روی طرح.
+    """
+    try:
+        raw = _setup_plan_raw(d, levels)
+    except Exception as exc:  # noqa: BLE001 — دروازه‌ی QC هیچ‌وقت نباید صفحه را بیندازد
+        raw = {**SQ.wait_plan_stub(f"ساختِ اولیه‌ی طرح ناموفق بود ({type(exc).__name__}) — سیگنال صادر نشد"),
+               "atr": 0.0}
+    return SQ.qc_gate(d, raw)
+
+
+def _setup_plan_raw(d: pd.DataFrame, levels: pd.DataFrame | None = None) -> dict:
     price = float(d["close"].iloc[-1])
     atr = float(d["atr"].iloc[-1]) if np.isfinite(d["atr"].iloc[-1]) else price * 0.01
     dec = 2 if price >= 1000 else 4 if price >= 1 else 6
@@ -3143,10 +3159,12 @@ def render_analysis_png(
     title = f"{symbol}  ·  {exchange}  ·  {interval}"
     ax.set_title(title, color="#e2e8f0", fontsize=14, fontweight="bold", loc="left", pad=28)
     setup_en = {"fade": "Mean-Reversion", "pullback": "Trend-Pullback"}.get(plan.get("mode") or "", "")
+    qc_en = str((plan.get("qc") or {}).get("stamp_en") or "")
     ax.text(0.0, 1.015,
             (f"Signal: {direction}   |   Setup: {setup_en}   |   TP1-before-SL (tested): {plan['confidence']}%   |   R:R 1:{plan['rr']}"
              if has_trade else f"Signal: {direction}   |   Confluence (context only): {score:+.0f}")
-            + f"   |   ATR {plan['atr']:,.{dec}f}",
+            + f"   |   ATR {plan['atr']:,.{dec}f}"
+            + (f"   |   {qc_en}" if qc_en else ""),
             transform=ax.transAxes, color=dir_col, fontsize=9.5, fontweight="bold", va="bottom")
     ax.text(0.999, 1.015, "NorthmanQuant · not financial advice",
             transform=ax.transAxes, color="#64748b", fontsize=8, va="bottom", ha="right")
@@ -3552,6 +3570,8 @@ def main() -> None:
             if plan.get("status") == "wait" or plan.get("entry") is None:
                 st.warning(f"⏸ **بدون معامله.** {plan.get('why', '')}")
                 st.caption("چه چیزی لازم است: " + plan.get("watch", ""))
+                if plan.get("qc") and plan["qc"].get("issues"):
+                    st.caption(plan["qc"]["stamp"])
             else:
                 p1, p2, p3, p4 = st.columns(4)
                 p1.metric("جهت", plan["direction"], plan.get("mode_fa", ""), delta_color="off")
@@ -3562,6 +3582,8 @@ def main() -> None:
                 for i, (t_price, t_rr) in enumerate(plan["targets"]):
                     tcols[i].metric(f"هدف {i + 1}", f"{t_price:,.{dec}f}", f"{t_rr}R", delta_color="off")
                 st.caption("✅ " + plan.get("why", "") + " · حد ضرر: " + plan.get("stop_why", ""))
+                if plan.get("qc"):
+                    st.caption(plan["qc"].get("stamp", ""))
             with st.expander("📐 اعتبار ستاپ‌ها روی همین نماد/تایم‌فریم (تست walk-forward، بدون نگاه به آینده)", expanded=False):
                 st.dataframe(setup_stats_table(plan["stats"]), width="stretch", hide_index=True)
                 st.caption("هر سیگنال گذشته‌ی همین نماد شبیه‌سازی شده: آیا TP1 (1R) قبل از حد ضرر لمس شد؟ انتظار ریاضی با هدف 2R. "

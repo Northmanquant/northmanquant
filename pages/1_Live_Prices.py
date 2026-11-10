@@ -57,11 +57,11 @@ def _opinion_rows(ops: list) -> list[dict]:
 st.set_page_config(page_title="قیمت‌های زنده | Live Prices", page_icon="📊", layout="wide")
 setup_i18n(page="p1")   # زبان + منوی ترجمه‌شده + پچ ترجمه‌ی کل صفحه
 st.title("📊 قیمت‌های زنده بازار")
-hint(tr("اول صرافی رو انتخاب کن، بعد ارز رو سرچ کن — مقایسه KCEX + KuCoin + Binance + Bybit + OKX + Lighter",
-        "Pick an exchange, search a coin — compare KCEX + KuCoin + Binance + Bybit + OKX + Lighter"))
+hint(tr("اول صرافی رو انتخاب کن، بعد ارز رو سرچ کن — مقایسه KuCoin + Binance + Bybit + OKX + Lighter",
+        "Pick an exchange, search a coin — compare KuCoin + Binance + Bybit + OKX + Lighter"))
 
 EXCHANGES = ["KuCoin", "OKX", "Binance", "Bybit", "Lighter", "XT", "LBank", "KCEX"]
-COMPARE_EX = ["KCEX", "KuCoin", "Binance", "Bybit", "OKX", "Lighter"]
+COMPARE_EX = ["KuCoin", "Binance", "Bybit", "OKX", "Lighter"]   # KCEX از ابر/دیتاسنتر کلاً ۴۰۳ می‌دهد — حذف شد
 HEADERS = {"User-Agent": "northmanquant-lite/1.0", "accept": "application/json"}
 
 
@@ -73,6 +73,14 @@ def _get_json(url: str, params: dict | None = None, timeout: float = 6):
         return _retry_json(url, params=params, headers=HEADERS, timeout=timeout, retries=1)
     except Exception:  # noqa: BLE001
         return None
+
+
+def _bybit_json(params: dict, timeout: float = 10):
+    """Bybit از بعضی شبکه‌ها/ابرهای آمریکایی فیلتر می‌شود؛ بعد از شکست، دامنه‌ی جایگزینِ رسمی (bytick) هم امتحان می‌شود."""
+    r = _get_json("https://api.bybit.com/v5/market/tickers", params, timeout=timeout)
+    if isinstance(r, dict) and r.get("retCode") == 0:
+        return r
+    return _get_json("https://api.bytick.com/v5/market/tickers", params, timeout=timeout)
 
 
 def _f(v) -> float:
@@ -100,7 +108,7 @@ def get_symbols(exchange: str) -> list[str]:
                     out.append(f"{s[:-4]}-USDT")
             return sorted(out) or ["BTC-USDT", "ETH-USDT"]
         if exchange == "Bybit":
-            r = _get_json("https://api.bybit.com/v5/market/tickers", {"category": "spot"}, timeout=15) or {}
+            r = _bybit_json({"category": "spot"}, timeout=15) or {}
             lst = (r.get("result") or {}).get("list") or []
             out = [f"{t['symbol'][:-4]}-USDT" for t in lst if str(t.get("symbol", "")).endswith("USDT")]
             return sorted(out) or ["BTC-USDT", "ETH-USDT"]
@@ -238,7 +246,7 @@ def fetch_price(target: str, base: str) -> dict | None:
                 return {"exchange": target, "last": last, "bid": _f(r.get("bidPrice")), "ask": _f(r.get("askPrice")),
                         "change": _f(r.get("priceChangePercent"))}
         elif target == "Bybit":
-            r = _get_json("https://api.bybit.com/v5/market/tickers", {"category": "spot", "symbol": f"{base}USDT"}) or {}
+            r = _bybit_json({"category": "spot", "symbol": f"{base}USDT"}) or {}
             row = ((r.get("result") or {}).get("list") or [{}])[0]
             last = _f(row.get("lastPrice"))
             if last > 0:
@@ -367,7 +375,7 @@ def _render_prices(selected: list[str], main_ex: str) -> None:
                     else:
                         st.caption("Bid/Ask —")
                 else:
-                    st.warning(f"{exn}: —")
+                    st.caption(f"🔸 {exn}: این لحظه پاسخ نداد — در به‌روزرسانی بعدی دوباره تلاش می‌شود")
         st.markdown("---")
 
 

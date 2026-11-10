@@ -305,8 +305,8 @@ _EXACT += [
     ("ناشناس", "Anonymous"),
     # --- صفحه ۱: قیمت‌های زنده ---
     ("📊 قیمت‌های زنده بازار", "📊 Live Market Prices"),
-    ("اول صرافی رو انتخاب کن، بعد ارز رو سرچ کن — مقایسه KCEX + KuCoin + Binance + Bybit + OKX + Lighter",
-     "Pick an exchange, then search a coin — compare KCEX + KuCoin + Binance + Bybit + OKX + Lighter"),
+    ("اول صرافی رو انتخاب کن، بعد ارز رو سرچ کن — مقایسه KuCoin + Binance + Bybit + OKX + Lighter",
+     "Pick an exchange, then search a coin — compare KuCoin + Binance + Bybit + OKX + Lighter"),
     ("🏦 صرافی (لیست ارز از اینجا میاد)", "🏦 Exchange (coin list comes from here)"),
     ("سرعت بروزرسانی", "Refresh rate"),
     ("🔄 بروزرسانی خودکار", "🔄 Auto refresh"),

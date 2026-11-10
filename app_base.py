@@ -3570,8 +3570,8 @@ def main() -> None:
             if plan.get("status") == "wait" or plan.get("entry") is None:
                 st.warning(f"⏸ **بدون معامله.** {plan.get('why', '')}")
                 st.caption("چه چیزی لازم است: " + plan.get("watch", ""))
-                if plan.get("qc") and plan["qc"].get("issues"):
-                    st.caption(plan["qc"]["stamp"])
+                if plan.get("qc"):
+                    st.caption(plan["qc"].get("stamp", ""))
             else:
                 p1, p2, p3, p4 = st.columns(4)
                 p1.metric("جهت", plan["direction"], plan.get("mode_fa", ""), delta_color="off")

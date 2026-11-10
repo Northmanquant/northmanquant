@@ -206,6 +206,8 @@ try:
                              "The setup is not validated yet — entry conditions are incomplete, so the engine stays out.")))
             if _fa_view and plan.get("watch"):
                 st.caption("چه چیزی لازم است: " + plan["watch"])
+            if plan.get("qc"):
+                st.caption(plan["qc"].get("stamp_en" if not _fa_view else "stamp", ""))
         else:
             p1, p2, p3, p4 = st.columns(4)
             _fa_view = get_lang() != "en"
@@ -225,6 +227,8 @@ try:
                                 if get_lang() != "en" else
                                 tr("ستاپ از همان موتور walk-forward داشبورد است؛ فقط وقتی اجازه‌ی معامله می‌دهد که در گذشته‌ی همین نماد آماره‌ی قابل‌اعتماد داشته باشد.",
                                    "The setup comes from the dashboard's walk-forward engine; it only allows a trade with trusted stats on this symbol's own past.")))
+            if plan.get("qc"):
+                st.caption(plan["qc"].get("stamp_en" if get_lang() == "en" else "stamp", ""))
         if plan.get("fvg_note"):
             st.caption("🟪 FVG/BVG: " + plan["fvg_note"])
         st.divider()

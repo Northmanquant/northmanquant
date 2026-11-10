@@ -4,6 +4,9 @@
 Generate QC-stamped analysis PNGs for the best real-market setups,
 ready to share (Discord / Telegram / anywhere).
 
+منطقِ مشترک با آلبومِ روزانه‌ی تلگرام در core/showcase_daily.py است —
+این اسکریپت فقط خروجیِ فایل (PNG + README + ZIP) می‌سازد.
+
 Run:  python scripts/make_showcase.py
 Out:  /home/z/my-project/download/northmanquant-showcase/*.png + README_FA.txt
 """
@@ -14,89 +17,18 @@ import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import app_base as nq  # noqa: E402
+from core import showcase_daily as SD  # noqa: E402
 
 OUT = "/home/z/my-project/download/northmanquant-showcase"
 os.makedirs(OUT, exist_ok=True)
-
-# recognized, liquid names first — good for a presentation audience
-CANDIDATES = [
-    "BTC-USDT", "ETH-USDT", "SOL-USDT", "XRP-USDT", "BNB-USDT",
-    "DOGE-USDT", "ADA-USDT", "AVAX-USDT", "LINK-USDT", "TON-USDT",
-    "SUI-USDT", "NEAR-USDT", "LTC-USDT", "DOT-USDT",
-]
-EXCHANGE = "OKX"
-INTERVALS = ["1hour", "2hour", "4hour", "1day"]
-MAX_IMAGES = 8
-
-
-def analyse(symbol: str, interval: str):
-    """Full engine pipeline + QC gate. Returns dict or None."""
-    try:
-        df = nq.fetch_candles(EXCHANGE, symbol, interval, limit=500)
-        d = nq.add_indicators(df)
-        if len(d) < 60:
-            return None
-        score_s, _ = nq.confluence(d)
-        score = float(score_s.iloc[-1])
-        lv = nq.swing_levels(d)
-        plan = nq.setup_plan(d, lv)
-        plan["score"] = score
-        plan["fvg_note"] = ""
-        try:
-            plan["fvg_note"] = nq.fvg_summary(d)["text"]
-        except Exception:  # noqa: BLE001
-            pass
-        price = float(d["close"].iloc[-1])
-        dec = 2 if price >= 1000 else 4 if price >= 1 else 6
-        qc = plan.get("qc") or {}
-        return {
-            "symbol": symbol, "interval": interval, "d": d, "plan": plan,
-            "levels": lv, "score": score, "dec": dec, "price": price,
-            "qc_ok": not qc.get("issues"),
-            "active": plan.get("entry") is not None,
-            "rr": plan.get("rr") or 0,
-        }
-    except Exception as exc:  # noqa: BLE001
-        print(f"  ! {symbol} {interval}: {type(exc).__name__}: {exc}")
-        return None
-
-
-def render(res) -> bytes:
-    return nq.render_analysis_png(
-        res["d"], res["plan"], res["levels"], res["score"],
-        res["symbol"], EXCHANGE, res["interval"], res["dec"],
-    )
+MAX_IMAGES = SD.MAX_IMAGES
 
 
 def main():
-    print(f"== NorthmanQuant showcase — {EXCHANGE} ==")
-    results = []
-    for interval in INTERVALS:
-        print(f"-- {interval} --")
-        for sym in CANDIDATES:
-            r = analyse(sym, interval)
-            if r:
-                tag = "ACTIVE" if r["active"] else "wait  "
-                qct = "QC 14/14" if r["qc_ok"] else "QC issue"
-                print(f"  {sym:<12} {tag} score {r['score']:+5.0f} rr 1:{r['rr']:<4} {qct}")
-                if r["qc_ok"]:
-                    results.append(r)
-
-    # selection: active setups first (by |score| then R:R), then recognizable names
-    actives = sorted([r for r in results if r["active"]],
-                     key=lambda r: (abs(r["score"]) + 10 * r["rr"]), reverse=True)
-    waits = [r for r in results if not r["active"]]
-    btc_eth = [r for r in waits if r["symbol"] in ("BTC-USDT", "ETH-USDT")]
-    other_waits = sorted([r for r in waits if r not in btc_eth],
-                         key=lambda r: abs(r["score"]), reverse=True)
-    picked = actives[:MAX_IMAGES]
-    for r in btc_eth + other_waits:
-        if len(picked) >= MAX_IMAGES:
-            break
-        if r not in picked:
-            picked.append(r)
-
+    print(f"== NorthmanQuant showcase — {SD.EXCHANGE} ==")
+    results = SD.collect()
+    print(f"  QC-passing results: {len(results)}")
+    picked = SD.select(results, MAX_IMAGES)
     if not picked:
         print("NO QC-PASSING RESULTS — market too unhealthy right now")
         return 1
@@ -104,13 +36,17 @@ def main():
     # render + save
     saved = []
     for i, r in enumerate(picked, 1):
-        png = render(r)
+        state = "LONG" if str(r["plan"]["direction"]).startswith("لانگ") else \
+                "SHORT" if r["active"] else "WAIT"
+        fname = f"{i:02d}_{r['symbol'].replace('-', '')}_{r['interval']}_{state}.png"
+        try:
+            png = SD.build_album([r])[0][1]
+        except Exception as exc:  # noqa: BLE001
+            print(f"  ! skip {r['symbol']}: {type(exc).__name__}: {exc}")
+            continue
         if not png or len(png) < 5000:
             print(f"  ! skip {r['symbol']} (bad png)")
             continue
-        state = "LONG" if str(r["plan"]["direction"]).startswith("لانگ") else \
-                "SHORT" if r["plan"]["entry"] is not None else "WAIT"
-        fname = f"{i:02d}_{r['symbol'].replace('-','')}_{r['interval']}_{state}.png"
         path = os.path.join(OUT, fname)
         with open(path, "wb") as f:
             f.write(png)
@@ -138,15 +74,7 @@ def main():
         "",
     ]
     for fname, r, _ in saved:
-        p = r["plan"]
-        if r["active"]:
-            d1 = 2 if r["price"] >= 1000 else 4
-            line = (f"{fname} — {p['direction']} · ورود {p['entry']:,.{d1}f} · "
-                    f"حدضرر {p['stop']:,.{d1}f} · هدفِ اول {p['targets'][0][0]:,.{d1}f} · "
-                    f"R:R یک‌به‌{p['rr']} · بردِ TP1 در تست {p['confidence']}٪")
-        else:
-            line = f"{fname} — ⏸ انتظار (ستاپِ معتبر نبود — محافظتِ QC) · امتیاز {r['score']:+.0f}"
-        lines.append(line)
+        lines.append(f"{fname} — {SD.describe_plain(r)}")
     lines += ["", "-" * 60, "",
               "نکته برای ارائه: بگویید «سیستم من هر سیگنال را قبل از نمایش با ۱۴ بازرسی",
               "اتوماتیک چک می‌کند؛ اگر یکی هم رد شود، سیگنال اصلاً منتشر نمی‌شود و به حالت",

@@ -18,6 +18,7 @@
 """
 from __future__ import annotations
 
+import json
 import os
 import time
 from datetime import datetime, timedelta, timezone
@@ -107,6 +108,53 @@ def send(text: str, silent: bool = False) -> bool:
         return False
     except Exception as e:  # noqa: BLE001 — نوتیفیکیشن هرگز جریان را نمی‌شکند
         print(f"⚠️ ارسال تلگرام ناموفق: {e}", flush=True)
+        return False
+
+
+def _build_album_parts(items: list, caption: str) -> tuple:
+    """ساختِ بارِ JSON و فایل‌های multipart برای sendMediaGroup — خالص و تست‌پذیر.
+    خروجی: (media_json، فایل‌ها). حداکثر ۱۰ تصویر، caption فقط روی اولی."""
+    media, files = [], {}
+    for i, (name, data) in enumerate(list(items)[:10]):
+        key = f"file{i}"
+        m = {"type": "photo", "media": f"attach://{key}"}
+        if i == 0 and caption:
+            m["caption"] = str(caption)[:1024]
+            m["parse_mode"] = "HTML"
+        media.append(m)
+        files[key] = (str(name)[:80], data, "image/png")
+    return json.dumps(media, ensure_ascii=False), files
+
+
+def send_album(images: list, caption: str = "") -> bool:
+    """ارسال آلبومِ عکس (حداکثر ۱۰ تصویر) — best-effort، هیچ‌وقت exception نمی‌دهد.
+
+    images: لیستی از (نام‌فایل، بایت‌های PNG). caption فقط روی تصویرِ اول می‌نشیند
+    (سقفِ تلگرام ۱۰۲۴ نویسه). ضداسپم با همان فاصله‌ی حداقلِ send.
+    """
+    global _last_sent
+    tok, chat = _cfg()
+    if not (tok and chat) or not images:
+        return False
+    media, files = _build_album_parts(images, caption)
+    try:
+        import requests  # noqa: PLC0415
+        gap = time.monotonic() - _last_sent
+        if gap < _MIN_GAP:
+            time.sleep(_MIN_GAP - gap)
+        r = requests.post(
+            f"{API}/bot{tok}/sendMediaGroup",
+            data={"chat_id": str(chat), "media": json.dumps(media, ensure_ascii=False)},
+            files=files,
+            timeout=90,
+        )
+        _last_sent = time.monotonic()
+        if r.status_code == 200:
+            return True
+        print(f"⚠️ تلگرام آلبوم را رد کرد ({r.status_code}): {r.text[:150]}", flush=True)
+        return False
+    except Exception as e:  # noqa: BLE001 — نوتیفیکیشن هرگز جریان را نمی‌شکند
+        print(f"⚠️ ارسال آلبوم تلگرام ناموفق: {e}", flush=True)
         return False
 
 

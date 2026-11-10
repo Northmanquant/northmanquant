@@ -1,0 +1,43 @@
+# آلبومِ روزانه‌ی ارائه‌ی تلگرام — NorthmanQuant
+# هر روز ساعت ۱۰:۰۰ تهران (۰۶:۳۰ UTC): موتورِ اپ بازار را می‌کَود،
+# ستاپ‌های فعالِ QC-دار را پیدا می‌کند، تصاویرِ مهرشده با «QC 14/14» می‌سازد
+# و یک خلاصه‌ی فارسی + آلبومِ عکس به چت تلگرام می‌فرستد.
+#
+# از همان Secretهای باتِ موجود استفاده می‌کند:
+#   TELEGRAM_BOT_TOKEN   توکن بات از @BotFather
+#   TELEGRAM_CHAT_ID     چت مالک
+# اگر این‌ها ست نباشند، جاب بی‌صدا و موفق رد می‌شود (Actions قرمز نمی‌شود).
+#
+# توقف موقت: تب Actions → TG Showcase Daily → ⋯ → Disable workflow
+
+name: TG Showcase Daily
+
+on:
+  schedule:
+    - cron: "30 6 * * *"    # ۱۰:۰۰ تهران (UTC+3:30)
+  workflow_dispatch: {}      # اجرای دستی برای تست
+
+concurrency:
+  group: tg-showcase-daily
+  cancel-in-progress: false
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: ارسال آلبومِ روزانه
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python -m core.showcase_daily

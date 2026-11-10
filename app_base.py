@@ -3166,8 +3166,8 @@ def render_analysis_png(
             + f"   |   ATR {plan['atr']:,.{dec}f}"
             + (f"   |   {qc_en}" if qc_en else ""),
             transform=ax.transAxes, color=dir_col, fontsize=9.5, fontweight="bold", va="bottom")
-    ax.text(0.999, 1.015, "NorthmanQuant · not financial advice",
-            transform=ax.transAxes, color="#64748b", fontsize=8, va="bottom", ha="right")
+    fig.text(0.995, 0.003, "NorthmanQuant · not financial advice",
+             color="#64748b", fontsize=8, va="bottom", ha="right")
 
     ax.grid(color="#1e293b", linewidth=0.5, alpha=0.5)
     ax.tick_params(colors="#64748b", labelsize=8)

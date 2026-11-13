@@ -11,7 +11,9 @@
   👁️ دیدبان   — جست‌وجوی حجمِ مشکوک: اسپایک، churn/واش‌ترید، واگراییِ حجم
   📊 چارت‌خوان — ورود/حدضرر/اهداف از همان موتورِ QC-دارِ اپ (setup_plan) —
                 یعنی همان سیگنالی که صفحه‌ی تحلیل می‌دهد، نه قاعده‌ی موازی
+  💼 مدیرِ ریسک — اندازه‌ی پوزیشن از سرمایه‌ی کاربر: قانونِ ۱–۲٪، کارمزد، بدونِ اهرم
   🧐 شکاک     — هر ادعا را با داده محک می‌زند: تایید/اعتراض/هشدار + دلیل
+                (ریاضیاتِ مدیرِ ریسک را هم بازمحاسبه می‌کند!)
 
 قواعدِ اتاق:
   • هر پیام دو بخش دارد: «متن» و «مدرک/دلیل» — پیامِ بی‌دلیل ممنوع.
@@ -39,6 +41,8 @@ INTERVALS = ["1hour", "2hour", "4hour", "1day"]
 NEWS_WINDOW = 24          # چند کندلِ اخیر «حرکتِ اخیر» حساب شود
 SPIKE_X = 2.5             # کندلِ چندبرابرِ میانگینِ حجم = اسپایک
 WASH_X = 3.0              # اسپایکِ شدید + رنجِ بسته = churn/واش‌ترید
+FEE_RT = 0.002            # کارمزدِ رفت‌وبرگشت (~۰.۱٪ هر سمت، taker)
+MAX_RISK_PCT = 3.0        # سقفِ ریسکِ منطقی در هر معامله — بالاتر = اعتراضِ شکاک
 TEHRAN = timezone(timedelta(hours=3, minutes=30))
 
 # --------------------------------------------------------------- تیترها
@@ -257,6 +261,61 @@ def chart_agent(d: pd.DataFrame, dec: int) -> dict:
 
 
 # ================================================================ شکاک
+def risk_agent(d_ind: pd.DataFrame, dec: int, plan: dict,
+               capital: float = 1000.0, risk_pct: float = 1.0) -> dict:
+    """💼 مدیرِ ریسک — اندازه‌ی پوزیشن از سرمایه‌ی کاربر؛ قانونِ ۱–۲٪، کارمزد، بدونِ اهرم."""
+    msgs: list[dict] = []
+    claims: list[dict] = []
+    cap = max(0.0, float(capital or 0))
+    rp = max(0.0, min(100.0, float(risk_pct or 0)))
+    head = {"key": "risk", "emoji": "💼", "name": "مدیرِ ریسک",
+            "role": "اندازه‌ی پوزیشن از سرمایه‌ی تو — قانونِ ۱–۲٪ + کارمزد + بدونِ اهرم",
+            "msgs": msgs, "claims": claims, "ok": True}
+    if cap <= 0:
+        msgs.append({"text": "سرمایه‌ای وارد نشده — بدونِ عدد، اندازه‌ای هم نیست؛ حدسِ اندازه = قمار.",
+                     "why": "ورودیِ سرمایه در بالای صفحه صفر است؛ من حدس نمی‌زنم."})
+        msgs.append({"text": f"قاعده‌ی ثابت من برای وقتی عدد آمد: حداکثر <b>{rp:g}٪</b> سرمایه در خطر در هر معامله.",
+                     "why": "قانونِ ۱–۲٪ کلاسیک — با ضررهای پیاپی، سرمایه زنده می‌ماند تا لبه‌ی آماری کار کند."})
+        return head
+    msgs.append({"text": f"قاعده‌ی ثابت من: در هر معامله فقط <b>{rp:g}٪</b> از <b>{cap:,.0f}</b> در خطر باشد — "
+                         f"یعنی حداکثر <b>{cap * rp / 100.0:,.2f}</b>.",
+                 "why": "قانونِ ۱–۲٪ کلاسیک؛ حتی ۵–۶ ضررِ پیاپی هم سرمایه را نمی‌کُشد تا لبه‌ی آماری فرصتِ جبران بدهد."})
+    if plan.get("status") != "active" or not plan.get("entry") or not plan.get("stop"):
+        msgs.append({"text": "الان پوزیشنی برای اندازه‌دادن نیست — چارت‌خوان سیگنالِ فعال نداد.",
+                     "why": f"وضعیتِ طرح: {plan.get('status')} — اول ستاپِ معتبر، بعد اندازه؛ ریسک قبل از سیگنال بی‌معناست."})
+        claims.append({"by": "risk", "side": 0, "claim": "بدون سیگنالِ فعال — اندازه‌ای صادر نشد",
+                       "evidence": f"plan.status={plan.get('status')}"})
+        return head
+    entry, stop = float(plan["entry"]), float(plan["stop"])
+    dist = abs(entry - stop)
+    if dist <= 0:
+        msgs.append({"text": "فاصله‌ی ورود تا حدضرر صفر است — چنین طرحی را اصلاً حساب نمی‌کنم.",
+                     "why": "ورود و حدضرر برابرند؛ این طرح از دروازه‌ی QC هم باید رد شود."})
+        return head
+    risk_amount = cap * rp / 100.0
+    size = risk_amount / dist
+    notional = size * entry
+    fee_cost = notional * FEE_RT
+    fee_drag_r = (fee_cost / risk_amount) if risk_amount > 0 else 0.0
+    msgs.append({"text": f"اندازه‌ی پوزیشن: <b>{size:,.4f}</b> واحد (ارزشِ اسمی <b>{notional:,.2f}</b>).",
+                 "why": f"فرمول: (سرمایه×ریسک٪) ÷ فاصله‌ی حدضرر = {risk_amount:,.2f} ÷ {_fmt(dist, dec)}"})
+    msgs.append({"text": f"اگر حدضرر بخورد: دقیقاً <b>{risk_amount:,.2f}</b> ({rp:g}٪ سرمایه) از دست می‌دهی — نه یک واحدِ بیشتر.",
+                 "why": f"اندازه×فاصله = {size:,.4f}×{_fmt(dist, dec)} = {risk_amount:,.2f} — ریسکِ تعریف‌شده، نه شانس"})
+    msgs.append({"text": f"کارمزدِ رفت‌وبرگشت (~{FEE_RT * 100:.1f}٪ ارزشِ اسمی) ≈ <b>{fee_cost:,.2f}</b> = {fee_drag_r:.2f}R.",
+                 "why": "کارمزد بخشی از ریسکِ واقعی است — با R نرمالیزه‌اش کردم تا با لبه‌ی آماریِ ستاپ مقایسه شود."})
+    if fee_drag_r > 0.5:
+        msgs.append({"text": "🚩 کارمزد بیش از نیمی از ریسک را می‌خورد — حدضررِ این‌قدر دور یعنی معامله‌ی گران.",
+                     "why": f"{fee_drag_r:.2f}R > 0.5R — قانونِ من: کارمزد زیرِ نصفِ ریسک بماند."})
+    msgs.append({"text": "اهرم؟ نه — اهرم فقط اندازه را ضرب می‌کند، نه لبه را؛ لبه از آمارِ ستاپ می‌آید.",
+                 "why": "سیاستِ ثابتِ اتاق: منطقِ اسپات — اهرم ریسک را بدونِ افزودنِ برد، بزرگ می‌کند."})
+    claims.append({"by": "risk", "side": 0,
+                   "claim": f"اندازه‌ی {size:,.4f} واحد — ضررِ حداکثریِ {risk_amount:,.2f} ({rp:g}٪ سرمایه)",
+                   "evidence": f"size=({cap:,.0f}×{rp:g}%)÷{_fmt(dist, dec)} · fee={fee_drag_r:.2f}R",
+                   "capital": cap, "risk_pct": rp, "size": size, "fee_drag_r": fee_drag_r})
+    return head
+
+
+# ================================================================ شکاک
 def skeptic_checks(claims: list[dict], d_ind: pd.DataFrame, plan: dict) -> list[dict]:
     """🧐 شکاک — هر ادعا را با داده محک می‌زند؛ خروجی: لیستِ داوری‌ها."""
     checks: list[dict] = []
@@ -310,6 +369,39 @@ def skeptic_checks(claims: list[dict], d_ind: pd.DataFrame, plan: dict) -> list[
                            "verdict": "اعتراض",
                            "reason": f"این تیتر با سیگنالِ چارت تضاد دارد: «{cl['claim']}» ({cl['evidence']}) — "
                                      f"چارت‌خوان باید بگوید چرا این خبر قیمت را برنمی‌گرداند."})
+    # ۴.۵) ادعای مدیرِ ریسک — بازمحاسبه‌ی کاملِ ریاضیاتش
+    for cl in claims:
+        if cl["by"] != "risk":
+            continue
+        rp = float(cl.get("risk_pct") or 0)
+        if rp > MAX_RISK_PCT:
+            checks.append({"target": "مدیرِ ریسک", "about": "درصدِ ریسکِ انتخابی",
+                           "verdict": "اعتراض",
+                           "reason": f"{rp:g}٪ ریسک در هر معامله یعنی ۳ ضررِ پشت‌سرهم ≈ "
+                                     f"−{((1 - (1 - rp / 100.0) ** 3) * 100):.0f}٪ سرمایه — سقفِ من {MAX_RISK_PCT:g}٪ است؛ "
+                                     f"ریسک را کم کن تا لبه‌ی آماری فرصتِ کار کند."})
+        his = float(cl.get("size") or 0)
+        entry, stop = plan.get("entry"), plan.get("stop")
+        cap = float(cl.get("capital") or 0)
+        if active and his > 0 and cap > 0 and entry and stop:
+            dist = abs(float(entry) - float(stop))
+            my_size = ((cap * rp / 100.0) / dist) if dist > 0 else 0.0
+            if my_size > 0 and abs(his - my_size) > my_size * 0.01:
+                checks.append({"target": "مدیرِ ریسک", "about": "محاسبه‌ی اندازه‌ی پوزیشن",
+                               "verdict": "اعتراض",
+                               "reason": f"عددِ تو ({his:,.4f}) با بازمحاسبه‌ی من ({my_size:,.4f}) جور درنمی‌آید — "
+                                         f"فرمول: اندازه = (سرمایه×ریسک٪) ÷ فاصله‌ی حدضرر. برگرد و چک کن."})
+            else:
+                checks.append({"target": "مدیرِ ریسک", "about": "محاسبه‌ی اندازه‌ی پوزیشن",
+                               "verdict": "تایید",
+                               "reason": f"بازمحاسبه کردم: {my_size:,.4f} واحد — عددت درست است و "
+                                         f"ضررِ حداکثری همان {rp:g}٪ سرمایه می‌ماند."})
+        fdr = float(cl.get("fee_drag_r") or 0)
+        if fdr > 0.5:
+            checks.append({"target": "مدیرِ ریسک", "about": "کارمزد در برابر ریسک",
+                           "verdict": "هشدار",
+                           "reason": f"کارمزدِ رفت‌وبرگشت ≈ {fdr:.2f}R می‌خورد — پولِ زیادی برای این فاصله‌ی حدضرر "
+                                     f"می‌پردازی؛ یا ستاپِ با حدضررِ نزدیک‌تر، یا نگذار."})
     # ۵) تاییدها — وقتی چیزی واقعاً هم‌جهت است
     if active:
         chg, vr = _chg_vol(d_ind)
@@ -366,7 +458,8 @@ def team_verdict(plan: dict, checks: list[dict]) -> dict:
 def investigate(exchange: str = EXCHANGE_DEFAULT, symbol: str = "BTC-USDT",
                 interval: str = INTERVAL_DEFAULT, with_news: bool = True,
                 df: pd.DataFrame | None = None, news: dict | None = None,
-                ts: str | None = None, limit: int = 400) -> dict:
+                ts: str | None = None, limit: int = 400,
+                capital: float = 1000.0, risk_pct: float = 1.0) -> dict:
     """یک جلسه‌ی کاملِ اتاقِ تیم روی یک ارز — fail-soft: هیچ‌وقت exception بالا نمی‌دهد."""
     out: dict = {"exchange": exchange, "symbol": symbol, "interval": interval,
                  "ts": ts or datetime.now(TEHRAN).strftime("%Y-%m-%d %H:%M"), "ok": False}
@@ -389,18 +482,25 @@ def investigate(exchange: str = EXCHANGE_DEFAULT, symbol: str = "BTC-USDT",
             except Exception:  # noqa: BLE001
                 n_items, n_stale = [], True
 
-        agents = []
-        for fn in (lambda: news_agent(symbol, d_ind, dec, n_items, n_stale),
-                   lambda: watchdog_agent(d_ind, dec),
-                   lambda: chart_agent(d_ind, dec)):
+        def _agent(fn):
             try:
-                agents.append(fn())
+                return fn()
             except Exception as exc:  # noqa: BLE001 — یک عامل نباید جلسه را بیندازد
-                agents.append({"key": "err", "emoji": "⚠️", "name": "عاملِ خاموش",
-                               "role": "این عامل موقتاً از کار افتاد", "ok": False,
-                               "msgs": [{"text": "نتوانستم تحلیل کنم — به‌جای حدس، سکوت.",
-                                         "why": f"خطا: {type(exc).__name__}"}], "claims": []})
-        out["agents"] = {a["key"]: a for a in agents}
+                return {"key": "err", "emoji": "⚠️", "name": "عاملِ خاموش",
+                        "role": "این عامل موقتاً از کار افتاد", "ok": False,
+                        "msgs": [{"text": "نتوانستم تحلیل کنم — به‌جای حدس، سکوت.",
+                                  "why": f"خطا: {type(exc).__name__}"}], "claims": []}
+
+        news_a = _agent(lambda: news_agent(symbol, d_ind, dec, n_items, n_stale))
+        watch_a = _agent(lambda: watchdog_agent(d_ind, dec))
+        chart_a = _agent(lambda: chart_agent(d_ind, dec))
+        # مدیرِ ریسک بعد از چارت می‌آید — به طرحِ او نیاز دارد
+        plan = (chart_a.get("plan") if isinstance(chart_a, dict) else None) or \
+            {"status": "wait", "direction": "⏸ انتظار", "entry": None, "stop": None,
+             "targets": [], "rr": 0, "confidence": 0, "why": "طرح ساخته نشد"}
+        risk_a = _agent(lambda: risk_agent(d_ind, dec, plan, capital, risk_pct))
+        agents = [news_a, watch_a, chart_a, risk_a]
+        out["agents"] = {a["key"]: a for a in agents if isinstance(a, dict) and a.get("key")}
 
         chart = out["agents"].get("chart") or {}
         plan = chart.get("plan") or {"status": "wait", "direction": "⏸ انتظار",

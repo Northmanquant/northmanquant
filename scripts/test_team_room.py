@@ -69,8 +69,8 @@ def t1_structure():
     room = TR.investigate(df=d, news=NEWS_OK, with_news=True, ts=TS)
     assert room.get("ok"), f"ok=False: {room.get('error')}"
     ag = room.get("agents") or {}
-    assert set(ag.keys()) >= {"news", "watchdog", "chart"}, ag.keys()
-    for k in ("news", "watchdog", "chart"):
+    assert set(ag.keys()) >= {"news", "watchdog", "chart", "risk"}, ag.keys()
+    for k in ("news", "watchdog", "chart", "risk"):
         assert ag[k]["msgs"], f"{k}: بدون پیام"
         for m in ag[k]["msgs"]:
             assert m.get("text") and m.get("why"), f"{k}: پیامِ بی‌دلیل"
@@ -78,7 +78,7 @@ def t1_structure():
     assert sk.get("checks"), "شکاک بدون داوری"
     assert room["verdict"]["state"] in ("align", "object", "wait")
     assert room["price"] > 0
-    return "4 عامل + داوری + حکم"
+    return "5 عامل + داوری + حکم"
 
 
 def t2_plan_has_qc():
@@ -168,9 +168,66 @@ def t9_every_claim_has_evidence():
     return "همه‌ی ادعاها مدرک دارند"
 
 
+# ------------------------------------------------- عاملِ پنجم: مدیرِ ریسک
+def t10_risk_math():
+    d = TR.nq.add_indicators(_synth())
+    plan = {"status": "active", "direction": "لانگ (خرید) 🟢", "entry": 101.0, "stop": 99.0,
+            "targets": [(104.0, "x")], "rr": 1.5, "confidence": 60,
+            "qc": {"setup_tested": True, "stats": {"n": 40, "win1": 55}}}
+    a = TR.risk_agent(d, 2, plan, capital=1000.0, risk_pct=1.0)
+    # فاصله‌ی حدضرر = 2.0 → ریسکِ 10$ → اندازه = 5.0 واحد
+    cl = next(c for c in a["claims"] if c["by"] == "risk")
+    assert abs(cl["size"] - 5.0) < 1e-9, cl
+    assert cl["capital"] == 1000.0 and cl["risk_pct"] == 1.0
+    assert cl.get("fee_drag_r") is not None and cl["fee_drag_r"] > 0
+    joined = " ".join(m["text"] for m in a["msgs"])
+    assert "5.0000" in joined and "10.00" in joined, joined[:150]
+    return "size=5.0000 واحد · ضررِ حداکثریِ 10.00$ (۱٪)"
+
+
+def t11_risk_wait():
+    d = TR.nq.add_indicators(_synth())
+    plan = {"status": "wait", "direction": "⏸ انتظار", "entry": None, "stop": None}
+    a = TR.risk_agent(d, 2, plan, capital=500.0, risk_pct=2.0)
+    assert not [c for c in a["claims"] if c.get("size")], "در انتظار نباید اندازه صادر شود"
+    assert any("پوزیشنی برای اندازه‌دادن نیست" in m["text"] for m in a["msgs"])
+    assert any("10.00" in m["text"] for m in a["msgs"]), "قاعده‌ی ۲٪ از 500 باید در پیام باشد"
+    return "بدون سیگنال → بدون اندازه (صادقانه)"
+
+
+def t12_skeptic_risk():
+    d = TR.nq.add_indicators(_synth())
+    plan = {"status": "active", "direction": "لانگ (خرید) 🟢", "entry": 101.0, "stop": 99.0,
+            "targets": [(104.0, "x")], "rr": 1.5, "confidence": 60, "score": 0.3,
+            "qc": {"setup_tested": False}}
+    base = {"by": "risk", "side": 0, "claim": "اندازه 5", "evidence": "f",
+            "capital": 1000.0, "risk_pct": 1.0, "size": 5.0, "fee_drag_r": 0.10}
+    claims = [{"by": "chart", "side": 1, "claim": "لانگ", "evidence": "t"}, dict(base)]
+    checks = TR.skeptic_checks(claims, d, plan)
+    assert any(c["verdict"] == "تایید" and c["target"] == "مدیرِ ریسک" for c in checks), checks
+    # ریاضیاتِ خراب (اندازه ×1.5) → اعتراض
+    checks2 = TR.skeptic_checks([claims[0], {**base, "size": 7.5}], d, plan)
+    assert any(c["verdict"] == "اعتراض" and c["target"] == "مدیرِ ریسک"
+               and "جور درنمی" in c["reason"] for c in checks2), checks2
+    # ریسکِ ۵٪ → اعتراضِ «جاهلانه»
+    checks3 = TR.skeptic_checks([claims[0], {**base, "risk_pct": 5.0, "size": 25.0}], d, plan)
+    assert any(c["verdict"] == "اعتراض" and "سرمایه" in c["reason"] for c in checks3), checks3
+    return "ریاضیِ درست=تایید · ریاضیِ خراب=اعتراض · ۵٪=اعتراض"
+
+
+def t13_zero_capital():
+    d = TR.nq.add_indicators(_synth())
+    plan = {"status": "active", "direction": "لانگ", "entry": 101.0, "stop": 99.0,
+            "targets": [(104.0, "x")], "rr": 1.5, "confidence": 60, "qc": {}}
+    a = TR.risk_agent(d, 2, plan, capital=0.0, risk_pct=1.0)
+    assert not [c for c in a["claims"] if c.get("size")], "سرمایه‌ی صفر نباید اندازه بدهد"
+    assert any("سرمایه‌ای وارد نشده" in m["text"] for m in a["msgs"])
+    return "سرمایه‌ی صفر → حدس نمی‌زند"
+
+
 if __name__ == "__main__":
     print("== اتاقِ تیمِ تحلیل ==")
-    check("structure (4 عامل، پیامِ بی‌دلیل ممنوع)", t1_structure)
+    check("structure (5 عامل، پیامِ بی‌دلیل ممنوع)", t1_structure)
     check("طرحِ چارت با مُهر QC", t2_plan_has_qc)
     check("تشخیصِ churn + اعتراضِ شکاک", t3_wash_detected)
     check("شکاک در برابر خبرِ مخالف", t4_skeptic_vs_bearish_news)
@@ -179,5 +236,9 @@ if __name__ == "__main__":
     check("fail-soft با داده‌ی ناقص", t7_fail_soft)
     check("قطعیتِ خروجی", t8_determinism)
     check("هر ادعا مدرک دارد", t9_every_claim_has_evidence)
+    check("مدیرِ ریسک: ریاضیاتِ اندازه‌ی پوزیشن", t10_risk_math)
+    check("مدیرِ ریسک: بدون سیگنال، بدون اندازه", t11_risk_wait)
+    check("شکاک در برابر مدیرِ ریسک", t12_skeptic_risk)
+    check("مدیرِ ریسک: سرمایه‌ی صفر", t13_zero_capital)
     print(f"===== {ok} passed, {fail} failed =====")
     raise SystemExit(1 if fail else 0)

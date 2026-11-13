@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
-"""اتاقِ تیمِ تحلیل 🤝 — چهار عاملِ مستقل، سرِ یک ارز
+"""اتاقِ تیمِ تحلیل 🤝 — پنج عاملِ مستقل، سرِ یک ارز
 ====================================================
 درخواستِ کاربر: یک بخشِ جدا از همه‌چیز — تیمی که سرِ یک ارز جلسه می‌گذارد:
   📰 خبرنگار   → چرا قیمت تکون می‌خورد؟ (تیترِ واقعی + داده)
   👁️ دیدبان    → دنبال حجمِ مشکوک می‌گردد (اسپایک / churn / فشارِ پنهان)
   📊 چارت‌خوان → ورود/حدضرر/اهداف از موتورِ QC-دارِ اپ
-  🧐 شکاک      → هر ادعا را محک می‌زند؛ بدونِ دلیل، تاییدی در کار نیست
+  💼 مدیرِ ریسک → اندازه‌ی پوزیشن از سرمایه‌ی تو (قانونِ ۱–۲٪ + کارمزد، بدونِ اهرم)
+  🧐 شکاک      → هر ادعا را محک می‌زند — حتی ریاضیاتِ مدیرِ ریسک را بازمحاسبه می‌کند
 حکمِ نهایی فقط وقتی «هم‌نظمی» است که شکاک اعتراضِ سخت نداشته باشد."""
 from __future__ import annotations
 
@@ -19,10 +20,11 @@ from core.i18n import setup_i18n
 st.set_page_config(page_title="اتاق تیم | Agent Team", page_icon="🤝", layout="wide")
 setup_i18n(page="p10")
 
-st.title("🤝 اتاقِ تیمِ تحلیل — چهار عامل، سرِ یک ارز")
+st.title("🤝 اتاقِ تیمِ تحلیل — پنج عامل، سرِ یک ارز")
 hint("هر عامل مسئولیتِ خودش را دارد و همیشه «مدرک» می‌آورد: خبرنگار می‌گوید حرکت از خبر است یا "
      "از پول؛ دیدبان دنبال حجمِ مشکوک می‌گردد؛ چارت‌خوان فقط از موتورِ QC-دارِ خودِ اپ ورود/خروج "
-     "می‌دهد؛ و شکاک ادعای همه را با داده محک می‌زند — اعتراضِ شکاک یعنی معامله ممنوع. "
+     "می‌دهد؛ مدیرِ ریسک با قانونِ ۱–۲٪ اندازه‌ی پوزیشن را از سرمایه‌ی تو حساب می‌کند (بدون اهرم، "
+     "با احتسابِ کارمزد)؛ و شکاک ادعای همه را با داده محک می‌زند — اعتراضِ شکاک یعنی معامله ممنوع. "
      "این اتاق از خودِ ارزهای بی‌نام و نقش خبر ندارد؛ هر جلسه روی داده‌ی زنده‌ی صرافی اجرا می‌شود.")
 
 # ----------------------------------------------------------------- کنترل‌ها
@@ -40,6 +42,19 @@ with c3:
 with c4:
     with_news = st.toggle("خبر هم بگیر (RSS واقعی)", value=True)
 
+c5, c6, c7 = st.columns([1.2, 1.6, 2.2])
+with c5:
+    capital = st.number_input("سرمایه ($)", min_value=10.0, step=50.0,
+                              value=float(st.session_state.get("team_capital", 1000.0)))
+with c6:
+    risk_pct = st.slider("ریسکِ هر معامله (٪ سرمایه)", 0.25, 5.0,
+                         float(st.session_state.get("team_risk_pct", 1.0)), 0.25, format="%.2f")
+with c7:
+    st.caption(f"قانونِ مدیرِ ریسک: حداکثر **{capital * risk_pct / 100.0:,.2f}$** در خطر در هر معامله — "
+               "بالای ۳٪ را شکاک اعتراض می‌کند.")
+st.session_state["team_capital"] = float(capital)
+st.session_state["team_risk_pct"] = float(risk_pct)
+
 chips = st.columns(len(QUICK))
 for i, (k, sym) in enumerate(QUICK.items()):
     if chips[i].button(k, key=f"team_{k}", use_container_width=True):
@@ -50,14 +65,15 @@ if st.button("🎙 شروعِ جلسه‌ی تیم", type="primary", use_contain
     st.session_state["team_symbol"] = symbol
     with st.spinner("عامل‌ها سرِ کارند — داده‌ی زنده + خبر + بازرسیِ شکاک…"):
         st.session_state["team_room"] = TR.investigate(
-            exchange=exchange, symbol=symbol, interval=interval, with_news=with_news)
+            exchange=exchange, symbol=symbol, interval=interval, with_news=with_news,
+            capital=float(capital), risk_pct=float(risk_pct))
     st.rerun()
 
 room: dict | None = st.session_state.get("team_room")
 
 # ----------------------------------------------------------------- خروجی
 if not room:
-    st.info("نماد را انتخاب کن و «شروعِ جلسه‌ی تیم» را بزن — چهار عامل با هم سرِ همان ارز جلسه می‌گذارند.")
+    st.info("نماد را انتخاب کن و «شروعِ جلسه‌ی تیم» را بزن — پنج عامل با هم سرِ همان ارز جلسه می‌گذارند.")
     st.stop()
 
 if not room.get("ok"):
@@ -87,8 +103,9 @@ cap[2].caption(f"تاییدها: {vd['n_confirm']}")
 st.divider()
 
 # ---- کارتِ عامل‌ها (ترتیبِ جلسه)
-ORDER = ["news", "watchdog", "chart"]
-TITLES = {"news": "پیام‌های خبرنگار", "watchdog": "گزارشِ دیدبان", "chart": "پروپوزالِ چارت‌خوان"}
+ORDER = ["news", "watchdog", "chart", "risk"]
+TITLES = {"news": "پیام‌های خبرنگار", "watchdog": "گزارشِ دیدبان",
+          "chart": "پروپوزالِ چارت‌خوان", "risk": "محاسبه‌ی مدیرِ ریسک"}
 for key in ORDER:
     a = room["agents"].get(key)
     if not a:

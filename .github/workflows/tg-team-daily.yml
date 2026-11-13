@@ -1,0 +1,50 @@
+# گزارشِ روزانه‌ی اتاقِ تیم در تلگرام — NorthmanQuant
+# هر روز ساعت ۱۴:۰۰ تهران (۱۰:۳۰ UTC): یک جلسه‌ی کاملِ اتاقِ تیم (خبرنگار،
+# دیدبان، چارت‌خوان، مدیرِ ریسک، شکاک) روی یک ارزِ در چرخش اجرا می‌شود و
+# خلاصه‌ی فارسی‌اش (حکمِ تیم + پیامِ عامل‌ها + سطوح + داوری‌های شکاک) به چت می‌رود.
+#
+# از همان Secretهای باتِ موجود استفاده می‌کند:
+#   TELEGRAM_BOT_TOKEN   توکن بات از @BotFather
+#   TELEGRAM_CHAT_ID     چت مالک
+# اگر این‌ها ست نباشند، جاب بی‌صدا و موفق رد می‌شود (Actions قرمز نمی‌شود).
+#
+# تنظیمِ اختیاری (با repository variable یا ویرایشِ همین فایل):
+#   TEAM_DAILY_SYMBOL    نمادِ ثابت به‌جای چرخش (مثلاً BTC-USDT)
+#   TEAM_DAILY_CAPITAL   سرمایه‌ی مدیرِ ریسک (پیش‌فرض 1000)
+#   TEAM_DAILY_RISK_PCT  ریسکِ هر معامله٪ (پیش‌فرض 1.0)
+#
+# توقف موقت: تب Actions → TG Team Daily → ⋯ → Disable workflow
+
+name: TG Team Daily
+
+on:
+  schedule:
+    - cron: "30 10 * * *"    # ۱۴:۰۰ تهران (UTC+3:30)
+  workflow_dispatch: {}      # اجرای دستی برای تست
+
+concurrency:
+  group: tg-team-daily
+  cancel-in-progress: false
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: ارسال گزارشِ روزانه‌ی تیم
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TEAM_DAILY_CAPITAL: ${{ vars.TEAM_DAILY_CAPITAL }}
+          TEAM_DAILY_RISK_PCT: ${{ vars.TEAM_DAILY_RISK_PCT }}
+        run: python -m core.team_daily

@@ -61,7 +61,7 @@ _i18 = (ROOT / "core" / "i18n.py").read_text(encoding="utf-8")
 ok('"p9", "pages/9_Free_Opportunities.py"' in _i18, "صفحه p9 با مسیرِ تازه در NAV_PAGES ثبت شده")
 ok('["main", "p1", "p2", "p4", "p5", "p9"]' in _i18, "p9 در گروه کریپتو مانده است")
 _sweep = (ROOT / "scripts" / "test_apptest_sweep.py").read_text(encoding="utf-8")
-ok("len(PAGES) == 9" in _sweep, "sweep به ۹ صفحه آپدیت است")
+ok("len(PAGES) == 10" in _sweep, "sweep به ۱۰ صفحه آپدیت است")
 _pg = (ROOT / "pages" / "9_Free_Opportunities.py").read_text(encoding="utf-8")
 for frag in ("set_page_config", "from core import opportunities as OP",
              "OP.scam_check", "OP.testnet_rows", "from core import scouts as SC"):

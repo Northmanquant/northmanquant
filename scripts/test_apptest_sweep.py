@@ -13,7 +13,7 @@ os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from streamlit.testing.v1 import AppTest  # noqa: E402
 
 PAGES = sorted(glob.glob(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pages", "*.py")))
-assert len(PAGES) == 9, f"انتظار ۹ صفحه — پیدا شد: {len(PAGES)}"
+assert len(PAGES) == 10, f"انتظار ۱۰ صفحه — پیدا شد: {len(PAGES)}"
 
 FAILS = 0
 for p in PAGES:

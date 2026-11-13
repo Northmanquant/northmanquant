@@ -146,8 +146,8 @@ except Exception as e:  # noqa: BLE001
 _install(_make_fake_st(has_popover=True))   # پاک‌سازی — py_compile به ماکت نیاز ندارد ولی تمیزتر است
 pages = sorted(glob.glob("pages/*.py"))
 pages_with_hint = [p for p in pages if "hint(" in open(p, encoding="utf-8").read()]
-ok(len(pages_with_hint) == len(pages) == 9,
-   f"هر ۹ صفحه از hint استفاده می‌کنند ({len(pages_with_hint)}/{len(pages)})")
+ok(len(pages_with_hint) == len(pages) == 10,
+   f"هر ۱۰ صفحه از hint استفاده می‌کنند ({len(pages_with_hint)}/{len(pages)})")
 for p in pages + ["core/help.py", "core/webview.py", "core/i18n.py"]:
     py_compile.compile(p, doraise=True)
 ok(True, "همه‌ی صفحات + core/help.py کامپایل می‌شوند")

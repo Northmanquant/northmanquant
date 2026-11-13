@@ -225,6 +225,22 @@ def t13_zero_capital():
     return "سرمایه‌ی صفر → حدس نمی‌زند"
 
 
+def t14_nav_registered():
+    """صفحه‌ی اتاقِ تیم باید در منوی سفارشیِ اپ (NAV_PAGES + گروهِ کریپتو) ثبت باشد —
+    منوی پیش‌فرضِ Streamlit مخفی است؛ بدونِ ثبت، صفحه برای کاربر نامرئی می‌شود."""
+    import re
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    src = open(os.path.join(root, "core", "i18n.py"), encoding="utf-8").read()
+    assert '"p10", "pages/10_Agent_Team.py"' in src, "p10 در NAV_PAGES نیست"
+    assert "اتاق تیم" in src, "برچسبِ فارسیِ منو"
+    grp = re.search(r'\("₿ کریپتو", "₿ Crypto", \[([^\]]*)\]\)', src)
+    assert grp, "گروهِ کریپتو پیدا نشد"
+    pids = [p.strip().strip('"') for p in grp.group(1).split(",")]
+    assert "p10" in pids, f"p10 در گروهِ کریپتو نیست: {pids}"
+    assert os.path.exists(os.path.join(root, "pages", "10_Agent_Team.py")), "فایلِ صفحه"
+    return "p10 در NAV_PAGES + گروهِ کریپتو + فایل موجود"
+
+
 if __name__ == "__main__":
     print("== اتاقِ تیمِ تحلیل ==")
     check("structure (5 عامل، پیامِ بی‌دلیل ممنوع)", t1_structure)
@@ -240,5 +256,6 @@ if __name__ == "__main__":
     check("مدیرِ ریسک: بدون سیگنال، بدون اندازه", t11_risk_wait)
     check("شکاک در برابر مدیرِ ریسک", t12_skeptic_risk)
     check("مدیرِ ریسک: سرمایه‌ی صفر", t13_zero_capital)
+    check("ثبتِ صفحه در منوی سفارشی (NAV_PAGES)", t14_nav_registered)
     print(f"===== {ok} passed, {fail} failed =====")
     raise SystemExit(1 if fail else 0)

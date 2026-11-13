@@ -1818,6 +1818,7 @@ NAV_PAGES: list[tuple[str, str, str, str, str]] = [
     ("p3", "pages/3_Forex_Brokers.py", "💱", "فارکس و بروکرها", "Forex & Brokers"),
     ("p4", "pages/4_Agent_Arena.py", "🏟️", "میدان ایجنت‌ها", "Agent Arena"),
     ("p5", "pages/5_Agent_Lab.py", "🔬", "آزمایشگاه ایجنت‌ها", "Agent Lab"),
+    ("p10", "pages/10_Agent_Team.py", "🤝", "اتاق تیم", "Agent Team"),
     ("p6", "pages/6_TSE_Market.py", "🇮🇷", "دیده‌بان بورس", "TSE Watch"),
     ("p7", "pages/7_TSE_Paper.py", "🧾", "ماکت بورس", "TSE Paper"),
     ("p8", "pages/8_Econ_Calendar.py", "🗓️", "تقویم اقتصادی", "Economic Calendar"),
@@ -1827,7 +1828,7 @@ NAV_PAGES: list[tuple[str, str, str, str, str]] = [
 # سه بخشِ جدا: کریپتو / بورس ایران / فارکس — منو با سرگروه رندر می‌شود
 NAV_GROUPS: list[tuple[str, str, list[str]]] = [
     # (fa, en, [page_id,…])
-    ("₿ کریپتو", "₿ Crypto", ["main", "p1", "p2", "p4", "p5", "p9"]),
+    ("₿ کریپتو", "₿ Crypto", ["main", "p1", "p2", "p4", "p5", "p10", "p9"]),
     ("🏛️ بورس ایران", "🏛️ Tehran Stock Exchange", ["p6", "p7"]),
     ("💱 فارکس", "💱 Forex", ["p3", "p8"]),
 ]

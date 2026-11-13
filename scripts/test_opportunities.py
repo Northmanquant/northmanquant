@@ -59,7 +59,7 @@ _ch = _sp.run([sys.executable, "-m", "py_compile", str(ROOT / "core" / "opportun
 ok(_ch.returncode == 0, f"کامپایل core و صفحه {_ch.stderr.strip()[:120]}")
 _i18 = (ROOT / "core" / "i18n.py").read_text(encoding="utf-8")
 ok('"p9", "pages/9_Free_Opportunities.py"' in _i18, "صفحه p9 با مسیرِ تازه در NAV_PAGES ثبت شده")
-ok('["main", "p1", "p2", "p4", "p5", "p9"]' in _i18, "p9 در گروه کریپتو مانده است")
+ok('["main", "p1", "p2", "p4", "p5", "p10", "p9"]' in _i18, "p9 در گروه کریپتو مانده است (+ p10 اتاق تیم)")
 _sweep = (ROOT / "scripts" / "test_apptest_sweep.py").read_text(encoding="utf-8")
 ok("len(PAGES) == 10" in _sweep, "sweep به ۱۰ صفحه آپدیت است")
 _pg = (ROOT / "pages" / "9_Free_Opportunities.py").read_text(encoding="utf-8")

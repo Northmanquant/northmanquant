@@ -160,7 +160,7 @@ def telegram_line(gate: Optional[dict] = None,
         else:
             parts.append(f"دروازه‌ی ارتقا: {n}/۲۰۰"
                          + (f" ({rate}٪)" if rate is not None else ""))
-        parts.append(f"آستانه: ≥{GATE_MIN_AGREE_PCT}٪")
+        parts.append(f"آستانه: ≥{str(GATE_MIN_AGREE_PCT).rstrip('0').rstrip('.') or '0'}٪")
         return " · ".join(parts)
     except Exception:  # noqa: BLE001 — خطِ سایه هرگز گزارش را نمی‌شکند
         return None

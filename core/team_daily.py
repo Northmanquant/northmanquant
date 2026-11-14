@@ -136,9 +136,9 @@ def build_report_text(room: dict, max_chars: int | None = None) -> str:
     lines.append(f"<b>💼 مدیرِ ریسک:</b> {_risk_line(agents)}")
     lines.append("")
 
-    # شکاک — داوری‌ها
+    # شکاک — داوری‌ها (داوری‌های «سایه»ی شاهدِ کرونوس به گزارشِ عمومی نمی‌رود)
     lines.append("<b>🧐 شکاک:</b>")
-    checks = list(sk.get("checks") or [])
+    checks = [c for c in (sk.get("checks") or []) if not c.get("shadow")]
     for c in checks[:8]:
         icon = _CHECK_ICON.get(c.get("verdict"), "•")
         reason = _esc(str(c.get("reason") or ""))[:150]
@@ -173,9 +173,11 @@ def run(exchange: str | None = None, symbol: str | None = None,
     iv = interval or os.environ.get("TEAM_DAILY_INTERVAL", INTERVAL_DEFAULT)
     cap = capital if capital is not None else _env_float("TEAM_DAILY_CAPITAL", 1000.0)
     rp = risk_pct if risk_pct is not None else _env_float("TEAM_DAILY_RISK_PCT", 1.0)
+    # شاهدِ کرونوس (سایه) فعلاً فقط داخلِ اتاقِ تیم است — گزارشِ عمومیِ روزانه
+    # تا فازِ دوِ نقشه‌راه بدونِ ستونِ احتمال می‌ماند.
     try:
         room = TR.investigate(exchange=ex, symbol=sym, interval=iv, with_news=True,
-                              capital=cap, risk_pct=rp)
+                              capital=cap, risk_pct=rp, with_witness=False)
     except Exception as exc:  # noqa: BLE001
         TG.notify_failure("team-daily", f"{type(exc).__name__}: {exc}")
         return "خطای جلسه"

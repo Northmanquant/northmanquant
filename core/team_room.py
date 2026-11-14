@@ -22,6 +22,7 @@
 """
 from __future__ import annotations
 
+import os
 import re
 from datetime import datetime, timezone, timedelta
 
@@ -34,6 +35,7 @@ sys.path.insert(0, sys_root)
 
 import app_base as nq  # noqa: E402
 from core import news as NEWS  # noqa: E402
+from core import kronos_witness as KW  # noqa: E402
 
 EXCHANGE_DEFAULT = "OKX"
 INTERVAL_DEFAULT = "1hour"
@@ -459,7 +461,8 @@ def investigate(exchange: str = EXCHANGE_DEFAULT, symbol: str = "BTC-USDT",
                 interval: str = INTERVAL_DEFAULT, with_news: bool = True,
                 df: pd.DataFrame | None = None, news: dict | None = None,
                 ts: str | None = None, limit: int = 400,
-                capital: float = 1000.0, risk_pct: float = 1.0) -> dict:
+                capital: float = 1000.0, risk_pct: float = 1.0,
+                with_witness: bool = True) -> dict:
     """یک جلسه‌ی کاملِ اتاقِ تیم روی یک ارز — fail-soft: هیچ‌وقت exception بالا نمی‌دهد."""
     out: dict = {"exchange": exchange, "symbol": symbol, "interval": interval,
                  "ts": ts or datetime.now(TEHRAN).strftime("%Y-%m-%d %H:%M"), "ok": False}
@@ -500,6 +503,12 @@ def investigate(exchange: str = EXCHANGE_DEFAULT, symbol: str = "BTC-USDT",
              "targets": [], "rr": 0, "confidence": 0, "why": "طرح ساخته نشد"}
         risk_a = _agent(lambda: risk_agent(d_ind, dec, plan, capital, risk_pct))
         agents = [news_a, watch_a, chart_a, risk_a]
+        # شاهدِ ششم — کرونوس در حالتِ سایه (فازِ یکِ نقشه‌راه): نظر است، نه رأی؛
+        # خاموشی‌اش (env یا پارامتر) و حتی خرابی‌اش هرگز جلسه را نمی‌بَرد.
+        wit = None
+        if with_witness and os.environ.get("KRONOS_WITNESS", "").strip().lower() not in ("0", "off", "false"):
+            wit = _agent(lambda: KW.witness(d_ind, dec, interval=interval))
+            agents.append(wit)
         out["agents"] = {a["key"]: a for a in agents if isinstance(a, dict) and a.get("key")}
 
         chart = out["agents"].get("chart") or {}
@@ -508,6 +517,11 @@ def investigate(exchange: str = EXCHANGE_DEFAULT, symbol: str = "BTC-USDT",
                                      "rr": 0, "confidence": 0, "why": "طرح ساخته نشد"}
         claims = [cl for a in agents for cl in (a.get("claims") or [])]
         checks = skeptic_checks(claims, d_ind, plan)
+        # داوریِ شکاک درباره‌ی ادعای شاهدِ کرونوس — فقط هشدار/تاییدِ ثبت‌شده؛
+        # در حالتِ سایه هیچ اعتراضِ سختی از این مسیر بیرون نمی‌آید و حکمِ تیم
+        # دست‌نخورده می‌ماند.
+        chart_cl = next((cl for cl in claims if cl["by"] == "chart"), None)
+        checks.extend(KW.skeptic_kronos_check(wit, (chart_cl or {}).get("side", 0), plan))
         out["skeptic"] = {"key": "skeptic", "emoji": "🧐", "name": "شکاک",
                           "role": "دنبال دلیل و منطق می‌گردد — هر ادعا را با داده محک می‌زند",
                           "checks": checks}

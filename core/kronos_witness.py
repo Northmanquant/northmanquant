@@ -131,6 +131,26 @@ def _stub_paths(d: pd.DataFrame, c: dict) -> dict:
             "ctx_len": int(min(len(d), STUB_CTX + 1))}
 
 
+_PRED_CACHE: dict = {}  # (model, repo) → (tokenizer, net) — بارگیریِ یک‌بار در هر فرایند
+
+
+def _load_net(c: dict):
+    """بارگیریِ توکنایزر و مدل با کشِ فرایندی — وزن‌ها از HF Hub (رفتارِ رسمیِ مخزن)."""
+    key = (c["model"], c["repo"])
+    if key not in _PRED_CACHE:
+        # اول مسیرِ مخزنِ رسمی، بعد import — وگرنه «model» پیدا نمی‌شود
+        repo_dir = os.path.abspath(os.path.expanduser(c["repo"]))
+        if repo_dir not in sys.path:
+            sys.path.insert(0, repo_dir)
+        import torch  # noqa: E402
+        from model import Kronos, KronosTokenizer  # noqa: E402 — ماژولِ مخزنِ رسمی
+
+        tokenizer = KronosTokenizer.from_pretrained(MODEL_PAIR[c["model"]])
+        net = Kronos.from_pretrained(c["model"])
+        _PRED_CACHE[key] = (tokenizer, net)
+    return _PRED_CACHE[key]
+
+
 def _kronos_paths(d: pd.DataFrame, c: dict, interval: str) -> dict:
     """مدلِ واقعی — فقط وقتی اپراتور صریحاً KRONOS_BACKEND=kronos داده باشد.
 
@@ -138,29 +158,30 @@ def _kronos_paths(d: pd.DataFrame, c: dict, interval: str) -> dict:
     import می‌کنیم. هر خطا → exception به بالا؛ تماس‌گیرنده به آفلاین برمی‌گردد."""
     if not c["repo"]:
         raise RuntimeError("KRONOS_REPO تنظیم نشده — مسیرِ کلونِ مخزنِ رسمی کرونوس لازم است")
-    repo = os.path.abspath(os.path.expanduser(c["repo"]))
-    if repo not in sys.path:
-        sys.path.insert(0, repo)
-    import torch  # noqa: E402 — فقط در این مسیر
-    from model import Kronos, KronosPredictor, KronosTokenizer  # noqa: E402 — ماژولِ مخزنِ رسمی
+    # اول مسیرِ مخزنِ رسمی، بعد import — وگرنه «model» پیدا نمی‌شود
+    repo_dir = os.path.abspath(os.path.expanduser(c["repo"]))
+    if repo_dir not in sys.path:
+        sys.path.insert(0, repo_dir)
+    import torch  # noqa: E402
+    from model import KronosPredictor  # noqa: E402 — ماژولِ مخزنِ رسمی
 
+    tokenizer, net = _load_net(c)
     torch.manual_seed(c["seed"])
     ctx = CTX_OF.get(c["model"], 512)
-    x = d.tail(ctx).copy()
+    price_ok = d.dropna(subset=["open", "high", "low", "close"])  # کندلِ ناقص حذف می‌شود
+    x = price_ok.tail(ctx).copy()
     x["timestamps"] = pd.to_datetime(
         x["dt"] if "dt" in x.columns else pd.to_datetime(x["time"], unit="ms"))
     cols = ["open", "high", "low", "close", "volume", "amount"]
     for col in ("amount", "volume"):
         if col not in x.columns:
             x[col] = 0.0
-    x_df = x[cols].astype(float)
+    x_df = x[cols].astype(float).fillna(0.0)  # حجمِ گمشده = صفر (رفتارِ رسمیِ مخزن)
     x_ts = pd.Series(x["timestamps"].to_numpy())
     freq = INTERVAL_TO_FREQ.get(interval, _FREQ_FALLBACK)
     y_ts = pd.Series(pd.date_range(
-        x["timestamps"].iloc[-1] + pd.Timedelta(hours=1), periods=c["horizon"], freq=freq))
+        x["timestamps"].iloc[-1] + pd.Timedelta(freq), periods=c["horizon"], freq=freq))
 
-    tokenizer = KronosTokenizer.from_pretrained(MODEL_PAIR[c["model"]])
-    net = Kronos.from_pretrained(c["model"])
     predictor = KronosPredictor(net, tokenizer, device="cpu", max_context=ctx)
     finals: list[float] = []
     for _ in range(c["n_paths"]):  # هر مسیر جدا — آماره‌ی تجمیعی به‌جای میانگینِ یک‌جا
@@ -169,7 +190,7 @@ def _kronos_paths(d: pd.DataFrame, c: dict, interval: str) -> dict:
                                  top_p=TOP_P, sample_count=1, verbose=False)
         finals.append(float(pred["close"].iloc[-1]))
     finals = np.asarray(finals, dtype=float)
-    last_px = float(d["close"].iloc[-1])
+    last_px = float(price_ok["close"].iloc[-1])
     rets = finals / last_px - 1.0
     return {"ok": True, "finals": finals, "rets": rets, "last_px": last_px,
             "ctx_len": int(min(len(d), ctx))}
@@ -354,10 +375,11 @@ def gate_stats(path: str | None = None) -> dict:
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
     def _rate(rows: list[dict]) -> dict:
-        sig = [e for e in rows if e.get("signal_active") and e.get("kronos_side") is not None]
-        agree = sum(1 for e in sig
-                    if e.get("kronos_side") is not None and e.get("team_side") is not None
-                    and int(e["kronos_side"]) == int(e["team_side"]))
+        # فقط جلساتی با ادعای جهت‌دار (هر دو سمت ±۱) واردِ آمار می‌شوند؛
+        # «بی‌جهتِ» شاهد و بی‌سیگنالیِ چارت = بدونِ ادعا، نه مخالفت
+        sig = [e for e in rows if e.get("signal_active")
+               and e.get("kronos_side") in (1, -1) and e.get("team_side") in (1, -1)]
+        agree = sum(1 for e in sig if int(e["kronos_side"]) == int(e["team_side"]))
         rate = round(agree / len(sig) * 100.0, 1) if sig else None
         return {"n": len(sig), "agree": agree, "rate": rate}
 

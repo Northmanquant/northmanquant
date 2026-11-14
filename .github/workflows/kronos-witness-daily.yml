@@ -1,0 +1,64 @@
+# شاهدِ کرونوس — جلسه‌ی روزانه‌ی paper برای دروازه‌ی فازِ یک — NorthmanQuant
+# نقشه‌ی جدول ۴ گزارشِ کرونوس: دروازه‌ی خروجِ فازِ یک = «هم‌جهتیِ >۵۵٪ روی
+# ۲۰۰ جلسه‌ی paper-trade» با مدلِ واقعی. این جاب هر روز یک جلسه‌ی کاملِ
+# اتاقِ تیم + شاهدِ مدلِ واقعی (Kronos-mini از مخزنِ رسمی) روی ۶ ارزِ در
+# چرخش می‌گیرد و دفترِ core/data/kronos_log.jsonl را در همین مخزن commit می‌کند.
+#
+# هزینه: CPU-only (بدونِ GPU) — وابستگیِ سنگینِ فقطِ torch است؛ مدلِ mini
+# فقط ~۱۶ مگابایت است و وزنش از HF Hub دانلود می‌شود.
+# اگر دروازه پر شد و فازِ دو شروع شد، این جاب می‌تواند غیرفعال شود:
+#   تب Actions → Kronos Witness Daily → ⋯ → Disable workflow
+
+name: Kronos Witness Daily
+
+on:
+  schedule:
+    - cron: "0 6 * * *"    # ۰۹:۳۰ تهران (UTC+3:30) — قبل از جلسه‌ی ۱۴:۰۰ اتاقِ تیم
+  workflow_dispatch: {}    # اجرای دستی برای تست
+
+permissions:
+  contents: write          # برای commit کردنِ دفترِ دروازه
+
+concurrency:
+  group: kronos-witness-daily
+  cancel-in-progress: false
+
+jobs:
+  witness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: نصبِ وابستگی‌ها (torch فقط CPU)
+        run: |
+          python -m pip install --upgrade pip --quiet
+          pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
+          pip install --quiet -r requirements.txt
+          pip install --quiet einops huggingface_hub
+
+      - name: کلونِ مخزنِ رسمیِ کرونوس
+        run: git clone --depth 1 https://github.com/shiyu-coder/Kronos "$HOME/Kronos"
+
+      - name: جلسه‌ی روزانه‌ی شاهد — مدلِ واقعی روی کندلِ زنده (سه تایم‌فریم)
+        env:
+          KRONOS_BACKEND: kronos
+          KRONOS_REPO: /home/runner/Kronos
+          HF_HOME: /home/runner/hf
+        run: |
+          python scripts/kronos_session.py --rotate 3 --interval 1hour
+          python scripts/kronos_session.py --rotate 3 --interval 4hour
+          python scripts/kronos_session.py --rotate 2 --interval 1day
+
+      - name: ثبتِ دفترِ دروازه در مخزن
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main || true
+          git add core/data/kronos_log.jsonl
+          git diff --cached --quiet || git commit -m "🔮 کرونوس: جلساتِ paperِ امروز در دفترِ دروازه ثبت شد (workflow روزانه)"
+          git push origin main || echo "⚠️ پوش نشد — فردا دوباره تلاش می‌شود؛ دفتر در رانِ بعدی commit می‌شود"

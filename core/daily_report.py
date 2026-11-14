@@ -278,7 +278,8 @@ def fmt_report(agg: Dict[str, Any], open_trades: List[Dict[str, Any]],
 def fmt_telegram(agg: Dict[str, Any], open_trades: List[Dict[str, Any]],
                  regime: Optional[Dict[str, Any]], now: datetime,
                  lab: Optional[Dict[str, Any]] = None,
-                 dossier: Optional[Dict[str, Any]] = None) -> str:
+                 dossier: Optional[Dict[str, Any]] = None,
+                 kronos: Optional[str] = None) -> str:
     """متن جمع‌وجور HTML برای تلگرام — بدون جدول (تلگرام جدول نمی‌فهمد)،
     بدون Markdown (تلگرام با MD ترکیبی مشکل دارد) — فقط HTML ساده.
     """
@@ -329,6 +330,9 @@ def fmt_telegram(agg: Dict[str, Any], open_trades: List[Dict[str, Any]],
         if any(dc.get(k) for k in ("suspended", "quota_cut", "score_floor")):
             L.append(f"📋 پرونده: 🚫 {dc.get('suspended', 0)} تعلیق · "
                      f"🎯 {dc.get('quota_cut', 0)} سهمیه‌کاه · 🎚️ {dc.get('score_floor', 0)} کیفیت‌فیلتر")
+    if kronos:                               # فاز ۱۶ — یک خطِ سایه، بدونِ حقِ رأی
+        L.append("")
+        L.append(kronos)
 
     twr = f"{agg['total_winrate']}%" if agg["total_winrate"] is not None else "—"
     L.append("")
@@ -380,6 +384,13 @@ def main() -> int:
         dossier = DOS.compute_dossier(trades, regime_alerts=alerts_all, now=now)
     except Exception as e:  # noqa: BLE001
         print(f"⚠️ پرونده‌ی بهبود در گزارش نیامد (غیربحرانی): {e}", flush=True)
+    # فاز ۱۶ — خطِ سایه‌ی کرونوس (best-effort؛ هیچ‌وقت گزارش را نمی‌شکند)
+    kronos_line: Optional[str] = None
+    try:
+        from core import kronos_promotion as KP
+        kronos_line = KP.telegram_line()
+    except Exception as e:  # noqa: BLE001
+        print(f"⚠️ خطِ سایه‌ی کرونوس در گزارش نیامد (غیربحرانی): {e}", flush=True)
     md = fmt_report(agg, open_trades, regime, now, backend, lab=lab, dossier=dossier)
     with open("daily_report.md", "w", encoding="utf-8") as f:
         f.write(md + "\n")
@@ -397,7 +408,8 @@ def main() -> int:
     try:
         from core import telegram as TG
         if TG.enabled():
-            msg = fmt_telegram(agg, open_trades, regime, now, lab=lab, dossier=dossier)
+            msg = fmt_telegram(agg, open_trades, regime, now, lab=lab, dossier=dossier,
+                               kronos=kronos_line)
             print(f"🔔 تلگرام: {'ارسال شد ✅' if TG.send(msg) else 'ارسال نشد ⚠️'}", flush=True)
         else:
             print("ℹ️ تلگرام پیکربندی نشده — فقط فایل/Issue", flush=True)

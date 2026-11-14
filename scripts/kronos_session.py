@@ -2,7 +2,7 @@
 """scripts/kronos_session.py — جلسه‌گیرِ paper برای دروازه‌ی فازِ یکِ شاهدِ کرونوس
 ================================================================================
 درخواستِ کاربر: «همشون انجام بده» — یعنی مدلِ واقعی راه بیفتد و جلسه‌های
-paper-trade برای دروازه‌ی «هم‌جهتیِ >۵۵٪ روی ۲۰۰ جلسه» (جدول ۴ گزارشِ کرونوس)
+paper-trade برای دروازه‌ی «هم‌جهتیِ ≥۵۵٪ روی ۲۰۰ جلسه» (جدول ۴ گزارشِ کرونوس)
 شروع به جمع شدن کنند.
 
 هر «جلسه» = یک اجرای کاملِ اتاقِ تیم روی کندلِ زنده‌ی صرافی + شاهدِ کرونوس +
@@ -65,7 +65,35 @@ def run_one(symbol: str, interval: str, exchange: str, log: str | None) -> bool:
         return False
 
 
+def _load_env_file() -> None:
+    """لودِ .envِ ریشه‌ی مخزن — فقط برای متغیرهایی که از قبل ست نیستند.
+
+    روی GitHub Actions env از workflow می‌آید و این تابع بی‌اثر است؛ لوکال
+    بدونِ این، بچِ واقعی «خاموشِ آفلاین» می‌شد (درسِ دو بچِ هدررفته).
+    """
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+    if not os.path.isfile(path):
+        return
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(path, override=False)
+        return
+    except ImportError:
+        pass  # python-dotenv نبود — پارسِ ساده‌ی خودمان
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, val = line.split("=", 1)
+                os.environ.setdefault(key.strip(), val.strip().strip('"').strip("'"))
+    except Exception:  # noqa: BLE001 — خواندنِ .env هرگز جلسه را نمی‌بُرد
+        pass
+
+
 def main() -> None:
+    _load_env_file()
     ap = argparse.ArgumentParser(description="جلسه‌گیرِ paper شاهدِ کرونوس")
     ap.add_argument("--symbols", help="نمادها با کاما (پیش‌فرض: چرخشِ روزانه)")
     ap.add_argument("--interval", default=TR.INTERVAL_DEFAULT, choices=TR.INTERVALS)
@@ -81,6 +109,23 @@ def main() -> None:
         os.environ["KRONOS_BACKEND"] = "offline"
     backend = KW._cfg()["backend"]
     log = args.log or KW.log_path()
+
+    # پیش‌پروازِ ارزان — زنجیره‌ی importِ مدل را (بدونِ لودِ وزن) همین اول می‌چکد؛
+    # وگرنه ۳۶ جلسه «خاموشِ آفلاین» می‌شود و بچِ واقعی هدر می‌رود (درسِ رانر)
+    if backend == "kronos":
+        try:
+            import sys as _sys
+            _repo = KW._cfg()["repo"]
+            if _repo and os.path.isdir(_repo):
+                _sys.path.insert(0, _repo)
+            import einops  # noqa: F401
+            import safetensors  # noqa: F401
+            import torch  # noqa: F401
+            import model as _kmodel  # noqa: F401 — پکیجِ رسمیِ کرونوس
+            print("🛫 پیش‌پرواز: زنجیره‌ی مدل سالم — جلسات واقعی خواهند بود", flush=True)
+        except Exception as exc:  # noqa: BLE001 — هشدارِ بلند، نه توقف (fail-soft)
+            print(f"⚠️ پیش‌پرواز: زنجیره‌ی مدل ناقص ({type(exc).__name__}: {exc}) "
+                  f"— همه‌ی جلسات به شبیه‌سازِ آفلاین برمی‌گردند!", flush=True)
 
     if args.symbols:
         symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
@@ -102,7 +147,7 @@ def main() -> None:
     if g.get("ok"):
         real, stub = g.get("real") or {}, g.get("stub") or {}
         print(f"\n== دروازه‌ی فازِ یک ==")
-        print(f"مدلِ واقعی: {real.get('n')}/۲۰۰ جلسه · هم‌جهتیِ {real.get('rate', '—')}٪ (دروازه: >۵۵٪)")
+        print(f"مدلِ واقعی: {real.get('n')}/۲۰۰ جلسه · هم‌جهتیِ {real.get('rate', '—')}٪ (دروازه: ≥۵۵٪)")
         print(f"شبیه‌ساز: {stub.get('n')} جلسه · هم‌جهتیِ {stub.get('rate', '—')}٪ (تمرینِ لوله‌کشی)")
         print(f"وضعیت: {g.get('gate_fa')}")
     print("== پایان — exit 0 ==")

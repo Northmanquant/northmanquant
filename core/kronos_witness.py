@@ -27,7 +27,7 @@
         KRONOS_REPO=/مسیرِ/کلونِ/Kronos      (شامل پوشه‌ی model/)
     مدلِ پیش‌فرض: NeoQuasar/Kronos-mini (سبک و CPU-پسند؛ توکنایزرِ 2k).
 
-دروازه‌ی خروجِ فازِ یک (جدول ۴ گزارش): هم‌جهتیِ >۵۵٪ روی ۲۰۰ جلسه‌ی
+دروازه‌ی خروجِ فازِ یک (جدول ۴ گزارش): هم‌جهتیِ ≥۵۵٪ روی ۲۰۰ جلسه‌ی
 paper-trade + سوییتِ آزمون‌ها سبز. جلسات در core/data/kronos_log.jsonl
 (append-only) ثبت می‌شوند و آمارِ دروازه با gate_stats() می‌آید — مقایسه‌ی
 جهتِ اکثریتِ مسیرها با جهتِ سیگنالِ چارت، فقط برای جلساتی که سیگنالِ فعال
@@ -279,7 +279,7 @@ def witness(d: pd.DataFrame, dec: int, backend: str | None = None,
                              f"<b>{pred['p95']:,.{dec}f}</b> (میانه <b>{pred['p50']:,.{dec}f}</b>).",
                      "why": f"چارکِ ۵/۵۰/۹۵ روی قیمتِ پایانیِ {pred['n_paths']} مسیر — باندِ احتمالاتی، نه هدفِ معامله"})
     msgs.append({"text": "حالتِ سایه‌ام: روی حکمِ تیم اثری ندارم — فقط ثبت می‌شوم تا دروازه‌ی "
-                         f"«هم‌جهتیِ >۵۵٪ روی ۲۰۰ جلسه» پر شود؛ تازه در فازِ دو اجازه‌ی انتشار می‌گیرم.",
+                         f"«هم‌جهتیِ ≥۵۵٪ روی ۲۰۰ جلسه» پر شود؛ تازه در فازِ دو اجازه‌ی انتشار می‌گیرم.",
                  "why": "نقشه‌راهِ سه‌فازیِ گزارشِ کرونوس (جدول ۴) — هر فاز دروازه‌ی خروجِ خودش را دارد"})
     claims.append({"by": "kronos", "side": pred["side"],
                    "claim": f"{pred['agree_pct']}٪ مسیرها {side_fa} · میانه {pred['ret_med']:+.2f}٪ در {pred['horizon']} کندل",
@@ -358,7 +358,7 @@ def log_session(room: dict, path: str | None = None) -> dict:
 
 
 def gate_stats(path: str | None = None) -> dict:
-    """آمارِ دروازه‌ی فازِ یک — هم‌جهتیِ >۵۵٪ روی ۲۰۰ جلسه (جدول ۴ گزارش).
+    """آمارِ دروازه‌ی فازِ یک — هم‌جهتیِ ≥۵۵٪ روی ۲۰۰ جلسه (جدول ۴ گزارش).
 
     دروازه‌ی رسمی فقط با جلساتِ «مدلِ واقعی» جمع می‌خورد؛ جلساتِ شبیه‌ساز
     «تمرینِ لوله‌کشی» حساب می‌شوند و جداگانه گزارش می‌شوند — صادقانه."""
@@ -387,7 +387,7 @@ def gate_stats(path: str | None = None) -> dict:
 
     real = _rate([e for e in entries if e.get("backend") == "kronos"])
     stub = _rate([e for e in entries if e.get("backend") == "offline"])
-    gate_pass = bool(real["n"] >= 200 and (real["rate"] or 0.0) > 55.0)
+    gate_pass = bool(real["n"] >= 200 and (real["rate"] or 0.0) >= 55.0)  # قراردادِ قفل‌شده: ≥۵۵٪
     last = entries[-1] if entries else None
     return {"ok": True, "n_total": len(entries),
             "real": real, "stub": stub,

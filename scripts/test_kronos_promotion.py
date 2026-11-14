@@ -113,8 +113,9 @@ def t11_telegram_line_empty_today():
 
 
 def t12_telegram_line_gate_pass():
+    # از فازِ چهار، گذشتنِ دروازه یعنی اعلامِ ارتقا (فازِ دو فقط «✅» می‌گفت)
     line = KP.telegram_line(gate=_gate(200, 60.0), today={"ok": True, "n": 2, "sig": 2, "agree": 2})
-    assert line and "✅" in line, line
+    assert line and "ارتقا گرفت" in line and "±۱" in line and "مدلِ خارجی" in line, line
 
 
 def t13_telegram_line_never_raises():

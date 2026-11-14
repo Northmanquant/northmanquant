@@ -506,8 +506,14 @@ def investigate(exchange: str = EXCHANGE_DEFAULT, symbol: str = "BTC-USDT",
         # شاهدِ ششم — کرونوس در حالتِ سایه (فازِ یکِ نقشه‌راه): نظر است، نه رأی؛
         # خاموشی‌اش (env یا پارامتر) و حتی خرابی‌اش هرگز جلسه را نمی‌بَرد.
         wit = None
+        _promoted = False                      # فازِ چهار — پیش‌فرضِ امن: سایه
         if with_witness and os.environ.get("KRONOS_WITNESS", "").strip().lower() not in ("0", "off", "false"):
-            wit = _agent(lambda: KW.witness(d_ind, dec, interval=interval))
+            try:
+                from core import kronos_promotion as KP
+                _promoted = KP.is_promoted()   # زنده از دفترِ دروازه — قرارداد تنها حقیقت است
+            except Exception:  # noqa: BLE001 — وضعیتِ خراب یعنی سایه، نه شکستِ جلسه
+                _promoted = False
+            wit = _agent(lambda: KW.witness(d_ind, dec, interval=interval, promoted=_promoted))
             agents.append(wit)
         out["agents"] = {a["key"]: a for a in agents if isinstance(a, dict) and a.get("key")}
 
@@ -521,7 +527,8 @@ def investigate(exchange: str = EXCHANGE_DEFAULT, symbol: str = "BTC-USDT",
         # در حالتِ سایه هیچ اعتراضِ سختی از این مسیر بیرون نمی‌آید و حکمِ تیم
         # دست‌نخورده می‌ماند.
         chart_cl = next((cl for cl in claims if cl["by"] == "chart"), None)
-        checks.extend(KW.skeptic_kronos_check(wit, (chart_cl or {}).get("side", 0), plan))
+        checks.extend(KW.skeptic_kronos_check(wit, (chart_cl or {}).get("side", 0), plan,
+                                              promoted=_promoted))
         out["skeptic"] = {"key": "skeptic", "emoji": "🧐", "name": "شکاک",
                           "role": "دنبال دلیل و منطق می‌گردد — هر ادعا را با داده محک می‌زند",
                           "checks": checks}

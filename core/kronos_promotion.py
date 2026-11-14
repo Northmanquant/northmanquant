@@ -18,6 +18,8 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 from datetime import datetime, timezone, timedelta
 from typing import Any, Optional
 
@@ -134,6 +136,11 @@ def today_stats(path: Optional[str] = None,
     return {"ok": True, "n": n, "sig": sig, "agree": agree}
 
 
+def _pct(v) -> str:
+    """٪‌ِ تمیز برای نمایش — 50.0 → «50»، 61.5 → «61.5»."""
+    return f"{float(v):g}"
+
+
 def telegram_line(gate: Optional[dict] = None,
                   today: Optional[dict] = None,
                   now: Optional[datetime] = None) -> Optional[str]:
@@ -150,17 +157,76 @@ def telegram_line(gate: Optional[dict] = None,
         n = int(real.get("n") or 0)
         rate = real.get("rate")
 
-        parts = ["🔮 سایه‌ی کرونوس — هنوز حقِ رأی ندارد"]
+        ev = evaluate(gate)
+        parts: list[str]
+        if ev["verdict"] == "retire":
+            parts = ["📜 کرونوس بازنشسته شد — طبقِ قراردادِ قفل‌شده",
+                     f"دلیل: هم‌جهتیِ {_pct(rate)}٪ < ۵۵٪ در {n} جلسه",
+                     "سایه می‌ماند؛ دفتر آرشیو است"]
+        elif ev["verdict"] == "promote":
+            parts = ["🔮 کرونوس ارتقا گرفت — مدلِ خارجی با رأیِ ±۱ در کوروم",
+                     f"پایه: {n} جلسه · هم‌جهتیِ {_pct(rate)}٪ ≥ ۵۵٪"]
+        else:
+            parts = ["🔮 سایه‌ی کرونوس — هنوز حقِ رأی ندارد"]
         if today.get("ok") and int(today.get("n") or 0) > 0:
             parts.append(f"امروز {today['n']} جلسه")
             if int(today.get("sig") or 0) > 0:
                 parts.append(f"هم‌جهتیِ {today['agree']}/{today['sig']}")
-        if gate.get("gate_pass"):
-            parts.append(f"درگاهِ ارتقا: {n}/۲۰۰ ✅")
-        else:
+        if ev["verdict"] == "continue":
             parts.append(f"دروازه‌ی ارتقا: {n}/۲۰۰"
-                         + (f" ({rate}٪)" if rate is not None else ""))
-        parts.append(f"آستانه: ≥{str(GATE_MIN_AGREE_PCT).rstrip('0').rstrip('.') or '0'}٪")
+                         + (f" ({_pct(rate)}٪)" if rate is not None else ""))
+            parts.append(f"آستانه: ≥{str(GATE_MIN_AGREE_PCT).rstrip('0').rstrip('.') or '0'}٪")
         return " · ".join(parts)
     except Exception:  # noqa: BLE001 — خطِ سایه هرگز گزارش را نمی‌شکند
         return None
+
+
+def state(gate: Optional[dict] = None) -> dict:
+    """وضعیتِ ارتقا — زنده از دروازه، بدونِ پرچمِ ذخیره‌شده.
+
+    قرارداد = تنها حقیقت: وضعیت هر بار از خودِ دفترِ دروازه خوانده می‌شود تا
+    هیچ فایلِ حکمی نتواند خلافِ قرارداد را نگه دارد. خطا یعنی سایه (پیش‌فرضِ امن).
+    """
+    try:
+        if gate is None:
+            from core import kronos_witness as KW
+            gate = KW.gate_stats()
+        ev = evaluate(gate)
+        return {"promoted": ev["verdict"] == "promote",
+                "retired": ev["verdict"] == "retire",
+                "verdict": ev["verdict"],
+                "verdict_fa": ev["verdict_fa"],
+                "reasons_fa": ev["reasons_fa"]}
+    except Exception as exc:  # noqa: BLE001 — وضعیت هرگز جلسه را نمی‌بَرد
+        return {"promoted": False, "retired": False, "verdict": "continue",
+                "verdict_fa": "⏳ ادامه‌ی جمع‌آوری — وضعیت در دسترس نیست",
+                "reasons_fa": [f"{type(exc).__name__}: {exc}"]}
+
+
+def is_promoted(gate: Optional[dict] = None) -> bool:
+    """میان‌برِ امنِ «آیا عضوِ هفتم است؟» — خطا یعنی نه (سایه)."""
+    return bool(state(gate).get("promoted"))
+
+
+def archive_log(dest: Optional[str] = None, path: Optional[str] = None) -> dict:
+    """آرشیوِ صادقانه‌ی دفتر در روزِ بازنشستگی — کپی، نه پاک‌کاری؛ idempotent."""
+    from core import kronos_witness as KW
+
+    p = path or KW.log_path()
+    if dest is None:
+        folder = p[: p.rfind("/")] if "/" in p else "."
+        stamp = datetime.now(_TEHRAN).strftime("%Y%m%d")
+        dest = f"{folder}/kronos_log_archive_{stamp}.jsonl"
+    if not os.path.isfile(p):
+        return {"ok": False, "archived": False, "dest": dest, "error": "دفتر وجود ندارد"}
+    if os.path.isfile(dest):
+        return {"ok": True, "archived": False, "dest": dest,
+                "why_fa": "آرشیو از قبل هست — idempotent"}
+    try:
+        shutil.copy2(p, dest)
+        with open(dest, encoding="utf-8") as f:
+            n = sum(1 for _ in f)
+        return {"ok": True, "archived": True, "dest": dest, "n_rows": n}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "archived": False, "dest": dest,
+                "error": f"{type(exc).__name__}: {exc}"}

@@ -220,8 +220,13 @@ def _aggregate(paths: dict, c: dict) -> dict:
 
 # ================================================================ عاملِ شاهد
 def witness(d: pd.DataFrame, dec: int, backend: str | None = None,
-            interval: str = "1hour") -> dict:
-    """🔮 شاهدِ کرونوس — توزیعِ مسیرها + باندِ چارکی؛ همیشه fail-soft و صادق."""
+            interval: str = "1hour", promoted: bool = False) -> dict:
+    """🔮 شاهدِ کرونوس — توزیعِ مسیرها + باندِ چارکی؛ همیشه fail-soft و صادق.
+
+    promoted=False (پیش‌فرض): حالتِ سایه — نظر است، نه رأی.
+    promoted=True: پس از دروازه‌ی قراردادِ قفل‌شده — عضوِ هفتمِ اتاق با رأیِ ±۱
+    و برچسبِ «مدلِ خارجی» (خودکار از خودِ دفترِ دروازه، بدونِ پرچمِ دستی).
+    """
     c = _cfg()
     if backend:
         c["backend"] = backend
@@ -242,8 +247,12 @@ def witness(d: pd.DataFrame, dec: int, backend: str | None = None,
         paths = _stub_paths(d, c)
 
     head = {"key": "kronos", "emoji": "🔮", "name": "کرونوس",
-            "role": "شاهدِ احتمالاتی — توزیعِ مسیرهای پیشِ رو؛ در حالتِ سایه نظر است، نه رأی",
-            "msgs": msgs, "claims": claims, "ok": True, "pred": None}
+            "role": ("عضوِ هفتمِ اتاق — مدلِ خارجی با رأیِ ±۱ در کوروم "
+                     "(قراردادِ پیش‌ثبت‌شده: ≥۵۵٪ هم‌جهتی روی ۲۰۰ جلسه)"
+                     if promoted else
+                     "شاهدِ احتمالاتی — توزیعِ مسیرهای پیشِ رو؛ در حالتِ سایه نظر است، نه رأی"),
+            "msgs": msgs, "claims": claims, "ok": True, "pred": None,
+            "member": bool(promoted)}
 
     if not paths.get("ok"):
         msgs.append({"text": f"امروز پیش‌بینیِ معتبری ندارم — {paths.get('why', 'داده ناکافی است')}. "
@@ -278,9 +287,14 @@ def witness(d: pd.DataFrame, dec: int, backend: str | None = None,
         msgs.append({"text": f"باندِ ۵–۹۵٪ قیمت در افق: <b>{pred['p5']:,.{dec}f}</b> تا "
                              f"<b>{pred['p95']:,.{dec}f}</b> (میانه <b>{pred['p50']:,.{dec}f}</b>).",
                      "why": f"چارکِ ۵/۵۰/۹۵ روی قیمتِ پایانیِ {pred['n_paths']} مسیر — باندِ احتمالاتی، نه هدفِ معامله"})
-    msgs.append({"text": "حالتِ سایه‌ام: روی حکمِ تیم اثری ندارم — فقط ثبت می‌شوم تا دروازه‌ی "
-                         f"«هم‌جهتیِ ≥۵۵٪ روی ۲۰۰ جلسه» پر شود؛ تازه در فازِ دو اجازه‌ی انتشار می‌گیرم.",
-                 "why": "نقشه‌راهِ سه‌فازیِ گزارشِ کرونوس (جدول ۴) — هر فاز دروازه‌ی خروجِ خودش را دارد"})
+    if promoted:
+        msgs.append({"text": "وضعیتِ من: عضوِ ارتقایافته با رأیِ ±۱ در کوروم — مخالفتِ مسیرها با طرح = "
+                             "اعتراضِ سخت، هم‌جهتی = تاییدِ وزن‌دار. برچسبِ صادقانه‌ام: «مدلِ خارجی».",
+                     "why": "قراردادِ پیش‌ثبت‌شده‌ی ارتقا — ≥۵۵٪ هم‌جهتی روی ۲۰۰ جلسه؛ روزِ حکم تفسیرِ تازه ندارد"})
+    else:
+        msgs.append({"text": "حالتِ سایه‌ام: روی حکمِ تیم اثری ندارم — فقط ثبت می‌شوم تا دروازه‌ی "
+                             f"«هم‌جهتیِ ≥۵۵٪ روی ۲۰۰ جلسه» پر شود؛ تازه در فازِ دو اجازه‌ی انتشار می‌گیرم.",
+                     "why": "نقشه‌راهِ سه‌فازیِ گزارشِ کرونوس (جدول ۴) — هر فاز دروازه‌ی خروجِ خودش را دارد"})
     claims.append({"by": "kronos", "side": pred["side"],
                    "claim": f"{pred['agree_pct']}٪ مسیرها {side_fa} · میانه {pred['ret_med']:+.2f}٪ در {pred['horizon']} کندل",
                    "evidence": f"{pred['settings_fa']} · ctx={pred['ctx_len']} کندل"})
@@ -288,10 +302,16 @@ def witness(d: pd.DataFrame, dec: int, backend: str | None = None,
 
 
 # ================================================================ شکاک (فقط هشدار/تایید — حالتِ سایه)
-def skeptic_kronos_check(witness_out: dict, chart_side: int, plan: dict) -> list[dict]:
-    """داوریِ شکاک درباره‌ی ادعای شاهد — در فازِ یک هیچ اعتراضِ سختی ندارد:
-    مخالفت = هشدارِ ثبت‌شده، هم‌جهتی = تاییدِ بدونِ وزنِ تصمیم؛ حدضررِ خارج از
-    باند هم هشدار است (فصلِ ۸ گزارش: مطابقتِ باند را بازرسی کن)."""
+def skeptic_kronos_check(witness_out: dict, chart_side: int, plan: dict,
+                         promoted: bool = False) -> list[dict]:
+    """داوریِ شکاک درباره‌ی ادعای شاهد.
+
+    سایه (پیش‌فرض، فازِ یک): هیچ اعتراضِ سختی ندارد — مخالفت = هشدارِ ثبت‌شده،
+    هم‌جهتی = تاییدِ بدونِ وزنِ تصمیم؛ حدضررِ خارج از باند هم هشدار است
+    (فصلِ ۸ گزارش: مطابقتِ باند را بازرسی کن).
+    ارتقایافته (پس از دروازه‌ی قرارداد): رأیِ ±۱ در کوروم می‌شمارد — مخالفت =
+    اعتراضِ سخت، هم‌جهتی = تاییدِ وزن‌دار؛ باند همچنان هشدار (رأیِ جهت است، نه حدضرر).
+    """
     checks: list[dict] = []
     pred = (witness_out or {}).get("pred") or {}
     if not pred.get("predicting"):
@@ -299,24 +319,34 @@ def skeptic_kronos_check(witness_out: dict, chart_side: int, plan: dict) -> list
     band_fa = (f"باندِ ۵–۹۵٪ او [{pred['p5']:,.4f} … {pred['p95']:,.4f}]")
     if chart_side != 0 and pred["side"] != 0:
         if pred["side"] == chart_side:
-            checks.append({"target": "کرونوس", "about": "هم‌جهتیِ مسیرها با سیگنال",
-                           "verdict": "تایید", "shadow": True,
-                           "reason": f"اکثریتِ {pred['agree_pct']}٪ مسیرها با سیگنالِ چارت هم‌جهت‌اند — "
-                                     f"شاهدِ احتمالاتی است و وزنِ تصمیم ندارد، فقط ثبت می‌شود ({band_fa})."})
+            checks.append({"target": "کرونوس",
+                           "about": "هم‌جهتیِ مسیرها با سیگنال" + (" — رأیِ مدلِ خارجی" if promoted else ""),
+                           "verdict": "تایید", "shadow": not promoted,
+                           "reason": (f"رأیِ مدلِ خارجی: اکثریتِ {pred['agree_pct']}٪ مسیرها هم‌جهتِ طرح‌اند "
+                                      f"({band_fa}) — تاییدِ وزن‌دار در کورومِ ارتقایافته."
+                                      if promoted else
+                                      f"اکثریتِ {pred['agree_pct']}٪ مسیرها با سیگنالِ چارت هم‌جهت‌اند — "
+                                      f"شاهدِ احتمالاتی است و وزنِ تصمیم ندارد، فقط ثبت می‌شود ({band_fa}).")})
         else:
-            checks.append({"target": "کرونوس", "about": "مخالفتِ مسیرها با سیگنال",
-                           "verdict": "هشدار", "shadow": True,
-                           "reason": f"اکثریتِ {pred['agree_pct']}٪ مسیرهای شاهد برخلاف سیگنالِ چارت می‌روند "
-                                     f"({band_fa}) — در حالتِ سایه حکم را عوض نمی‌کند، ولی ثبت می‌شود "
-                                     "تا آمارِ دروازه‌ی ۲۰۰ جلسه‌ای واقعی بماند."})
+            checks.append({"target": "کرونوس",
+                           "about": "مخالفتِ مسیرها با سیگنال" + (" — رأیِ مدلِ خارجی" if promoted else ""),
+                           "verdict": "اعتراض" if promoted else "هشدار", "shadow": not promoted,
+                           "reason": (f"رأیِ مدلِ خارجی: اکثریتِ {pred['agree_pct']}٪ مسیرها برخلاف طرح می‌روند "
+                                      f"({band_fa}) — در کورومِ ارتقایافته این اعتراضِ سخت است؛ "
+                                      "تا حلِ تضاد، معامله ممنوع."
+                                      if promoted else
+                                      f"اکثریتِ {pred['agree_pct']}٪ مسیرهای شاهد برخلاف سیگنالِ چارت می‌روند "
+                                      f"({band_fa}) — در حالتِ سایه حکم را عوض نمی‌کند، ولی ثبت می‌شود "
+                                      "تا آمارِ دروازه‌ی ۲۰۰ جلسه‌ای واقعی بماند.")})
     if plan.get("status") == "active" and plan.get("stop"):
         stop = float(plan["stop"])
         if pred["p5"] is not None and not (pred["p5"] <= stop <= pred["p95"]):
             checks.append({"target": "کرونوس", "about": "حدضرر در برابر باندِ احتمالاتی",
-                           "verdict": "هشدار", "shadow": True,
+                           "verdict": "هشدار", "shadow": not promoted,
                            "reason": f"حدضررِ تو ({stop:,.4f}) داخلِ {band_fa} نیست — "
                                      "یعنی سناریویِ مسیرها حدضرر را با احتمالِ بیش از ۵٪ می‌بیند؛ "
-                                     "فقط هشدارِ ثبت‌شده، نه وتو."})
+                                     + ("هشدارِ ثبت‌شده — رأیِ کرونوس جهتِ مسیر است، نه حدضرر." if promoted
+                                        else "فقط هشدارِ ثبت‌شده، نه وتو.")})
     return checks
 
 

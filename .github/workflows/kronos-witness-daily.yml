@@ -39,10 +39,14 @@ jobs:
           python -m pip install --upgrade pip --quiet
           pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
           pip install --quiet -r requirements.txt
-          pip install --quiet einops huggingface_hub
+          # زنجیره‌ی لودِ مدلِ کرونوس: einops/hf_hub/safetensors/tqdm در requirementsِ پروژه نیستند
+          pip install --quiet einops huggingface_hub safetensors tqdm
 
       - name: کلونِ مخزنِ رسمیِ کرونوس
         run: git clone --depth 1 https://github.com/shiyu-coder/Kronos "$HOME/Kronos"
+
+      - name: پیش‌پرواز — چکِ زنجیره‌ی import مدل (خطای گویا به‌جای fallbackِ خاموش)
+        run: cd "$HOME/Kronos" && python -c "import torch, einops, huggingface_hub, safetensors, tqdm; from model import Kronos, KronosTokenizer, KronosPredictor; print('زنجیره‌ی مدل سالم است — torch', torch.__version__)"
 
       - name: جلسه‌ی روزانه‌ی شاهد — مدلِ واقعی روی کندلِ زنده (سه تایم‌فریم)
         env:
@@ -58,7 +62,8 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git pull --rebase origin main || true
+          # اول add/commitِ تغییراتِ محلی (دفترِ دروازه)، بعد rebase روی origin، بعد push
           git add core/data/kronos_log.jsonl
           git diff --cached --quiet || git commit -m "🔮 کرونوس: جلساتِ paperِ امروز در دفترِ دروازه ثبت شد (workflow روزانه)"
+          git pull --rebase origin main || echo "⚠️ rebase نشد — رانِ بعدی دوباره تلاش می‌کند"
           git push origin main || echo "⚠️ پوش نشد — فردا دوباره تلاش می‌شود؛ دفتر در رانِ بعدی commit می‌شود"

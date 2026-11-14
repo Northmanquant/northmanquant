@@ -233,7 +233,9 @@ def witness(d: pd.DataFrame, dec: int, backend: str | None = None,
         try:
             paths = _kronos_paths(d, c, interval)
         except Exception as exc:  # noqa: BLE001 — مدل نبود/شبکه نبود → آفلاینِ صادق
-            note = f"بارگیریِ مدلِ واقعی شکست خورد ({type(exc).__name__}) — به شبیه‌سازِ آفلاین برگشتم؛ این خروجی کرونوس نیست."
+            # پیامِ خطا در لاگِ عملیات باید خودگویا باشد (مثلاً «safetensors نصب نیست»)
+            why = f"{type(exc).__name__}: {exc}"[:140]
+            note = f"بارگیریِ مدلِ واقعی شکست خورد ({why}) — به شبیه‌سازِ آفلاین برگشتم؛ این خروجی کرونوس نیست."
             c["backend"] = "offline"
             paths = None
     if paths is None:

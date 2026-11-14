@@ -38,7 +38,9 @@ def step(title: str) -> None:
 def check_deps(install: bool) -> None:
     step("۱/۴ وابستگی‌ها")
     missing: list[str] = []
-    for mod in ("torch", "einops", "huggingface_hub"):
+    # safetensors و tqdm هم لازم‌اند: وزن‌های HF با فرمتِ safetensors می‌آیند و
+    # در requirementsِ خودِ پروژه نیستند — نبودشان فقط موقعِ لودِ وزن لو می‌رود
+    for mod in ("torch", "einops", "huggingface_hub", "safetensors", "tqdm"):
         try:
             __import__(mod)
             print(f"  ✅ {mod}")

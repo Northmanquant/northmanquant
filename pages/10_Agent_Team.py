@@ -17,7 +17,7 @@ import streamlit as st
 
 from core import team_room as TR
 from core import kronos_witness as KW
-from core.exchanges import EXCHANGES_ALL as EXCHANGES   # رجیستریِ رسمی — هر ۸ صرافی
+from core.exchanges import EXCHANGES_ALL   # رجیستریِ رسمی — تک‌منبعِ حقیقتِ صرافی‌ها
 from core.help import hint
 from core.i18n import setup_i18n
 
@@ -35,7 +35,7 @@ hint("هر عامل مسئولیتِ خودش را دارد و همیشه «مد
 # ----------------------------------------------------------------- کنترل‌ها
 QUICK = {"BTC": "BTC-USDT", "ETH": "ETH-USDT", "SOL": "SOL-USDT", "XRP": "XRP-USDT",
          "DOGE": "DOGE-USDT", "AVAX": "AVAX-USDT", "LINK": "LINK-USDT", "TON": "TON-USDT"}
-EXCHANGES = ["OKX", "KuCoin"]
+EXCHANGES = list(EXCHANGES_ALL)   # هر ۸ صرافی از رجیستری — لیستِ محلیِ ممنوع (سایه نمی‌زند)
 
 c1, c2, c3, c4 = st.columns([1.0, 1.6, 1.0, 1.4])
 with c1:

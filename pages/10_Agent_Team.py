@@ -17,6 +17,7 @@ import streamlit as st
 
 from core import team_room as TR
 from core import kronos_witness as KW
+from core.exchanges import EXCHANGES_ALL as EXCHANGES   # رجیستریِ رسمی — هر ۸ صرافی
 from core.help import hint
 from core.i18n import setup_i18n
 

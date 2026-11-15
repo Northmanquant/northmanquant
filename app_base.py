@@ -11,6 +11,10 @@ NorthmanQuant — Free Lite Edition (Streamlit)
     Binance  · https://developers.binance.com/docs/binance-spot-api-docs
     Bybit    · https://bybit-exchange.github.io/docs/v5/market/kline
     Lighter  · https://apidocs.lighter.xyz  (perp DEX — /api/v1/candles)
+    KCEX     · https://api.kcex.com  (تیکر/فهرستِ بومی؛ کندل از مسیر فال‌بکِ venueهای دیگر)
+    XT/LBank · از مسیر CCXT (fetch_ohlcv)
+
+فهرستِ رسمی و کاملِ صرافی‌ها: core/exchanges/__init__.py — هر بخشِ جدید باید همه را پوشش بدهد.
 
 اجرا محلی:  streamlit run app.py
 """
@@ -37,6 +41,7 @@ from core.net import get_json
 from core import signal_qc as SQ
 from core import trade_guard as _guard
 from core import trade_log as _tlog
+from core.exchanges import NATIVE_EXCHANGES, EXCHANGES_ALL as _REGISTRY_ALL
 
 KUCOIN = "https://api.kucoin.com"
 BINANCE = "https://api.binance.com"
@@ -78,7 +83,16 @@ OKX_TF = {"1min": "1m", "3min": "3m", "5min": "5m", "15min": "15m", "30min": "30
 LIGHTER_TF = {"1min": "1m", "5min": "5m", "15min": "15m", "30min": "30m", "1hour": "1h",
               "2hour": "2h", "4hour": "4h", "6hour": "6h", "12hour": "12h", "1day": "1d", "1week": "1w"}
 
-EXCHANGES = ["KuCoin", "OKX", "Binance", "Bybit", "Lighter"]
+# صرافی‌های بومیِ fetch + فهرستِ کاملِ UI — تک‌منبعِ حقیقت: core/exchanges/__init__.py
+EXCHANGES = list(NATIVE_EXCHANGES)
+EXCHANGES_ALL = list(_REGISTRY_ALL)
+
+def _fx(v) -> float:
+    """پارسِ امنِ عددی پاسخِ صرافی‌ها (فیلدهای None/رشته‌ی خراب → 0.0)."""
+    try:
+        return float(v or 0)
+    except (TypeError, ValueError):
+        return 0.0
 
 # Extra exchanges accessible through CCXT (100+ venues, public data, no keys).
 # Users can also type ANY ccxt exchange id (e.g. "kraken", "gate", "htx").
@@ -94,6 +108,7 @@ EXCHANGE_DOCS = {
     "Binance": "https://developers.binance.com/docs/binance-spot-api-docs/rest-api/market-data-endpoints",
     "Bybit": "https://bybit-exchange.github.io/docs/v5/market/kline",
     "Lighter": "https://apidocs.lighter.xyz/reference/candles",
+    "KCEX": "https://api.kcex.com",
     "XT": "https://doc.xt.com/",
     "LBank": "https://www.lbank.com/en-US/docs/index.html",
 }
@@ -541,6 +556,31 @@ def _fetch_tick_one(exchange: str, symbol: str) -> dict | None:
             except Exception:
                 pass
             return {"price": price or mark, "bid": bid, "ask": ask, "mark": mark}
+        if exchange == "KCEX":
+            # دو شکلِ اندپوینت (همان الگوی pages/1_Live_Prices) — از ابر/دیتاسنتر ممکن است ۴۰۳ بدهد
+            for url, params in [("https://api.kcex.com/api/v1/ticker", {"symbol": symbol}),
+                                ("https://api.kcex.com/api/v1/market/ticker", {"symbol": symbol.replace("-", "")})]:
+                j = get_json(url, params=params, headers=HEADERS, timeout=8)
+                d = j.get("data", j) if isinstance(j, dict) else {}
+                if isinstance(d, list) and d:
+                    d = d[0]
+                if not isinstance(d, dict):
+                    continue
+                last = _fx(d.get("last")) or _fx(d.get("lastPrice")) or _fx(d.get("price"))
+                bid, ask = _fx(d.get("buy")) or _fx(d.get("bid")), _fx(d.get("sell")) or _fx(d.get("ask"))
+                price = (bid + ask) / 2 if bid > 0 and ask > 0 else last
+                if price:
+                    return {"price": price, "bid": bid, "ask": ask}
+            return None
+        if exchange in ("XT", "LBank"):
+            # تیکِ سبک از مسیر CCXT (کلاینتِ عمومی، بدونِ کلید)
+            import ccxt
+            client = getattr(ccxt, _ccxt_id(exchange))({"enableRateLimit": True, "timeout": 15000})
+            tk = client.fetch_ticker(symbol.replace("-", "/")) or {}
+            last, bid, ask = _fx(tk.get("last")), _fx(tk.get("bid")), _fx(tk.get("ask"))
+            if last or (bid > 0 and ask > 0):
+                return {"price": last or (bid + ask) / 2, "bid": bid, "ask": ask}
+            return None
         j = get_json(f"{KUCOIN}/api/v1/market/orderbook/level1", params={"symbol": symbol}, headers=HEADERS, timeout=6)
         data = j.get("data") or {}
         return {"price": float(data["price"]), "bid": float(data.get("bestBid") or 0), "ask": float(data.get("bestAsk") or 0)}
@@ -558,9 +598,9 @@ def fetch_tick(exchange: str, symbol: str) -> dict | None:
     t = _fetch_tick_one(exchange, symbol)
     if t and t.get("price"):
         return t
-    if exchange in EXCHANGES:
+    if exchange in EXCHANGES_ALL:
         sym_alt = symbol if "-" in symbol else f"{symbol}-USDT"
-        for alt in EXCHANGES:
+        for alt in EXCHANGES_ALL:
             if alt == exchange:
                 continue
             t = _fetch_tick_one(alt, sym_alt)
@@ -1641,6 +1681,57 @@ def fetch_top_coins(exchange: str = "KuCoin", min_turnover: float = 1_000_000, l
                 "high": float(t.get("high24h") or 0),
                 "low": float(t.get("low24h") or 0),
                 "turnoverM$": turnover / 1e6,
+            })
+    elif exchange == "KCEX":
+        # تیکرهای همه‌ی بازار — دو شکلِ اندپوینت؛ از ابر/دیتاسنتر ممکن است ۴۰۳ بدهد
+        j_list = None
+        for url in ["https://api.kcex.com/api/v1/market/tickers", "https://api.kcex.com/api/v1/tickers"]:
+            try:
+                r = get_json(url, headers=HEADERS, timeout=15)
+                d = r.get("data", r) if isinstance(r, dict) else r
+                if isinstance(d, list) and d:
+                    j_list = d
+                    break
+            except Exception:  # noqa: BLE001 — شکلِ بعدی
+                continue
+        for t in (j_list or []):
+            if not isinstance(t, dict):
+                continue
+            sym = str(t.get("symbol", "")).upper().replace("/", "-")
+            if "USDT" not in sym:
+                continue
+            if "-" not in sym:
+                sym = sym.replace("USDT", "-USDT")
+            last = _fx(t.get("last")) or _fx(t.get("lastPrice")) or _fx(t.get("price"))
+            if last <= 0:
+                continue
+            high = _fx(t.get("high")) or _fx(t.get("highPrice")) or _fx(t.get("high24h"))
+            low = _fx(t.get("low")) or _fx(t.get("lowPrice")) or _fx(t.get("low24h"))
+            turnover = _fx(t.get("quoteVolume")) or _fx(t.get("vol")) or _fx(t.get("volume")) or _fx(t.get("turnover"))
+            change = _fx(t.get("changeRate")) or _fx(t.get("changePercent")) or _fx(t.get("change"))
+            if change == 0.0:      # اگر فیلدِ تغییر نبود، از open محاسبه کن
+                open24 = _fx(t.get("open")) or _fx(t.get("openPrice")) or _fx(t.get("open24h"))
+                change = ((last - open24) / open24 * 100) if open24 and last else 0.0
+            rows.append({"symbol": sym, "price": last, "change%": change,
+                         "high": high, "low": low, "turnoverM$": turnover / 1e6})
+    elif exchange in ("XT", "LBank"):
+        # فهرستِ کاملِ تیکرها از مسیر CCXT — عمومی، بدونِ کلید
+        import ccxt
+        client = getattr(ccxt, _ccxt_id(exchange))({"enableRateLimit": True, "timeout": 25000})
+        mk = client.load_markets()
+        usdt_pairs = [s for s in mk if s.endswith("/USDT")]
+        tk = client.fetch_tickers(usdt_pairs) or {}
+        for key, t in tk.items():
+            last = _fx((t or {}).get("last"))
+            if last <= 0 or not str(key).endswith("/USDT"):
+                continue
+            rows.append({
+                "symbol": str(key).replace("/", "-"),
+                "price": last,
+                "change%": _fx((t or {}).get("percentage")),
+                "high": _fx((t or {}).get("high")),
+                "low": _fx((t or {}).get("low")),
+                "turnoverM$": _fx((t or {}).get("quoteVolume")) / 1e6,
             })
     else:  # KuCoin
         j = get_json(f"{KUCOIN}/api/v1/market/allTickers", headers=HEADERS, timeout=25)
@@ -3383,7 +3474,7 @@ def main() -> None:
         with st.expander("🏦 بازار و نماد", expanded=True):
             symbol_in = st.text_input("نماد", value="BTC-USDT",
                                       help="مثل BTC-USDT یا gramusdt · برای Lighter فقط BTC")
-            exch_choice = st.selectbox("صرافی", EXCHANGES + ["XT", "LBank"] + ["➕ صرافی دیگر (CCXT)"])
+            exch_choice = st.selectbox("صرافی", EXCHANGES_ALL + ["➕ صرافی دیگر (CCXT)"])
             if exch_choice.startswith("➕"):
                 custom_ex = st.text_input(
                     "نام یا شناسه‌ی صرافی", value="Kraken",
@@ -3852,7 +3943,7 @@ def main() -> None:
                     ca_symbol = st.text_input("نماد ارز *", value="BTC-USDT", max_chars=20,
                                               help="مثل BTC-USDT، ETH، SOL")
                 with r1c3:
-                    ca_exchange = st.selectbox("صرافی", EXCHANGES + ["XT", "LBank", "سایر"], index=0)
+                    ca_exchange = st.selectbox("صرافی", EXCHANGES_ALL + ["سایر"], index=0)
 
                 r2c1, r2c2, r2c3, r2c4 = st.columns(4)
                 with r2c1:
@@ -3939,7 +4030,9 @@ def main() -> None:
                 img_symbol_in = st.text_input("نماد برای تصویر", value=symbol_in, key="img_symbol",
                                               help="مثل BTC، ETH، SOL … · برای Lighter فقط نماد پایه")
             with ic2:
-                img_exchange = st.selectbox("صرافی", EXCHANGES, index=EXCHANGES.index(exchange), key="img_exchange")
+                img_exchange = st.selectbox("صرافی", EXCHANGES_ALL,
+                                            index=EXCHANGES_ALL.index(exchange) if exchange in EXCHANGES_ALL else 0,
+                                            key="img_exchange")
             with ic3:
                 img_interval = st.selectbox("تایم‌فریم", list(INTERVAL_MINUTES.keys()),
                                             index=list(INTERVAL_MINUTES.keys()).index(interval), key="img_interval")
@@ -4120,6 +4213,8 @@ def main() -> None:
              "مستندات": EXCHANGE_DOCS["Bybit"]},
             {"صرافی": "Lighter", "نوع": "Perp (DEX)", "کندل": "/api/v1/candles", "تیکر": "/api/v1/orderBookDetails + /api/v1/orderBookOrders",
              "مستندات": EXCHANGE_DOCS["Lighter"]},
+            {"صرافی": "KCEX", "نوع": "Spot (API عمومی)", "کندل": "— (فال‌بک به venueهای دیگر)", "تیکر": "/api/v1/ticker · /api/v1/market/tickers",
+             "مستندات": EXCHANGE_DOCS["KCEX"]},
             {"صرافی": "XT", "نوع": "Spot (CCXT)", "کندل": "CCXT · fetch_ohlcv", "تیکر": "CCXT · fetch_ticker",
              "مستندات": EXCHANGE_DOCS["XT"]},
             {"صرافی": "LBank", "نوع": "Spot (CCXT)", "کندل": "CCXT · fetch_ohlcv", "تیکر": "CCXT · fetch_ticker",
@@ -4133,6 +4228,7 @@ def main() -> None:
 - Bybit و OKX لیست کندل را از جدید به قدیم می‌دهند؛ کد قبل از استفاده مرتب‌سازی می‌کند.
 - Lighter حداکثر ۵۰۰ کندل در هر درخواست می‌دهد و مقادیر صفر را از پاسخ حذف می‌کند (در کد با مقدار پیش‌فرض هندل شده).
 - Lighter مارکت‌ها «perp» هستند (مثل BTC بدون پسوند USDT) و `market_id` از اندپوینت `orderBookDetails` resolve می‌شود — هیچ شناسه‌ای هاردکد نیست.
+- KCEX از سرورهای ابری/دیتاسنتر معمولاً ۴۰۳ می‌دهد (روی اجرای محلی سالم است)؛ کندلِ KCEX اندپوینتِ عمومیِ تأییدشده ندارد و از مسیر فال‌بکِ venueهای دیگر می‌رود.
 - اگر یک صرافی در منطقه‌ات مسدود باشد، کد به‌ترتیب بقیه‌ی صرافی‌ها fallback می‌کند.
 """
         )

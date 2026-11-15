@@ -377,6 +377,31 @@ def live_price(exchange: str, symbol: str) -> Optional[float]:
         px, _chg = lighter_ticker(symbol)
         if px:
             return px
+    if "bybit" in ex:                        # تیکرِ بومیِ بای‌بیت — سبک و بدونِ کلید
+        try:
+            from core.net import get_json as _gj  # noqa: PLC0415
+            j = _gj(f"https://api.bybit.com/v5/market/tickers?category=spot&symbol={base}USDT",
+                    timeout=8, retries=0)
+            row = (((j or {}).get("result") or {}).get("list") or [{}])[0]
+            if row.get("lastPrice"):
+                return float(row["lastPrice"])
+        except Exception:  # noqa: BLE001 — فال‌بک به ترتیبِ عمومی
+            pass
+    if "kcex" in ex:                         # تیکرِ بومیِ KCEX — از ابر/دیتاسنتر ممکن است ۴۰۳ بدهد
+        try:
+            from core.net import get_json as _gj  # noqa: PLC0415
+            for url, symf in [("https://api.kcex.com/api/v1/ticker", sym),
+                              ("https://api.kcex.com/api/v1/market/ticker", base + "USDT")]:
+                j = _gj(url, params={"symbol": symf}, timeout=8, retries=0)
+                d = (j or {}).get("data", j) if isinstance(j, dict) else {}
+                if isinstance(d, list) and d:
+                    d = d[0]
+                if isinstance(d, dict):
+                    px = d.get("last") or d.get("lastPrice") or d.get("price")
+                    if px:
+                        return float(px)
+        except Exception:  # noqa: BLE001 — فال‌بک به ترتیبِ عمومی
+            pass
     if "binance" in ex:
         order = [bn, ku, okx]
     elif "okx" in ex:
@@ -416,6 +441,24 @@ def price_info(exchange: str, symbol: str) -> Optional[dict]:
         if px:
             return {"price": px, "change_pct": chg}
     from core.net import get_json  # noqa: PLC0415
+    base = sym.split("-")[0]
+    if "bybit" in ex:                        # آمار ۲۴سِ بای‌بیت (درصدِ تغییر آماده دارد)
+        try:
+            j = get_json(f"https://api.bybit.com/v5/market/tickers?category=spot&symbol={base}USDT",
+                         timeout=8, retries=0)
+            row = (((j or {}).get("result") or {}).get("list") or [{}])[0]
+            if row.get("lastPrice"):
+                chg = None
+                try:
+                    chg = float(row.get("price24hPcnt")) * 100.0 if row.get("price24hPcnt") else None
+                except (TypeError, ValueError):
+                    chg = None
+                return {"price": float(row["lastPrice"]), "change_pct": chg}
+        except Exception:  # noqa: BLE001 — فال‌بک
+            pass
+    if "kcex" in ex:                         # KCEX آمارِ ۲۴سِ تأییدشده ندارد — فقط تیکرِ بومی
+        p = live_price(exchange, symbol)
+        return {"price": p, "change_pct": None} if p else None
     if "kucoin" in ex or not ex:
         try:
             j = get_json(f"https://api.kucoin.com/api/v1/market/stats?symbol={sym}",

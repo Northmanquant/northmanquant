@@ -41,10 +41,11 @@ from core import edge as EG  # noqa: E402
 from core import xlsx_export as XE  # noqa: E402
 from core import arena_store  # noqa: E402
 from core import crypto_candles as CC  # noqa: E402
+from core.exchanges import EXCHANGES_ALL  # noqa: E402 — رجیستریِ رسمیِ صرافی‌ها
 from core.tv_chart import build_tv_chart_html  # noqa: E402
 from core.webview import iframe_html  # noqa: E402
 
-EXCHANGES = ["KuCoin", "OKX", "Binance", "Bybit", "Lighter", "XT", "LBank", "KCEX"]
+EXCHANGES = list(EXCHANGES_ALL)   # تک‌منبعِ حقیقت: core/exchanges/__init__.py
 _store = arena_store.get_store()
 
 # فاز ۵ — حکم‌های لبه از بازپخش چندپنجره‌ای: فقط حکمِ تازه گیت می‌شود، کهنه فقط نمایش داده می‌شود

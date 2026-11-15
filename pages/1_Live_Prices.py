@@ -9,6 +9,7 @@ import streamlit as st
 
 from core.webview import iframe_html
 from core.crypto_candles import candles_bundle, decimals_for as crypto_decimals
+from core.exchanges import EXCHANGES_ALL
 from core.help import hint
 from core.i18n import setup_i18n, tr
 from core.tv_chart import build_tv_chart_html
@@ -60,7 +61,7 @@ st.title("📊 قیمت‌های زنده بازار")
 hint(tr("اول صرافی رو انتخاب کن، بعد ارز رو سرچ کن — مقایسه KuCoin + Binance + Bybit + OKX + Lighter",
         "Pick an exchange, search a coin — compare KuCoin + Binance + Bybit + OKX + Lighter"))
 
-EXCHANGES = ["KuCoin", "OKX", "Binance", "Bybit", "Lighter", "XT", "LBank", "KCEX"]
+EXCHANGES = list(EXCHANGES_ALL)   # رجیستریِ رسمی core/exchanges — همان ۸ صرافی
 COMPARE_EX = ["KuCoin", "Binance", "Bybit", "OKX", "Lighter"]   # KCEX از ابر/دیتاسنتر کلاً ۴۰۳ می‌دهد — حذف شد
 HEADERS = {"User-Agent": "northmanquant-lite/1.0", "accept": "application/json"}
 

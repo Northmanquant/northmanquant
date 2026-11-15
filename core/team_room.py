@@ -464,6 +464,10 @@ def investigate(exchange: str = EXCHANGE_DEFAULT, symbol: str = "BTC-USDT",
                 capital: float = 1000.0, risk_pct: float = 1.0,
                 with_witness: bool = True) -> dict:
     """یک جلسه‌ی کاملِ اتاقِ تیم روی یک ارز — fail-soft: هیچ‌وقت exception بالا نمی‌دهد."""
+    try:
+        symbol = nq.normalize_symbol(symbol, exchange)   # لایتر: BTC-USDT → BTC؛ بقیه: جفتِ کامل
+    except Exception:  # noqa: BLE001 — نرمال‌سازی نباید جلسه را بیندازد
+        pass
     out: dict = {"exchange": exchange, "symbol": symbol, "interval": interval,
                  "ts": ts or datetime.now(TEHRAN).strftime("%Y-%m-%d %H:%M"), "ok": False}
     try:

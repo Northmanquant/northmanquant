@@ -35,6 +35,8 @@ import time
 import traceback
 from datetime import datetime, timezone
 
+from core.exchanges import EXCHANGES_ALL   # فهرستِ رسمیِ صرافی‌ها (تک‌منبعِ حقیقت)
+
 # ------------------------------------------------------------------ پیکربندی
 EXCHANGE = os.environ.get("ARENA_EXCHANGE", "Lighter").strip()
 INTERVAL = os.environ.get("ARENA_INTERVAL", "1hour").strip()
@@ -47,8 +49,8 @@ def _validate() -> list[str]:
     """ورودی‌های محیطی را زودتر از همه اعتبارسنجی می‌کند تا اجرای بی‌فایده رخ ندهد."""
     errs: list[str] = []
     from core import arena as A  # noqa: PLC0415 — داخل تابع تا خطای ایمپورت خوانا بماند
-    if EXCHANGE not in ("KuCoin", "OKX", "Binance", "Bybit", "Lighter", "XT", "LBank", "KCEX"):
-        errs.append(f"ARENA_EXCHANGE نامعتبر: {EXCHANGE}")
+    if EXCHANGE not in EXCHANGES_ALL:
+        errs.append(f"ARENA_EXCHANGE نامعتبر: {EXCHANGE} (مجاز: {', '.join(EXCHANGES_ALL)})")
     if INTERVAL not in A.INTERVAL_MIN:
         errs.append(f"ARENA_INTERVAL نامعتبر: {INTERVAL} (مجاز: {', '.join(A.INTERVAL_MIN)})")
     if APPETITE not in A.APPETITES:

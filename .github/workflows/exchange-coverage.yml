@@ -19,7 +19,7 @@ on:
   workflow_dispatch: {}    # اجرای دستی برای تست
   push:                    # اجرا فقط وقتی خودِ جاب یا اسکریپتِ آن عوض شد — تغییرِ core/data شلیک نمی‌کند
     branches: [main]
-    paths: [".github/workflows/exchange-coverage.yml", "scripts/exchange_coverage.py"]
+    paths: [".github/workflows/exchange-coverage.yml", "scripts/exchange_coverage.py", "scripts/test_exchange_registry.py"]
 
 permissions:
   contents: write          # برای commit کردنِ snapshot و تاریخچه

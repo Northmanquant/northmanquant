@@ -109,11 +109,22 @@ def main() -> int:
 
     # --- ممیزیِ کل مخزن
     violations: list[tuple[str, str, list, list]] = []
+    unparseable: list[str] = []
     for path in _files():
         rel = os.path.relpath(path, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         with open(path, "r", encoding="utf-8") as fh:
-            tree = ast.parse(fh.read())
+            try:
+                tree = ast.parse(fh.read())
+            except SyntaxError as e:
+                # فایلی که با پایتونِ همین فرایند parse نمی‌شود (مثلاً f-stringِ
+                # ۳.۱۲-خواه روی رانرِ ۳.۱۱) — میدانِ نگهبانِ رجیستری نیست؛
+                # هشدار و ادامه، نه crashِ کل ممیزی.
+                unparseable.append(f"{rel} :: SyntaxError روی خطِ {e.lineno}")
+                continue
         violations.extend((rel, n, v, m) for (rp, n, v, m) in violations_in(tree, rel))
+
+    for w in unparseable:
+        print(f"⚠️ parse نشد — فراتر از حیطه‌ی نگهبانِ رجیستری: {w}")
 
     if violations:
         print(f"FAIL — {len(violations)} لیستِ صرافیِ ناقصِ هاردکد پیدا شد:")
@@ -122,7 +133,7 @@ def main() -> int:
         print("قاعده: هر بخش باید از core.exchanges.EXCHANGES_ALL بخواند — لیستِ محلیِ ممنوع.")
         return 1
 
-    print(f"PASS — هیچ لیستِ ناقصی نیست؛ رجیستریِ رسمی: {', '.join(REGISTRY)}")
+    print(f"PASS — هیچ لیستِ ناقصی نیست؛ رجیستریِ رسمی: {', '.join(REGISTRY)} (python {sys.version.split()[0]})")
     return 0
 
 

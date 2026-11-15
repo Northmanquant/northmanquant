@@ -236,7 +236,8 @@ with t_scam:
         for tip in res["tips"]:
             st.markdown(f"- {tip}")
     st.divider()
-    st.markdown(f"**🚩 {tr('الگوهای رایج کلاهبرداری «سودِ آسان»', 'Common \"easy profit\" scam patterns')}**")
+    _scam_title = tr('الگوهای رایج کلاهبرداری «سودِ آسان»', 'Common "easy profit" scam patterns')
+    st.markdown(f"**🚩 {_scam_title}**")
     for flag in _L(
         [
             "«سود روزانه‌ی ثابت» که برای برداشت، کارمزد فعال‌سازی می‌خواهد — سودِ روی صفحه فقط طعمه است.",

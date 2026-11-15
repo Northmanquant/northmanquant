@@ -179,6 +179,19 @@ def t8_broken_fetcher_never_raises():
         assert res.get("ok") is True and res["graded"] == 0, res
 
 
+def t9_grade_without_price_uses_candle_fallback():
+    with tempfile.TemporaryDirectory() as td:
+        row = _krow(side=1)
+        row.pop("price")  # دفترِ فعلیِ کرونوس قیمت ذخیره نمی‌کند
+        led = _ledger(td, [row])
+        out = os.path.join(td, "out.jsonl")
+        fetch = _fetcher({"BTC-USDT": [100.0, 101.0, 102.0, 103.5, 104.0]})
+        res = PG.grade_pending("kronos", led, out, fetcher=fetch, horizon=3)
+        assert res.get("ok") and res["graded"] == 1, res
+        rec = json.loads(open(out, encoding="utf-8").read().strip())
+        assert rec["price_at"] == 100.0 and rec["hit"] is True, rec
+
+
 if __name__ == "__main__":
     print("== آزمونِ گرِیدرِ پیامد ==")
     check("صفِ در انتظار — تفکیکِ موتور و حذفِ بی‌ادعا", t1_pending_split_and_exclusion)
@@ -189,5 +202,6 @@ if __name__ == "__main__":
     check("آمار — نرخِ واقعی و تفکیکِ تایم‌فریم", t6_stats_rate_and_by_interval)
     check("مسیرِ نبیه — فیلدِ sideِ خودش", t7_nabigha_engine_path)
     check("fetcherِ خراب → هرگز exception نمی‌دهد", t8_broken_fetcher_never_raises)
+    check("بدونِ قیمت در دفتر → برداشت از کندلِ قبلِ جلسه", t9_grade_without_price_uses_candle_fallback)
     print(f"\nنتیجه: {ok} سبز · {fail} قرمز")
     sys.exit(1 if fail else 0)

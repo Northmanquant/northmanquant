@@ -114,6 +114,26 @@ def _pick_forward(df, horizon_end_ms: int):
     return None
 
 
+def _pick_at_or_before(df, t_ms: int):
+    """نزدیک‌ترین کندلِ قبل یا هم‌زمانِ جلسه → قیمتِ لحظه‌ی پیش‌بینی.
+
+    دفترِ فعلیِ کرونوس فیلدِ price ذخیره نمی‌کند — برداشت از خودِ کندل‌ها
+    همان جلسه را قابلِ نمره‌دادن می‌کند (فقط برای دفترهای غنی‌تر لازم نیست).
+    """
+    if df is None or len(df) == 0 or "close" not in df.columns or "time" not in df.columns:
+        return None
+    times = df["time"].astype("int64")
+    idx = None
+    for i, t in enumerate(times):
+        if int(t) <= t_ms:
+            idx = i
+        else:
+            break
+    if idx is None:
+        return None
+    return float(df["close"].iloc[idx])
+
+
 def grade_pending(engine: str, ledger_path: str | None = None,
                   outcomes_file: str | None = None, fetcher=None,
                   horizon: int = 3, deadband: float = 0.0005,
@@ -154,6 +174,8 @@ def grade_pending(engine: str, ledger_path: str | None = None,
                         continue  # تاریخچه هنوز به افق نرسیده — رانِ بعدی
                     price_after, t_after = pick
                     price_at = e.get("price")
+                    if not isinstance(price_at, (int, float)) or price_at <= 0:
+                        price_at = _pick_at_or_before(df, t_ms)
                     if not isinstance(price_at, (int, float)) or price_at <= 0:
                         skipped += 1
                         continue

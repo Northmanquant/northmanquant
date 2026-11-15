@@ -13,7 +13,7 @@
 - core/data/exchange_coverage_log.jsonl  ← یک سطر به‌ازای هر ران (تاریخچه)
 - جدولِ فارسی در stdout برای لاگِ Actions
 
-exit: 0 اگر حداقلِ نیمی از venueها سالم‌اند · 1 اگر همه مرده‌اند (خرابیِ زیرساخت).
+exit: 0 اگر حداقلِ یک venue سالم است · 1 اگر همه مرده‌اند (خرابیِ زیرساخت).
 """
 from __future__ import annotations
 
@@ -28,11 +28,7 @@ sys.path.insert(0, ROOT)
 
 TEHRAN = timezone(timedelta(hours=3, minutes=30))
 SYMBOL = "BTC-USDT"
-# نمادِ کاوشِ هر venue — لایتر پرپ است و نمادِ پایه بدونِ USDT می‌خواهد (core/lighter.normalize)
-PROBE_SYMBOLS = {"Lighter": "BTC"}
-# KCEX نه در CCXT هست و نه اندپوینتِ عمومیِ کندلش تأیید شده (مستندِ خودِ رجیستری)؛
-# اپِ نبیغه کندلِ آن را از فال‌بکِ venueهای دیگر می‌چسبد — پوشش آن را «رله» ثبت می‌کند.
-RELAY_VENUES = {"KCEX"}
+# نمادِ کاوش و فهرستِ رله از خودِ رجیستری می‌آید — تک‌منبعِ حقیقت (PROBE_SYMBOLS / RELAY_EXCHANGES)
 INTERVAL = "1hour"
 LIMIT = 50
 FRESH_MAX_AGE_MIN = 120          # کندلِ یک‌ساعته بالای ۲ ساعت = کهنه
@@ -45,7 +41,11 @@ def main() -> int:
         _fetch_tick_one,
         fetch_top_coins,
     )
-    from core.exchanges import EXCHANGES_ALL  # noqa: E402
+    from core.exchanges import (  # noqa: E402
+        EXCHANGES_ALL,
+        PROBE_SYMBOLS,
+        RELAY_EXCHANGES,
+    )
 
     now = datetime.now(timezone.utc)
     venues: list[dict] = []
@@ -63,10 +63,9 @@ def main() -> int:
             row.update(tick_ok=price is not None, price=price, tick_ms=ms)
         except Exception as e:  # noqa: BLE001 — گزارشِ پوشش باید هر خرابی را ببلعد
             row.update(tick_ok=False, price=None, tick_ms=int((time.perf_counter() - t0) * 1000), tick_err=str(e)[:80])
-        # ۲) کندلِ تک‌ونکیته (بومی یا CCXT — بدونِ فال‌بک)
+        # ۲) کندلِ تک‌ونکیته (بومی یا CCXT — بدونِ فال‌بک) · رله‌ها بدونِ کاوش ثبت می‌شوند
         c0 = time.perf_counter()
-        path = "ccxt" if ex in CCXT_VENUES else "native"
-        if ex in RELAY_VENUES:
+        if ex in RELAY_EXCHANGES:
             row.update(candles_ok=False, candle_rows=0, candle_age_min=None, candle_fresh=False,
                        candle_path="relay",
                        candle_note="مسیرِ مستقل ندارد — اپ کندل را از فال‌بکِ venueهای دیگر می‌چسبد (مستندِ رجیستری)")

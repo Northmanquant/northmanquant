@@ -16,7 +16,7 @@ on:
   workflow_dispatch: {}    # اجرای دستی برای تست
   push:                    # اجرا فقط وقتی جاب یا اسکریپت‌هایش عوض شد — تغییرِ core/data شلیک نمی‌کند
     branches: [main]
-    paths: [".github/workflows/nabigha-witness-daily.yml", "scripts/nabigha_session.py", "scripts/paper_grade.py"]
+    paths: [".github/workflows/nabigha-witness-daily.yml", "scripts/nabigha_session.py", "scripts/paper_grade.py", "scripts/kronos_nabigha_report.py"]
 
 permissions:
   contents: write          # برای commit کردنِ دفتر و پیامدها
@@ -53,11 +53,14 @@ jobs:
       - name: گرِیدرِ پیامد — نمره‌دادن به پیش‌بینی‌های بالغِ کرونوس و نبیه
         run: python scripts/paper_grade.py --engine all --horizon 3
 
+      - name: قاضیِ کرونوس ↔ نبیه — گزارشِ مقایسه با هر روزِ داده پخته‌تر می‌شود
+        run: python scripts/kronos_nabigha_report.py
+
       - name: ثبتِ دفتر و پیامدها در مخزن
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add core/data/
-          git diff --cached --quiet || git commit -m "🧭 نبیه: جلساتِ paperِ امروز + نمره‌ی پیامدها ثبت شد (workflow روزانه)"
+          git diff --cached --quiet || git commit -m "🧭 نبیه: جلساتِ paperِ امروز + نمره‌ی پیامدها + قاضیِ ک↔ن ثبت شد (workflow روزانه)"
           git pull --rebase origin main || echo "⚠️ rebase نشد — رانِ بعدی دوباره تلاش می‌کند"
           git push origin main || echo "⚠️ پوش نشد — فردا دوباره تلاش می‌شود؛ دفتر در رانِ بعدی commit می‌شود"

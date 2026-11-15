@@ -17,5 +17,17 @@ EXTRA_EXCHANGES = ["KCEX", "XT", "LBank"]
 # فهرستِ کاملِ UI — تنها لیستی که selectboxها مجازند نمایش بدهند
 EXCHANGES_ALL = NATIVE_EXCHANGES + EXTRA_EXCHANGES
 
+# صرافی‌های «رله» — کندلِ مسیرِ مستقل ندارند و اپ کندل‌شان را از فال‌بکِ
+# venueهای دیگر می‌چسبد. تأییدِ زنده با جابِ پوشش (۱۴۰۴/۰۸/۲۴): KCEX نه در
+# CCXT پشتیبانی می‌شود و نه اندپوینتِ عمومیِ کندل دارد؛ تیکش هم از sandbox و
+# رانرِ گوگل بی‌صدا None می‌دهد. در UI صادقانه «رله» لیبل بخورند، نه سبزِ قلابی.
+RELAY_EXCHANGES = ["KCEX"]
+
+# نمادِ کاوشِ هر venue در جابِ پوششِ اجرایی — لایتر پرپ است و نمادِ پایهٔ
+# بدونِ USDT می‌خواهد (core/lighter.normalize: «BTC-USDT» → «BTC»)؛ بقیهِ
+# venueها BTC-USDT می‌خواهند.
+PROBE_SYMBOLS = {"Lighter": "BTC"}
+
 __all__ = ["BaseExchange", "KCEXExchange",
-           "NATIVE_EXCHANGES", "EXTRA_EXCHANGES", "EXCHANGES_ALL"]
+           "NATIVE_EXCHANGES", "EXTRA_EXCHANGES", "EXCHANGES_ALL",
+           "RELAY_EXCHANGES", "PROBE_SYMBOLS"]

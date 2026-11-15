@@ -1,10 +1,15 @@
-# شاهدِ نبیه — جلسه‌ی روزانه‌ی paper برای دروازه‌ی موتورِ بومی — NorthmanQuant
+# شاهدِ نبیه — جلسه‌های paper برای دروازه‌ی موتورِ بومی — NorthmanQuant
 # هم‌شکلِ جابِ کرونوس، ولی بدونِ torch و بدونِ وزنِ خارجی: موتورِ نبیه
 # تماماً محلی است — همین requirementsِ پروژه کافی است و رانِ سبک می‌ماند.
 #
 # سه تایم‌فریمِ همان کرونوس تا مقایسه‌ی منصفانه باشد (1hour/4hour/1day)،
 # بعد از جلسات، گرِیدرِ پیامدِ مشترک هر دو دفتر را نمره می‌دهد تا
-# hit-rateِ واقعیِ بازار کنارِ هم‌جهتیِ چارت، روزانه جمع شود.
+# hit-rateِ واقعیِ بازار کنارِ هم‌جهتیِ چارت جمع شود.
+#
+# کادانسِ هر ۳ ساعت: ستاپ‌های چارت فقط در «آستانه‌ی شکل‌گیری» (۲ کندلِ آخر)
+# فعال می‌شوند و با چرخشِ روزانه، دروازه‌ی ۲۰۰ سیگنال‌دار ماه‌ها طول
+# می‌کشید؛ ۸ نوبت در روز آستانه‌ها را می‌شکارَد و نقشه‌ی نشاط
+# (nabigha_signal_sweep) نمادهایِ زنده را به --hot می‌دهد.
 #
 # اگر روزی لازم نشد: تب Actions → Nabigha Witness Daily → ⋯ → Disable workflow
 
@@ -12,11 +17,11 @@ name: Nabigha Witness Daily
 
 on:
   schedule:
-    - cron: "20 6 * * *"   # ۰۹:۵۰ تهران — بعد از جابِ کرونوس (۰۹:۳۰)
+    - cron: "50 */3 * * *"  # هر ۳ ساعت — شکارِ آستانه‌ی ستاپ‌ها برای دروازه
   workflow_dispatch: {}    # اجرای دستی برای تست
   push:                    # اجرا فقط وقتی جاب یا اسکریپت‌هایش عوض شد — تغییرِ core/data شلیک نمی‌کند
     branches: [main]
-    paths: [".github/workflows/nabigha-witness-daily.yml", "scripts/nabigha_session.py", "scripts/paper_grade.py", "scripts/kronos_nabigha_report.py"]
+    paths: [".github/workflows/nabigha-witness-daily.yml", "scripts/nabigha_session.py", "scripts/paper_grade.py", "scripts/kronos_nabigha_report.py", "scripts/nabigha_signal_sweep.py"]
 
 permissions:
   contents: write          # برای commit کردنِ دفتر و پیامدها
@@ -44,11 +49,14 @@ jobs:
       - name: پیش‌پرواز — چکِ سلامتِ موتور
         run: python scripts/test_nabigha_engine.py
 
-      - name: جلسه‌ی روزانه‌ی نبیه — همان کندل‌ها به اتاق و موتور (سه تایم‌فریم)
+      - name: نقشه‌ی نشاط — کدام نماد×تایم‌فریم چارت‌شان زنده است؟
+        run: python scripts/nabigha_signal_sweep.py
+
+      - name: جلسه‌ی نبیه — اولِ داغ‌هایِ نقشه، بعدِ چرخش (سه تایم‌فریم)
         run: |
-          python scripts/nabigha_session.py --rotate 3 --interval 1hour
-          python scripts/nabigha_session.py --rotate 3 --interval 4hour
-          python scripts/nabigha_session.py --rotate 2 --interval 1day
+          python scripts/nabigha_session.py --rotate 3 --hot 2 --interval 1hour
+          python scripts/nabigha_session.py --rotate 3 --hot 2 --interval 4hour
+          python scripts/nabigha_session.py --rotate 2 --hot 2 --interval 1day
 
       - name: گرِیدرِ پیامد — نمره‌دادن به پیش‌بینی‌های بالغِ کرونوس و نبیه
         run: python scripts/paper_grade.py --engine all --horizon 3

@@ -20,6 +20,7 @@ exit همیشه 0 — جابِ Actions هرگز قرمز نمی‌شود؛ خط�
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 
@@ -36,6 +37,36 @@ def rotate(day: int, n: int) -> list[str]:
     n = max(1, min(int(n), len(CANDIDATES)))
     start = int(day) % len(CANDIDATES)
     return [CANDIDATES[(start + i) % len(CANDIDATES)] for i in range(n)]
+
+
+def hot_picks(interval: str, n: int, fresh_h: float = 4.0) -> list[str]:
+    """نمادهایِ زنده از نقشه‌ی نشاط (scripts/nabigha_signal_sweep.py).
+
+    نقشه فقط اگر تازه‌تر از fresh_h ساعت باشد خوانده می‌شود؛ اولِ خانه‌هایِ
+    فعالِ همین تایم‌فریم، بعدِ سایر تایم‌فریم‌ها. نقشه‌ی نبود/کهنه/خراب = []
+    — یعنی فال‌بکِ امن به چرخشِ تقویمی، نه شکستِ جلسه.
+    """
+    if n <= 0:
+        return []
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "core", "data", "nabigha_signal_map.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            m = json.load(f)
+        from datetime import datetime, timedelta, timezone
+        TEH = timezone(timedelta(hours=3, minutes=30))
+        ts = datetime.fromisoformat(m["ts_tehran"])
+        if (datetime.now(TEH) - ts).total_seconds() / 3600 > fresh_h:
+            return []
+        act = [c["symbol"] for c in m.get("combos", [])
+               if c.get("active") and c.get("interval") == interval]
+        if len(act) < n:
+            act += [c["symbol"] for c in m.get("combos", [])
+                    if c.get("active") and c.get("interval") != interval
+                    and c["symbol"] not in act]
+        return act[:n]
+    except Exception:  # noqa: BLE001 — نبودِ نقشه هرگز جلسه را نمی‌بُرد
+        return []
 
 
 def _load_env_file() -> None:
@@ -106,6 +137,8 @@ def main() -> None:
     ap.add_argument("--interval", default=TR.INTERVAL_DEFAULT, choices=TR.INTERVALS)
     ap.add_argument("--exchange", default=TR.EXCHANGE_DEFAULT)
     ap.add_argument("--rotate", type=int, default=6, help="تعدادِ نمادِ چرخشیِ روزانه")
+    ap.add_argument("--hot", type=int, default=0,
+                    help="N نمادِ اول از نقشه‌ی نشاطِ تازه (<4h) — باقی از چرخشِ تقویمی")
     ap.add_argument("--limit", type=int, default=400, help="تعدادِ کندلِ زمینه")
     ap.add_argument("--engine-only", action="store_true",
                     help="بدونِ اجرای اتاقِ تیم — فقط پیش‌بینی و ثبتِ نبیه (سریع)")
@@ -117,7 +150,16 @@ def main() -> None:
         symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
     else:
         from datetime import datetime
-        symbols = rotate(datetime.now().timetuple().tm_yday, args.rotate)
+        # اولِ داغ‌هایِ نقشه‌ی نشاط، بعدِ چرخشِ تقویمی تا سقفِ --rotate —
+        # جلسه‌ی بی‌سیگنال روی نمادِ سرد برای دروازه هدررفت است
+        symbols = hot_picks(args.interval, args.hot)
+        seen = set(symbols)
+        for s in rotate(datetime.now().timetuple().tm_yday, args.rotate):
+            if len(symbols) >= args.rotate:
+                break
+            if s not in seen:
+                symbols.append(s)
+                seen.add(s)
 
     print(f"== نبیه — جلسه‌ی سایه ==\nتایم‌فریم: {args.interval} · صرافی: {args.exchange} · "
           f"دفتر: {log}{' · حالتِ engine-only' if args.engine_only else ''}")

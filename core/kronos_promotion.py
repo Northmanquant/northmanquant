@@ -230,3 +230,73 @@ def archive_log(dest: Optional[str] = None, path: Optional[str] = None) -> dict:
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "archived": False, "dest": dest,
                 "error": f"{type(exc).__name__}: {exc}"}
+
+
+# ---- روزِ حکم: ثبتِ تاریخِ اجرای قرارداد (فازِ پنجِ کرونوس) ----------------
+# «وضعیت» همچنان زنده از دفتر خوانده می‌شود؛ این فایل وضعیت نیست — تاریخِ
+# «روزِ حکم» (اولین گذر از موعد) است؛ مثلِ آرشیو، سابقه است نه پرچم. هیچ
+# فایلی نمی‌تواند خلافِ قرارداد را نگه دارد، چون حکم همیشه دوباره از دفترِ
+# دروازه مشتق می‌شود و این سابقه فقط «کِی و با چه آماری اجرا شد» را نگه می‌دارد.
+
+def record_path() -> str:
+    """مسیرِ سابقه‌ی روزِ حکم — کنارِ دفترِ دروازه، در core/data/."""
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(root, "core", "data", "kronos_verdict_record.json")
+
+
+def verdict_record(path: Optional[str] = None) -> dict:
+    """خواندنِ سابقه‌ی روزِ حکم — fail-soft؛ نبودش یعنی هنوز روزِ حکم نداشته‌ایم."""
+    p = path or record_path()
+    try:
+        if not os.path.isfile(p):
+            return {"ok": True, "exists": False, "path": p}
+        with open(p, encoding="utf-8") as f:
+            rec = json.load(f)
+        return {"ok": True, "exists": True, "path": p, "record": rec}
+    except Exception as exc:  # noqa: BLE001 — خواندنِ سابقه هرگز وضعیت را نمی‌بَرد
+        return {"ok": False, "exists": False, "path": p,
+                "error": f"{type(exc).__name__}: {exc}"}
+
+
+def record_verdict(gate: Optional[dict] = None,
+                   path: Optional[str] = None,
+                   now: Optional[datetime] = None) -> dict:
+    """ثبتِ «روزِ حکم» — فقط اولین گذر از موعد ثبت می‌شود؛ idempotent.
+
+    ورودیِ gate خروجیِ kronos_witness.gate_stats() است (یا دیکته‌ی هم‌شکل
+    برای آزمون). تا verdict == continue هیچ فایلی نوشته نمی‌شود.
+    """
+    try:
+        if gate is None:
+            from core import kronos_witness as KW
+            gate = KW.gate_stats()
+        st = state(gate)
+        if st["verdict"] == "continue":
+            return {"ok": True, "recorded": False,
+                    "why_fa": "موعدِ حکم نرسیده — ثبتی ندارد"}
+        p = path or record_path()
+        if os.path.isfile(p):
+            return {"ok": True, "recorded": False, "path": p,
+                    "why_fa": "روزِ حکم از قبل ثبت است — idempotent"}
+        real = (gate.get("real") or {}) if gate.get("ok") else {}
+        now = now or datetime.now(_TEHRAN)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=_TEHRAN)
+        rec = {
+            "verdict": st["verdict"],
+            "verdict_fa": st["verdict_fa"],
+            "reasons_fa": st["reasons_fa"],
+            "n": real.get("n"),
+            "rate": real.get("rate"),
+            "sessions_threshold": GATE_MIN_SESSIONS,
+            "agree_threshold_pct": GATE_MIN_AGREE_PCT,
+            "contract_locked_at": LOCKED_AT,
+            "ts": now.astimezone(_TEHRAN).isoformat(timespec="seconds"),
+        }
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(rec, f, ensure_ascii=False, indent=2)
+        return {"ok": True, "recorded": True, "path": p, "record": rec}
+    except Exception as exc:  # noqa: BLE001 — ثبتِ سابقه هرگز جلسه را نمی‌بُرد
+        return {"ok": False, "recorded": False,
+                "error": f"{type(exc).__name__}: {exc}"}

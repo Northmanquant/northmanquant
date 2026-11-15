@@ -23,6 +23,19 @@ from core import kronos_promotion as KP  # noqa: E402
 from core import kronos_witness as KW  # noqa: E402
 
 
+def _record_report(gate: dict, path: str | None = None) -> str:
+    """ثبتِ سابقه‌ی روزِ حکم (فازِ پنج) — متنِ نتیجه برای چاپ؛ هرگز exception نمی‌دهد."""
+    try:
+        rec = KP.record_verdict(gate=gate, path=path)
+        if rec.get("recorded"):
+            return f"🗓️ سابقه‌ی روزِ حکم ثبت شد: {rec.get('path')}"
+        if rec.get("ok"):
+            return f"🗓️ سابقه‌ی روزِ حکم: {rec.get('why_fa', 'از قبل هست — idempotent')}"
+        return f"⚠️ ثبتِ سابقه نشد: {rec.get('error')}"
+    except Exception as exc:  # noqa: BLE001
+        return f"⚠️ ثبتِ سابقه نشد: {type(exc).__name__}: {exc}"
+
+
 def main() -> int:
     print(KP.CONTRACT_FA)
     print("─" * 50)
@@ -51,6 +64,8 @@ def main() -> int:
         print("🔮 ارتقا فعال است — عضوِ هفتم (مدلِ خارجی، رأیِ ±۱) خودکار در کوروم می‌شمارد.")
         print("   چون وضعیت زنده از دفتر خوانده می‌شود، هیچ پرچمی برای خاموش/روشن کردن نیست؛")
         print("   اگر خواستی فازِ ارتقا را تعطیل کنی، باید قرارداد را بازنویسی کنی — نه پرچم بزنی.")
+    if st["verdict"] != "continue":
+        print(_record_report(gate))
     else:
         print("⏳ هنوز موعدِ حکم نیست — جمع‌آوری ادامه دارد (جاب‌های روزانه/هفتگی).")
     return 0

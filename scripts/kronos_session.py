@@ -29,6 +29,7 @@ os.environ.setdefault("STREAMLIT_SERVER_HEADLESS", "true")
 
 from core import team_room as TR  # noqa: E402
 from core import kronos_witness as KW  # noqa: E402
+from core import kronos_promotion as KP  # noqa: E402 — اجرای قرارداد در پایانِ بچ
 from core.team_daily import CANDIDATES  # noqa: E402 — یک منبعِ حقیقت برای چرخش
 
 
@@ -92,6 +93,63 @@ def _load_env_file() -> None:
         pass
 
 
+def check_verdict(gate: dict | None = None,
+                  record_path: str | None = None,
+                  archive_ledger: str | None = None,
+                  out=None) -> dict:
+    """اجرای خودکارِ قراردادِ پیش‌ثبت‌شده در پایانِ هر بچ — «روزِ حکم» بدونِ دخالتِ دست.
+
+    فازِ پنجِ کرونوس: تا حالا حکم فقط با اجرای دستیِ scripts/kronos_verdict.py
+    اعلام می‌شد؛ اگر بچی (روزانه یا شتاب‌دهنده‌ی هفتگی) دروازه را رد می‌کرد،
+    روزِ حکم بی‌صدا می‌گذشت. حالا:
+
+      • continue (موعد نرسیده) → سکوتِ کامل: هیچ خروجی، هیچ فایل
+      • گذر از موعد → بنرِ قرارداد + ثبتِ idempotentِ سابقه‌ی روزِ حکم
+        + در بازنشستگی، آرشیوِ دفتر (کپی، نه پاک‌کاری)
+
+    fail-soft: هر خطا فقط در خروجی چاپ می‌شود؛ exit همیشه 0 می‌ماند. وضعیت
+    همچنان زنده از دفتر می‌آید — سابقه تاریخ است، نه پرچم.
+    """
+    out = out or (lambda *a: print(*a))
+    try:
+        st = KP.state(gate)
+        if st["verdict"] == "continue":
+            return {"executed": False, "verdict": "continue"}
+        rec = KP.verdict_record(record_path)
+        if rec.get("exists"):
+            out(f"⚖️ روزِ حکم قبلاً اجرا شده "
+                f"({(rec.get('record') or {}).get('ts', '—')}) — وضعیتِ زنده: {st['verdict_fa']}")
+        else:
+            out("═" * 50)
+            out(KP.CONTRACT_FA)
+            out(f"⚖️ روزِ حکم رسید: {st['verdict_fa']}")
+            for r in st["reasons_fa"]:
+                out(f"  • {r}")
+        res = KP.record_verdict(gate=gate, path=record_path)
+        if res.get("recorded"):
+            out(f"🗓️ سابقه‌ی روزِ حکم ثبت شد: {res.get('path')}")
+        elif res.get("ok"):
+            out("🗓️ سابقه‌ی روزِ حکم: از قبل هست — idempotent")
+        else:
+            out(f"⚠️ ثبتِ سابقه نشد: {res.get('error')}")
+        archived = False
+        if st["verdict"] == "retire":
+            ar = KP.archive_log(path=archive_ledger) if archive_ledger else KP.archive_log()
+            archived = bool(ar.get("archived"))
+            if ar.get("archived"):
+                out(f"🗄️ دفتر آرشیو شد: {ar.get('dest')} ({ar.get('n_rows')} سطر) — کپی، نه پاک‌کاری")
+            elif ar.get("ok"):
+                out("🗄️ آرشیو از قبل هست — idempotent")
+            else:
+                out(f"⚠️ آرشیو نشد: {ar.get('error')}")
+        return {"executed": True, "verdict": st["verdict"],
+                "recorded": bool(res.get("recorded")), "archived": archived}
+    except Exception as exc:  # noqa: BLE001 — اجرای حکم بچ را نمی‌بُرد
+        out(f"⚠️ اجرای حکم با خطا گذشت: {type(exc).__name__}: {exc}")
+        return {"executed": False, "verdict": "unknown",
+                "error": f"{type(exc).__name__}: {exc}"}
+
+
 def main() -> None:
     _load_env_file()
     ap = argparse.ArgumentParser(description="جلسه‌گیرِ paper شاهدِ کرونوس")
@@ -150,6 +208,7 @@ def main() -> None:
         print(f"مدلِ واقعی: {real.get('n')}/۲۰۰ جلسه · هم‌جهتیِ {real.get('rate', '—')}٪ (دروازه: ≥۵۵٪)")
         print(f"شبیه‌ساز: {stub.get('n')} جلسه · هم‌جهتیِ {stub.get('rate', '—')}٪ (تمرینِ لوله‌کشی)")
         print(f"وضعیت: {g.get('gate_fa')}")
+    check_verdict(g, archive_ledger=log)
     print("== پایان — exit 0 ==")
 
 

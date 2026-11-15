@@ -60,7 +60,8 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add core/data/kronos_log.jsonl
+          # دفترِ دروازه + سابقه/آرشیوِ روزِ حکم با هم commit می‌شوند (فازِ پنج)
+          git add core/data/
           git diff --cached --quiet || git commit -m "🔮 کرونوس: بچِ تقویتیِ هفتگی در دفترِ دروازه ثبت شد (۳۶ جلسه)"
           git pull --rebase origin main || echo "⚠️ rebase نشد — رانِ بعدی دوباره تلاش می‌کند"
           git push origin main || echo "⚠️ پوش نشد — هفته‌ی بعد دوباره تلاش می‌شود"

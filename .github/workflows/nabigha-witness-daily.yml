@@ -21,7 +21,7 @@ on:
   workflow_dispatch: {}    # اجرای دستی برای تست
   push:                    # اجرا فقط وقتی جاب یا اسکریپت‌هایش عوض شد — تغییرِ core/data شلیک نمی‌کند
     branches: [main]
-    paths: [".github/workflows/nabigha-witness-daily.yml", "scripts/nabigha_session.py", "scripts/paper_grade.py", "scripts/kronos_nabigha_report.py", "scripts/nabigha_signal_sweep.py"]
+    paths: [".github/workflows/nabigha-witness-daily.yml", "scripts/nabigha_session.py", "scripts/paper_grade.py", "scripts/kronos_nabigha_report.py", "scripts/nabigha_signal_sweep.py", "core/signal_map.py"]
 
 permissions:
   contents: write          # برای commit کردنِ دفتر و پیامدها

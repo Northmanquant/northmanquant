@@ -1,8 +1,15 @@
-# شاهدِ کرونوس — جلسه‌ی روزانه‌ی paper برای دروازه‌ی فازِ یک — NorthmanQuant
+# شاهدِ کرونوس — جلسه‌ی paper برای دروازه‌ی فازِ یک — NorthmanQuant
 # نقشه‌ی جدول ۴ گزارشِ کرونوس: دروازه‌ی خروجِ فازِ یک = «هم‌جهتیِ >۵۵٪ روی
-# ۲۰۰ جلسه‌ی paper-trade» با مدلِ واقعی. این جاب هر روز یک جلسه‌ی کاملِ
-# اتاقِ تیم + شاهدِ مدلِ واقعی (Kronos-mini از مخزنِ رسمی) روی ۶ ارزِ در
-# چرخش می‌گیرد و دفترِ core/data/kronos_log.jsonl را در همین مخزن commit می‌کند.
+# ۲۰۰ جلسه‌ی paper-trade» با مدلِ واقعی. این جاب روی کندلِ زنده، جلسه‌ی
+# کاملِ اتاقِ تیم + شاهدِ مدلِ واقعی (Kronos-mini از مخزنِ رسمی) می‌گیرد و
+# دفترِ core/data/kronos_log.jsonl را در همین مخزن commit می‌کند.
+#
+# کادانسِ هر ۳ ساعت (هم‌ریتمِ جابِ نبیه): ستاپ‌های چارت فقط در «آستانه‌ی
+# شکل‌گیری» (۲ کندلِ آخر) فعال می‌شوند و با چرخشِ روزانه، دروازه‌ی ۲۰۰
+# سیگنال‌دار ماه‌ها طول می‌کشید؛ ۸ نوبتِ شکار در روز + چیدمانِ داغِ
+# --hot (از نقشه‌ی نشاطِ مشترکِ core/signal_map که جابِ نبیه — سبک‌تر و
+# بدونِ torch — هر سه ساعت می‌سازد و commit می‌کند) همان را درمان کرد.
+# اگر نقشه کهنه/غایب بود، فال‌بکِ امن به چرخشِ تقویمی.
 #
 # هزینه: CPU-only (بدونِ GPU) — وابستگیِ سنگینِ فقطِ torch است؛ مدلِ mini
 # فقط ~۱۶ مگابایت است و وزنش از HF Hub دانلود می‌شود.
@@ -13,8 +20,11 @@ name: Kronos Witness Daily
 
 on:
   schedule:
-    - cron: "0 6 * * *"    # ۰۹:۳۰ تهران (UTC+3:30) — قبل از جلسه‌ی ۱۴:۰۰ اتاقِ تیم
+    - cron: "0 */3 * * *"  # هر ۳ ساعت — نیم‌ساعت قبل از جابِ نبیه (نقشه‌ی تازه مصرف می‌کند)
   workflow_dispatch: {}    # اجرای دستی برای تست
+  push:                    # اجرا فقط وقتی جاب یا اسکریپت‌هایش عوض شد — تغییرِ core/data شلیک نمی‌کند
+    branches: [main]
+    paths: [".github/workflows/kronos-witness-daily.yml", "scripts/kronos_session.py", "core/signal_map.py"]
 
 permissions:
   contents: write          # برای commit کردنِ دفترِ دروازه
@@ -48,15 +58,15 @@ jobs:
       - name: پیش‌پرواز — چکِ زنجیره‌ی import مدل (خطای گویا به‌جای fallbackِ خاموش)
         run: cd "$HOME/Kronos" && python -c "import torch, einops, huggingface_hub, safetensors, tqdm; from model import Kronos, KronosTokenizer, KronosPredictor; print('زنجیره‌ی مدل سالم است — torch', torch.__version__)"
 
-      - name: جلسه‌ی روزانه‌ی شاهد — مدلِ واقعی روی کندلِ زنده (سه تایم‌فریم)
+      - name: جلسه‌ی شاهد — اولِ داغ‌هایِ نقشه‌ی نشاط، بعدِ چرخش (سه تایم‌فریم)
         env:
           KRONOS_BACKEND: kronos
           KRONOS_REPO: /home/runner/Kronos
           HF_HOME: /home/runner/hf
         run: |
-          python scripts/kronos_session.py --rotate 3 --interval 1hour
-          python scripts/kronos_session.py --rotate 3 --interval 4hour
-          python scripts/kronos_session.py --rotate 2 --interval 1day
+          python scripts/kronos_session.py --rotate 3 --hot 2 --interval 1hour
+          python scripts/kronos_session.py --rotate 3 --hot 2 --interval 4hour
+          python scripts/kronos_session.py --rotate 2 --hot 2 --interval 1day
 
       - name: ثبتِ دفترِ دروازه در مخزن
         run: |

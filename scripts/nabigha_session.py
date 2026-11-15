@@ -20,7 +20,6 @@ exit همیشه 0 — جابِ Actions هرگز قرمز نمی‌شود؛ خط�
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
 
@@ -30,6 +29,7 @@ os.environ.setdefault("STREAMLIT_SERVER_HEADLESS", "true")
 from core import nabigha_engine as NE  # noqa: E402
 from core import kronos_witness as KW  # noqa: E402 — فقط برای log_path/INTERVALS سازگار
 from core.team_daily import CANDIDATES  # noqa: E402 — یک منبعِ حقیقت برای چرخش
+from core.signal_map import hot_picks  # noqa: E402 — قالبِ مشترکِ نقشه‌ی نشاط (کرونوس هم می‌خواند)
 
 
 def rotate(day: int, n: int) -> list[str]:
@@ -37,36 +37,6 @@ def rotate(day: int, n: int) -> list[str]:
     n = max(1, min(int(n), len(CANDIDATES)))
     start = int(day) % len(CANDIDATES)
     return [CANDIDATES[(start + i) % len(CANDIDATES)] for i in range(n)]
-
-
-def hot_picks(interval: str, n: int, fresh_h: float = 4.0) -> list[str]:
-    """نمادهایِ زنده از نقشه‌ی نشاط (scripts/nabigha_signal_sweep.py).
-
-    نقشه فقط اگر تازه‌تر از fresh_h ساعت باشد خوانده می‌شود؛ اولِ خانه‌هایِ
-    فعالِ همین تایم‌فریم، بعدِ سایر تایم‌فریم‌ها. نقشه‌ی نبود/کهنه/خراب = []
-    — یعنی فال‌بکِ امن به چرخشِ تقویمی، نه شکستِ جلسه.
-    """
-    if n <= 0:
-        return []
-    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                        "core", "data", "nabigha_signal_map.json")
-    try:
-        with open(path, encoding="utf-8") as f:
-            m = json.load(f)
-        from datetime import datetime, timedelta, timezone
-        TEH = timezone(timedelta(hours=3, minutes=30))
-        ts = datetime.fromisoformat(m["ts_tehran"])
-        if (datetime.now(TEH) - ts).total_seconds() / 3600 > fresh_h:
-            return []
-        act = [c["symbol"] for c in m.get("combos", [])
-               if c.get("active") and c.get("interval") == interval]
-        if len(act) < n:
-            act += [c["symbol"] for c in m.get("combos", [])
-                    if c.get("active") and c.get("interval") != interval
-                    and c["symbol"] not in act]
-        return act[:n]
-    except Exception:  # noqa: BLE001 — نبودِ نقشه هرگز جلسه را نمی‌بُرد
-        return []
 
 
 def _load_env_file() -> None:

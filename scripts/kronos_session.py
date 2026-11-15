@@ -31,6 +31,7 @@ from core import team_room as TR  # noqa: E402
 from core import kronos_witness as KW  # noqa: E402
 from core import kronos_promotion as KP  # noqa: E402 — اجرای قرارداد در پایانِ بچ
 from core.team_daily import CANDIDATES  # noqa: E402 — یک منبعِ حقیقت برای چرخش
+from core.signal_map import hot_picks  # noqa: E402 — قالبِ مشترکِ نقشه‌ی نشاط (نبیه هم می‌خواند)
 
 
 def rotate(day: int, n: int) -> list[str]:
@@ -158,6 +159,8 @@ def main() -> None:
     ap.add_argument("--exchange", default=TR.EXCHANGE_DEFAULT)
     ap.add_argument("--rotate", type=int, default=6,
                     help="تعدادِ نمادِ چرخشیِ روزانه (وقتی --symbols نداده باشد)")
+    ap.add_argument("--hot", type=int, default=0,
+                    help="N نمادِ اول از نقشه‌ی نشاطِ تازه (<4h) — باقی از چرخشِ تقویمی")
     ap.add_argument("--limit", type=int, default=400, help="تعدادِ کندلِ زمینه")
     ap.add_argument("--offline", action="store_true", help="شبیه‌سازِ آفلاین به‌جای مدلِ واقعی")
     ap.add_argument("--log", help="مسیرِ دفترِ دروازه (پیش‌فرض: core/data/kronos_log.jsonl)")
@@ -189,8 +192,16 @@ def main() -> None:
         symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
     else:
         from datetime import datetime
-        day = datetime.now().timetuple().tm_yday
-        symbols = rotate(day, args.rotate)
+        # اولِ داغ‌هایِ نقشه‌ی نشاط، بعدِ چرخشِ تقویمی تا سقفِ --rotate —
+        # همان درسِ نبیه: جلسه‌ی بی‌سیگنال روی نمادِ سرد برای دروازه هدررفت است
+        symbols = hot_picks(args.interval, args.hot)
+        seen = set(symbols)
+        for s in rotate(datetime.now().timetuple().tm_yday, args.rotate):
+            if len(symbols) >= args.rotate:
+                break
+            if s not in seen:
+                symbols.append(s)
+                seen.add(s)
 
     print(f"== شاهدِ کرونوس — جلسه‌ی paper ==\nپشتیبان: {backend} · تایم‌فریم: {args.interval} · "
           f"صرافی: {args.exchange} · دفتر: {log}")

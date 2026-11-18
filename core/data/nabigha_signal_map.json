@@ -1,13 +1,13 @@
 {
- "ts_utc": "2026-11-18T12:22:11+00:00",
- "ts_tehran": "2026-11-18T15:52:11+03:30",
+ "ts_utc": "2026-11-18T20:57:24+00:00",
+ "ts_tehran": "2026-11-19T00:27:24+03:30",
  "exchange": "OKX",
  "intervals": [
   "1hour",
   "4hour",
   "1day"
  ],
- "active_count": 0,
+ "active_count": 6,
  "total": 90,
  "combos": [
   {
@@ -49,11 +49,11 @@
   {
    "symbol": "ETH-USDT",
    "interval": "4hour",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
+   "active": true,
+   "mode": "fade",
+   "side": 1,
+   "confidence": 53,
+   "why": "ستاپ «برگشت از اشباع» — روی همین نماد/تایم‌فریم: 17 معامله‌ی تست‌شده، TP1 قبل از SL در 53٪"
   },
   {
    "symbol": "ETH-USDT",
@@ -122,19 +122,19 @@
    "symbol": "BNB-USDT",
    "interval": "1hour",
    "active": false,
-   "mode": "",
+   "mode": "fade",
    "side": 0,
    "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
+   "why": "ستاپ «برگشت از اشباع» فعال شده ولی روی همین نماد/تایم‌فریم در تست walk-forward لبه ندارد"
   },
   {
    "symbol": "BNB-USDT",
    "interval": "4hour",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
+   "active": true,
+   "mode": "fade",
+   "side": 1,
+   "confidence": 56,
+   "why": "ستاپ «برگشت از اشباع» — روی همین نماد/تایم‌فریم: 16 معامله‌ی تست‌شده، TP1 قبل از SL در 56٪"
   },
   {
    "symbol": "BNB-USDT",
@@ -211,11 +211,11 @@
   {
    "symbol": "AVAX-USDT",
    "interval": "4hour",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
+   "active": true,
+   "mode": "fade",
+   "side": 1,
+   "confidence": 58,
+   "why": "ستاپ «برگشت از اشباع» — روی همین نماد/تایم‌فریم: 12 معامله‌ی تست‌شده، TP1 قبل از SL در 58٪"
   },
   {
    "symbol": "AVAX-USDT",
@@ -364,11 +364,11 @@
   {
    "symbol": "DOT-USDT",
    "interval": "4hour",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
+   "active": true,
+   "mode": "fade",
+   "side": 1,
+   "confidence": 53,
+   "why": "ستاپ «برگشت از اشباع» — روی همین نماد/تایم‌فریم: 15 معامله‌ی تست‌شده، TP1 قبل از SL در 53٪"
   },
   {
    "symbol": "DOT-USDT",
@@ -461,6 +461,33 @@
    "why": "هیچ ستاپ معتبری فعال نیست"
   },
   {
+   "symbol": "USDC-USDT",
+   "interval": "1hour",
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
+  },
+  {
+   "symbol": "USDC-USDT",
+   "interval": "4hour",
+   "active": true,
+   "mode": "fade",
+   "side": -1,
+   "confidence": 71,
+   "why": "ستاپ «برگشت از اشباع» — روی همین نماد/تایم‌فریم: 7 معامله‌ی تست‌شده، TP1 قبل از SL در 71٪ "
+  },
+  {
+   "symbol": "USDC-USDT",
+   "interval": "1day",
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
+  },
+  {
    "symbol": "ASTER-USDT",
    "interval": "1hour",
    "active": false,
@@ -507,33 +534,6 @@
   },
   {
    "symbol": "PEPE-USDT",
-   "interval": "1day",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
-  },
-  {
-   "symbol": "USDC-USDT",
-   "interval": "1hour",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
-  },
-  {
-   "symbol": "USDC-USDT",
-   "interval": "4hour",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
-  },
-  {
-   "symbol": "USDC-USDT",
    "interval": "1day",
    "active": false,
    "mode": "",
@@ -686,10 +686,10 @@
    "symbol": "AAPLX-USDT",
    "interval": "4hour",
    "active": false,
-   "mode": "pullback",
+   "mode": "",
    "side": 0,
    "confidence": 0,
-   "why": "ستاپ «پولبک در روند» فعال شده ولی روی همین نماد/تایم‌فریم در تست walk-forward لبه ندارد"
+   "why": "هیچ ستاپ معتبری فعال نیست"
   },
   {
    "symbol": "AAPLX-USDT",
@@ -698,60 +698,6 @@
    "why": "کندلِ ناکافی"
   },
   {
-   "symbol": "AAVE-USDT",
-   "interval": "1hour",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
-  },
-  {
-   "symbol": "AAVE-USDT",
-   "interval": "4hour",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
-  },
-  {
-   "symbol": "AAVE-USDT",
-   "interval": "1day",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
-  },
-  {
-   "symbol": "SHIB-USDT",
-   "interval": "1hour",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
-  },
-  {
-   "symbol": "SHIB-USDT",
-   "interval": "4hour",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
-  },
-  {
-   "symbol": "SHIB-USDT",
-   "interval": "1day",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
-  },
-  {
    "symbol": "SEI-USDT",
    "interval": "1hour",
    "active": false,
@@ -779,7 +725,7 @@
    "why": "هیچ ستاپ معتبری فعال نیست"
   },
   {
-   "symbol": "GRAM-USDT",
+   "symbol": "SHIB-USDT",
    "interval": "1hour",
    "active": false,
    "mode": "",
@@ -788,7 +734,34 @@
    "why": "هیچ ستاپ معتبری فعال نیست"
   },
   {
-   "symbol": "GRAM-USDT",
+   "symbol": "SHIB-USDT",
+   "interval": "4hour",
+   "active": true,
+   "mode": "fade",
+   "side": 1,
+   "confidence": 50,
+   "why": "ستاپ «برگشت از اشباع» — روی همین نماد/تایم‌فریم: 14 معامله‌ی تست‌شده، TP1 قبل از SL در 50٪"
+  },
+  {
+   "symbol": "SHIB-USDT",
+   "interval": "1day",
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
+  },
+  {
+   "symbol": "AAVE-USDT",
+   "interval": "1hour",
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
+  },
+  {
+   "symbol": "AAVE-USDT",
    "interval": "4hour",
    "active": false,
    "mode": "",
@@ -797,13 +770,40 @@
    "why": "هیچ ستاپ معتبری فعال نیست"
   },
   {
-   "symbol": "GRAM-USDT",
+   "symbol": "AAVE-USDT",
    "interval": "1day",
    "active": false,
    "mode": "",
    "side": 0,
    "confidence": 0,
    "why": "هیچ ستاپ معتبری فعال نیست"
+  },
+  {
+   "symbol": "MMT-USDT",
+   "interval": "1hour",
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
+  },
+  {
+   "symbol": "MMT-USDT",
+   "interval": "4hour",
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
+  },
+  {
+   "symbol": "MMT-USDT",
+   "interval": "1day",
+   "active": false,
+   "mode": "fade",
+   "side": 0,
+   "confidence": 0,
+   "why": "ستاپ «برگشت از اشباع» فعال شده ولی روی همین نماد/تایم‌فریم در تست walk-forward لبه ندارد"
   }
  ]
 }

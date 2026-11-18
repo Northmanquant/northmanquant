@@ -1,13 +1,13 @@
 {
- "ts_utc": "2026-11-18T01:24:13+00:00",
- "ts_tehran": "2026-11-18T04:54:13+03:30",
+ "ts_utc": "2026-11-18T12:22:11+00:00",
+ "ts_tehran": "2026-11-18T15:52:11+03:30",
  "exchange": "OKX",
  "intervals": [
   "1hour",
   "4hour",
   "1day"
  ],
- "active_count": 2,
+ "active_count": 0,
  "total": 90,
  "combos": [
   {
@@ -121,15 +121,6 @@
   {
    "symbol": "BNB-USDT",
    "interval": "1hour",
-   "active": true,
-   "mode": "pullback",
-   "side": -1,
-   "confidence": 73,
-   "why": "ستاپ «پولبک در روند» — روی همین نماد/تایم‌فریم: 11 معامله‌ی تست‌شده، TP1 قبل از SL در 73٪ "
-  },
-  {
-   "symbol": "BNB-USDT",
-   "interval": "4hour",
    "active": false,
    "mode": "",
    "side": 0,
@@ -138,6 +129,15 @@
   },
   {
    "symbol": "BNB-USDT",
+   "interval": "4hour",
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
+  },
+  {
+   "symbol": "BNB-USDT",
    "interval": "1day",
    "active": false,
    "mode": "",
@@ -311,10 +311,10 @@
    "symbol": "NEAR-USDT",
    "interval": "4hour",
    "active": false,
-   "mode": "pullback",
+   "mode": "",
    "side": 0,
    "confidence": 0,
-   "why": "ستاپ «پولبک در روند» فعال شده ولی روی همین نماد/تایم‌فریم در تست walk-forward لبه ندارد"
+   "why": "هیچ ستاپ معتبری فعال نیست"
   },
   {
    "symbol": "NEAR-USDT",
@@ -380,33 +380,6 @@
    "why": "هیچ ستاپ معتبری فعال نیست"
   },
   {
-   "symbol": "XLM-USDT",
-   "interval": "1hour",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
-  },
-  {
-   "symbol": "XLM-USDT",
-   "interval": "4hour",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
-  },
-  {
-   "symbol": "XLM-USDT",
-   "interval": "1day",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
-  },
-  {
    "symbol": "XMR-USDT",
    "interval": "1hour",
    "active": false,
@@ -434,6 +407,33 @@
    "why": "هیچ ستاپ معتبری فعال نیست"
   },
   {
+   "symbol": "XLM-USDT",
+   "interval": "1hour",
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
+  },
+  {
+   "symbol": "XLM-USDT",
+   "interval": "4hour",
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
+  },
+  {
+   "symbol": "XLM-USDT",
+   "interval": "1day",
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
+  },
+  {
    "symbol": "ZEC-USDT",
    "interval": "1hour",
    "active": false,
@@ -446,10 +446,10 @@
    "symbol": "ZEC-USDT",
    "interval": "4hour",
    "active": false,
-   "mode": "pullback",
+   "mode": "",
    "side": 0,
    "confidence": 0,
-   "why": "ستاپ «پولبک در روند» فعال شده ولی روی همین نماد/تایم‌فریم در تست walk-forward لبه ندارد"
+   "why": "هیچ ستاپ معتبری فعال نیست"
   },
   {
    "symbol": "ZEC-USDT",
@@ -513,6 +513,87 @@
    "side": 0,
    "confidence": 0,
    "why": "هیچ ستاپ معتبری فعال نیست"
+  },
+  {
+   "symbol": "USDC-USDT",
+   "interval": "1hour",
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
+  },
+  {
+   "symbol": "USDC-USDT",
+   "interval": "4hour",
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
+  },
+  {
+   "symbol": "USDC-USDT",
+   "interval": "1day",
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
+  },
+  {
+   "symbol": "TAO-USDT",
+   "interval": "1hour",
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
+  },
+  {
+   "symbol": "TAO-USDT",
+   "interval": "4hour",
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
+  },
+  {
+   "symbol": "TAO-USDT",
+   "interval": "1day",
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
+  },
+  {
+   "symbol": "PIEVERSE-USDT",
+   "interval": "1hour",
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
+  },
+  {
+   "symbol": "PIEVERSE-USDT",
+   "interval": "4hour",
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
+  },
+  {
+   "symbol": "PIEVERSE-USDT",
+   "interval": "1day",
+   "active": false,
+   "mode": "fade",
+   "side": 0,
+   "confidence": 0,
+   "why": "ستاپ «برگشت از اشباع» فعال شده ولی روی همین نماد/تایم‌فریم در تست walk-forward لبه ندارد"
   },
   {
    "symbol": "EVAA-USDT",
@@ -539,7 +620,7 @@
    "why": "کندلِ ناکافی"
   },
   {
-   "symbol": "USDC-USDT",
+   "symbol": "UNI-USDT",
    "interval": "1hour",
    "active": false,
    "mode": "",
@@ -548,229 +629,67 @@
    "why": "هیچ ستاپ معتبری فعال نیست"
   },
   {
-   "symbol": "USDC-USDT",
+   "symbol": "UNI-USDT",
    "interval": "4hour",
-   "active": true,
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
+  },
+  {
+   "symbol": "UNI-USDT",
+   "interval": "1day",
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
+  },
+  {
+   "symbol": "ARB-USDT",
+   "interval": "1hour",
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
+  },
+  {
+   "symbol": "ARB-USDT",
+   "interval": "4hour",
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
+  },
+  {
+   "symbol": "ARB-USDT",
+   "interval": "1day",
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
+  },
+  {
+   "symbol": "AAPLX-USDT",
+   "interval": "1hour",
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
+  },
+  {
+   "symbol": "AAPLX-USDT",
+   "interval": "4hour",
+   "active": false,
    "mode": "pullback",
-   "side": -1,
-   "confidence": 69,
-   "why": "ستاپ «پولبک در روند» — روی همین نماد/تایم‌فریم: 13 معامله‌ی تست‌شده، TP1 قبل از SL در 69٪ "
-  },
-  {
-   "symbol": "USDC-USDT",
-   "interval": "1day",
-   "active": false,
-   "mode": "",
    "side": 0,
    "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
-  },
-  {
-   "symbol": "TAO-USDT",
-   "interval": "1hour",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
-  },
-  {
-   "symbol": "TAO-USDT",
-   "interval": "4hour",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
-  },
-  {
-   "symbol": "TAO-USDT",
-   "interval": "1day",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
-  },
-  {
-   "symbol": "PIEVERSE-USDT",
-   "interval": "1hour",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
-  },
-  {
-   "symbol": "PIEVERSE-USDT",
-   "interval": "4hour",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
-  },
-  {
-   "symbol": "PIEVERSE-USDT",
-   "interval": "1day",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
-  },
-  {
-   "symbol": "UNI-USDT",
-   "interval": "1hour",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
-  },
-  {
-   "symbol": "UNI-USDT",
-   "interval": "4hour",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
-  },
-  {
-   "symbol": "UNI-USDT",
-   "interval": "1day",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
-  },
-  {
-   "symbol": "AAVE-USDT",
-   "interval": "1hour",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
-  },
-  {
-   "symbol": "AAVE-USDT",
-   "interval": "4hour",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
-  },
-  {
-   "symbol": "AAVE-USDT",
-   "interval": "1day",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
-  },
-  {
-   "symbol": "ARB-USDT",
-   "interval": "1hour",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
-  },
-  {
-   "symbol": "ARB-USDT",
-   "interval": "4hour",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
-  },
-  {
-   "symbol": "ARB-USDT",
-   "interval": "1day",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
-  },
-  {
-   "symbol": "ENA-USDT",
-   "interval": "1hour",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
-  },
-  {
-   "symbol": "ENA-USDT",
-   "interval": "4hour",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
-  },
-  {
-   "symbol": "ENA-USDT",
-   "interval": "1day",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
-  },
-  {
-   "symbol": "SHIB-USDT",
-   "interval": "1hour",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
-  },
-  {
-   "symbol": "SHIB-USDT",
-   "interval": "4hour",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
-  },
-  {
-   "symbol": "SHIB-USDT",
-   "interval": "1day",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
-  },
-  {
-   "symbol": "AAPLX-USDT",
-   "interval": "1hour",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
-  },
-  {
-   "symbol": "AAPLX-USDT",
-   "interval": "4hour",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
+   "why": "ستاپ «پولبک در روند» فعال شده ولی روی همین نماد/تایم‌فریم در تست walk-forward لبه ندارد"
   },
   {
    "symbol": "AAPLX-USDT",
@@ -779,6 +698,60 @@
    "why": "کندلِ ناکافی"
   },
   {
+   "symbol": "AAVE-USDT",
+   "interval": "1hour",
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
+  },
+  {
+   "symbol": "AAVE-USDT",
+   "interval": "4hour",
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
+  },
+  {
+   "symbol": "AAVE-USDT",
+   "interval": "1day",
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
+  },
+  {
+   "symbol": "SHIB-USDT",
+   "interval": "1hour",
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
+  },
+  {
+   "symbol": "SHIB-USDT",
+   "interval": "4hour",
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
+  },
+  {
+   "symbol": "SHIB-USDT",
+   "interval": "1day",
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
+  },
+  {
    "symbol": "SEI-USDT",
    "interval": "1hour",
    "active": false,
@@ -798,6 +771,33 @@
   },
   {
    "symbol": "SEI-USDT",
+   "interval": "1day",
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
+  },
+  {
+   "symbol": "GRAM-USDT",
+   "interval": "1hour",
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
+  },
+  {
+   "symbol": "GRAM-USDT",
+   "interval": "4hour",
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
+  },
+  {
+   "symbol": "GRAM-USDT",
    "interval": "1day",
    "active": false,
    "mode": "",

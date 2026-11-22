@@ -1,13 +1,13 @@
 {
- "ts_utc": "2026-11-21T19:52:32+00:00",
- "ts_tehran": "2026-11-21T23:22:32+03:30",
+ "ts_utc": "2026-11-22T01:43:52+00:00",
+ "ts_tehran": "2026-11-22T05:13:52+03:30",
  "exchange": "OKX",
  "intervals": [
   "1hour",
   "4hour",
   "1day"
  ],
- "active_count": 5,
+ "active_count": 0,
  "total": 90,
  "combos": [
   {
@@ -229,11 +229,11 @@
   {
    "symbol": "LINK-USDT",
    "interval": "1hour",
-   "active": true,
-   "mode": "pullback",
-   "side": -1,
-   "confidence": 43,
-   "why": "ستاپ «پولبک در روند» — روی همین نماد/تایم‌فریم: 7 معامله‌ی تست‌شده، TP1 قبل از SL در 43٪ م"
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
   },
   {
    "symbol": "LINK-USDT",
@@ -410,10 +410,10 @@
    "symbol": "ZEC-USDT",
    "interval": "1hour",
    "active": false,
-   "mode": "pullback",
+   "mode": "",
    "side": 0,
    "confidence": 0,
-   "why": "ستاپ «پولبک در روند» فعال شده ولی روی همین نماد/تایم‌فریم در تست walk-forward لبه ندارد"
+   "why": "هیچ ستاپ معتبری فعال نیست"
   },
   {
    "symbol": "ZEC-USDT",
@@ -437,19 +437,19 @@
    "symbol": "USDC-USDT",
    "interval": "1hour",
    "active": false,
-   "mode": "fade",
+   "mode": "",
    "side": 0,
    "confidence": 0,
-   "why": "ستاپ «برگشت از اشباع» فعال شده ولی روی همین نماد/تایم‌فریم در تست walk-forward لبه ندارد"
+   "why": "هیچ ستاپ معتبری فعال نیست"
   },
   {
    "symbol": "USDC-USDT",
    "interval": "4hour",
-   "active": true,
-   "mode": "fade",
-   "side": -1,
-   "confidence": 62,
-   "why": "ستاپ «برگشت از اشباع» — روی همین نماد/تایم‌فریم: 8 معامله‌ی تست‌شده، TP1 قبل از SL در 62٪ "
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
   },
   {
    "symbol": "USDC-USDT",
@@ -464,10 +464,10 @@
    "symbol": "XLM-USDT",
    "interval": "1hour",
    "active": false,
-   "mode": "",
+   "mode": "pullback",
    "side": 0,
    "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
+   "why": "ستاپ «پولبک در روند» فعال شده ولی روی همین نماد/تایم‌فریم در تست walk-forward لبه ندارد"
   },
   {
    "symbol": "XLM-USDT",
@@ -647,33 +647,6 @@
    "why": "کندلِ ناکافی"
   },
   {
-   "symbol": "AAPLX-USDT",
-   "interval": "1hour",
-   "active": true,
-   "mode": "fade",
-   "side": -1,
-   "confidence": 64,
-   "why": "ستاپ «برگشت از اشباع» — روی همین نماد/تایم‌فریم: 11 معامله‌ی تست‌شده، TP1 قبل از SL در 64٪"
-  },
-  {
-   "symbol": "AAPLX-USDT",
-   "interval": "4hour",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
-  },
-  {
-   "symbol": "AAPLX-USDT",
-   "interval": "1day",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "دروازه‌ی کیفیت سیگنال سیگنال را متوقف کرد: تاریخچه خیلی کوتاه است (60 کندل < حداقلِ 90)؛ ("
-  },
-  {
    "symbol": "ARB-USDT",
    "interval": "1hour",
    "active": false,
@@ -699,15 +672,42 @@
    "side": 0,
    "confidence": 0,
    "why": "هیچ ستاپ معتبری فعال نیست"
+  },
+  {
+   "symbol": "AAPLX-USDT",
+   "interval": "1hour",
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
+  },
+  {
+   "symbol": "AAPLX-USDT",
+   "interval": "4hour",
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
+  },
+  {
+   "symbol": "AAPLX-USDT",
+   "interval": "1day",
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "دروازه‌ی کیفیت سیگنال سیگنال را متوقف کرد: تاریخچه خیلی کوتاه است (61 کندل < حداقلِ 90)؛ ("
   },
   {
    "symbol": "SHIB-USDT",
    "interval": "1hour",
-   "active": true,
-   "mode": "pullback",
-   "side": -1,
-   "confidence": 56,
-   "why": "ستاپ «پولبک در روند» — روی همین نماد/تایم‌فریم: 9 معامله‌ی تست‌شده، TP1 قبل از SL در 56٪ م"
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
   },
   {
    "symbol": "SHIB-USDT",
@@ -782,16 +782,16 @@
    "why": "هیچ ستاپ معتبری فعال نیست"
   },
   {
-   "symbol": "TRUMP-USDT",
+   "symbol": "ENA-USDT",
    "interval": "1hour",
-   "active": true,
-   "mode": "pullback",
-   "side": -1,
-   "confidence": 62,
-   "why": "ستاپ «پولبک در روند» — روی همین نماد/تایم‌فریم: 8 معامله‌ی تست‌شده، TP1 قبل از SL در 62٪ م"
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
   },
   {
-   "symbol": "TRUMP-USDT",
+   "symbol": "ENA-USDT",
    "interval": "4hour",
    "active": false,
    "mode": "",
@@ -800,7 +800,7 @@
    "why": "هیچ ستاپ معتبری فعال نیست"
   },
   {
-   "symbol": "TRUMP-USDT",
+   "symbol": "ENA-USDT",
    "interval": "1day",
    "active": false,
    "mode": "",

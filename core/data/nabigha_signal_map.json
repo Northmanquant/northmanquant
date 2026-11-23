@@ -1,6 +1,6 @@
 {
- "ts_utc": "2026-11-22T20:01:30+00:00",
- "ts_tehran": "2026-11-22T23:31:30+03:30",
+ "ts_utc": "2026-11-23T02:03:54+00:00",
+ "ts_tehran": "2026-11-23T05:33:54+03:30",
  "exchange": "OKX",
  "intervals": [
   "1hour",
@@ -458,6 +458,33 @@
    "why": "هیچ ستاپ معتبری فعال نیست"
   },
   {
+   "symbol": "AAPLX-USDT",
+   "interval": "1hour",
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
+  },
+  {
+   "symbol": "AAPLX-USDT",
+   "interval": "4hour",
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
+  },
+  {
+   "symbol": "AAPLX-USDT",
+   "interval": "1day",
+   "active": false,
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "دروازه‌ی کیفیت سیگنال سیگنال را متوقف کرد: تاریخچه خیلی کوتاه است (62 کندل < حداقلِ 90)؛ ("
+  },
+  {
    "symbol": "ZEC-USDT",
    "interval": "1hour",
    "active": false,
@@ -539,33 +566,6 @@
    "why": "هیچ ستاپ معتبری فعال نیست"
   },
   {
-   "symbol": "AAPLX-USDT",
-   "interval": "1hour",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
-  },
-  {
-   "symbol": "AAPLX-USDT",
-   "interval": "4hour",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "هیچ ستاپ معتبری فعال نیست"
-  },
-  {
-   "symbol": "AAPLX-USDT",
-   "interval": "1day",
-   "active": false,
-   "mode": "",
-   "side": 0,
-   "confidence": 0,
-   "why": "دروازه‌ی کیفیت سیگنال سیگنال را متوقف کرد: تاریخچه خیلی کوتاه است (61 کندل < حداقلِ 90)؛ ("
-  },
-  {
    "symbol": "PEPE-USDT",
    "interval": "1hour",
    "active": false,
@@ -614,10 +614,10 @@
    "symbol": "PIEVERSE-USDT",
    "interval": "1day",
    "active": false,
-   "mode": "fade",
+   "mode": "",
    "side": 0,
    "confidence": 0,
-   "why": "ستاپ «برگشت از اشباع» فعال شده ولی روی همین نماد/تایم‌فریم در تست walk-forward لبه ندارد"
+   "why": "هیچ ستاپ معتبری فعال نیست"
   },
   {
    "symbol": "ASTER-USDT",
@@ -701,7 +701,7 @@
    "why": "هیچ ستاپ معتبری فعال نیست"
   },
   {
-   "symbol": "MMT-USDT",
+   "symbol": "ACE-USDT",
    "interval": "1hour",
    "active": false,
    "mode": "",
@@ -710,7 +710,7 @@
    "why": "هیچ ستاپ معتبری فعال نیست"
   },
   {
-   "symbol": "MMT-USDT",
+   "symbol": "ACE-USDT",
    "interval": "4hour",
    "active": false,
    "mode": "",
@@ -719,7 +719,7 @@
    "why": "هیچ ستاپ معتبری فعال نیست"
   },
   {
-   "symbol": "MMT-USDT",
+   "symbol": "ACE-USDT",
    "interval": "1day",
    "active": false,
    "mode": "",
@@ -755,7 +755,7 @@
    "why": "هیچ ستاپ معتبری فعال نیست"
   },
   {
-   "symbol": "IDOL-USDT",
+   "symbol": "MMT-USDT",
    "interval": "1hour",
    "active": false,
    "mode": "",
@@ -764,7 +764,7 @@
    "why": "هیچ ستاپ معتبری فعال نیست"
   },
   {
-   "symbol": "IDOL-USDT",
+   "symbol": "MMT-USDT",
    "interval": "4hour",
    "active": false,
    "mode": "",
@@ -773,13 +773,16 @@
    "why": "هیچ ستاپ معتبری فعال نیست"
   },
   {
-   "symbol": "IDOL-USDT",
+   "symbol": "MMT-USDT",
    "interval": "1day",
    "active": false,
-   "why": "ValueError: کندل کافی برای این نماد/صرافی برنگشت."
+   "mode": "",
+   "side": 0,
+   "confidence": 0,
+   "why": "هیچ ستاپ معتبری فعال نیست"
   },
   {
-   "symbol": "AKE-USDT",
+   "symbol": "TRX-USDT",
    "interval": "1hour",
    "active": false,
    "mode": "",
@@ -788,7 +791,7 @@
    "why": "هیچ ستاپ معتبری فعال نیست"
   },
   {
-   "symbol": "AKE-USDT",
+   "symbol": "TRX-USDT",
    "interval": "4hour",
    "active": false,
    "mode": "",
@@ -797,13 +800,13 @@
    "why": "هیچ ستاپ معتبری فعال نیست"
   },
   {
-   "symbol": "AKE-USDT",
+   "symbol": "TRX-USDT",
    "interval": "1day",
    "active": false,
    "mode": "",
    "side": 0,
    "confidence": 0,
-   "why": "دروازه‌ی کیفیت سیگنال سیگنال را متوقف کرد: ATR بیش از نصفِ قیمت است — فید داده پرشِ نامعقو"
+   "why": "هیچ ستاپ معتبری فعال نیست"
   }
  ]
 }

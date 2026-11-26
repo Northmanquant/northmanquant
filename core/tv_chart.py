@@ -1279,6 +1279,12 @@ ovl.addEventListener('pointerup', e=>{
 });
 window.addEventListener('keydown', e=>{
   if(e.key==='Escape'){ pend=null; measure=null; brush=null; selIdx=-1; drag=null; setTool('cursor'); }
+  /* + و = و - = بزرگ/کوچک‌کردنِ کندل‌ها (وقتی در حال تایپ نیستیم) */
+  const _ae=document.activeElement;
+  if((e.key==='+'||e.key==='='||e.key==='-') && !(_ae && (_ae.tagName==='INPUT' || _ae.tagName==='TEXTAREA'))){
+    e.preventDefault();
+    if(typeof zoomStep==='function') zoomStep(e.key==='-' ? 1.62 : 0.62);
+  }
   /* Delete/Backspace = حذف رسم انتخاب‌شده (وقتی در حال تایپ نیستیم) */
   if((e.key==='Delete' || e.key==='Backspace') && selIdx>=0 && S.tool==='cursor' && !drag){
     const ae=document.activeElement;
@@ -1531,6 +1537,12 @@ document.addEventListener('click', e=>{
 });
 
 /* ---------- دکمه‌های کناری -------------------------------------------- */
+/* زوم ＋/− — بزرگ/کوچک‌کردنِ کندل‌ها؛ لنگر روی لبه‌ی زنده (سبک تریدینگ‌ویو) */
+function zoomStep(f){ const ts=chartMain.timeScale(); const r=ts.getVisibleLogicalRange();
+  if(!r) return; const w=Math.max(8,(r.to-r.from)*f);
+  ts.setVisibleLogicalRange({from:Math.max(0,r.to-w-2), to:r.to+2}); }
+document.getElementById('btnZin').onclick = ()=> zoomStep(0.62);
+document.getElementById('btnZout').onclick = ()=> zoomStep(1.62);
 document.getElementById('btnFit').onclick = ()=>{ const c=CAND(); const n=c.length;
   chartMain.timeScale().setVisibleLogicalRange({from:Math.max(0,n-DATA.initial_bars-2), to:n+4}); };
 document.getElementById('btnNow').onclick = ()=> chartMain.timeScale().scrollToRealTime();
@@ -2181,6 +2193,8 @@ def build_tv_chart_html(*, candles: List[List[Any]], tfs: Dict[str, List[List[An
         + '<button class="tb-btn" id="btnAlert" title="هشدار قیمتی — از منوی ابزارها؛ کلیک روی خط = حذف">🔔</button>'
         + sync_chip +
         '<button class="tb-btn" id="btnLeg" title="لجند">ℹ</button>'
+        '<button class="tb-btn" id="btnZin" title="بزرگ‌نمایی — کندلِ بزرگ‌تر (+ یا چرخِ ماوس به جلو)">＋</button>'
+        '<button class="tb-btn" id="btnZout" title="کوچک‌نمایی — کندلِ کوچک‌تر (− یا چرخِ ماوس به عقب)">－</button>'
         '<button class="tb-btn" id="btnFit" title="بازنشانی نما">⤢</button>'
         '<button class="tb-btn" id="btnNow" title="پرش به کندل آخر">▶▏</button>'
         '<button class="tb-btn" id="btnFull" title="تمام‌صفحه">⛶</button>'

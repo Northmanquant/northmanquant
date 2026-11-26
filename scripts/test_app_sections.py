@@ -40,26 +40,33 @@ labels = [str(s.value) for s in at.subheader]
 print("✓ بخشِ «🎨 چارت خصوصی» رندر شد — تمیز"
       if any("چارتِ خصوصی" in l for l in labels) else f"⚠ subheader پیدا نشد — {labels[:4]}")
 
-# ---- ۳) حالتِ پیش‌فرضِ بخش = تریدینگ‌ویوِ واقعی (ویجتِ رسمی) -------------------
-htmls = [str(e.value) for e in at.html] if hasattr(at, "html") else []
-print("✓ ویجتِ رسمیِ تریدینگ‌ویو در خروجی هست (tv.js)"
-      if any("s3.tradingview.com/tv.js" in h for h in htmls)
-      else "⚠ بلوکِ ویجتِ TV در عناصرِ AppTest قابلِ دید نیست (هشدار — components.html توسط AppTest شمرده نمی‌شود)")
+# ---- ۳) موتورِ یکپارچه: رادیوی «موتورِ چارت» باید حذف شده باشد ----------------
+mode_radio = next((x for x in at.radio
+                   if any("موتورِ خودم" in str(o) for o in (x.options or []))), None)
+if mode_radio is not None:
+    print("✗ رادیوی دوحالته هنوز هست — ادغام کامل نشده")
+    sys.exit(1)
+print("✓ رادیوی دوحالته حذف شد — موتورِ یکپارچه")
 
-# ---- ۴) سوییچ به موتورِ بومی ---------------------------------------------------
-mr = next((x for x in at.radio
-           if any("موتورِ خودم" in str(o) for o in (x.options or []))), None)
-if mr is None:
-    print("✗ رادیوی موتورِ چارت پیدا نشد")
-    sys.exit(1)
-mr.set_value("🛠 موتورِ خودم — با خطوطِ پلن و FVG")
-at.run()
-if at.exception:
-    print(f"✗ موتورِ بومی: {at.exception[0].value}")
-    sys.exit(1)
+# ---- ۴) موتورِ یکپارچه رندر می‌شود: متریک‌ها بالای چارت ------------------------
 metrics = [str(m.label) for m in at.metric]
-print("✓ موتورِ بومی (خطوطِ پلن/FVG) رندر شد — تمیز"
+print("✓ موتورِ یکپارچه (زومِ ＋/－ + خطوطِ پلن/FVG) رندر شد — تمیز"
       if any("RSI 14" in l for l in metrics)
       else f"⚠ متریکِ RSI پیدا نشد — {metrics[:6]}")
 
-print("✅ app_sections پاس شد — هر چهار مسیر سبز")
+# ---- ۵) خروجیِ HTMLِ موتور: دکمه‌های زوم و ابزارهای TV -------------------------
+from core.tv_chart import build_tv_chart_html  # noqa: E402
+_html = build_tv_chart_html(
+    candles=[[1700000000, 1, 2, 0.5, 1.5, 10]],
+    tfs={"1hour": [[1700000000, 1, 2, 0.5, 1.5, 10]]},
+    base_tf="1hour", symbol="BTC-USDT", zones=[], levels=[],
+    title="BTC-USDT · 1hour", dec=2)
+need = ("btnZin", "btnZout", "zoomStep", "btnFit", "btnFull", "btnNow")
+if all(k in _html for k in need):
+    print("✓ نوارِ زومِ ＋/－ + بازنشانی/تمام‌صفحه/پرشِ زنده در خروجیِ موتور هست")
+else:
+    missing = [k for k in need if k not in _html]
+    print(f"✗ در HTMLِ موتور نیست: {missing}")
+    sys.exit(1)
+
+print("✅ app_sections پاس شد — هر سه مسیر سبز")

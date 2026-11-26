@@ -7,12 +7,9 @@ from concurrent.futures import ThreadPoolExecutor
 import requests
 import streamlit as st
 
-from core.webview import iframe_html
-from core.crypto_candles import candles_bundle, decimals_for as crypto_decimals
 from core.exchanges import EXCHANGES_ALL
 from core.help import hint
 from core.i18n import setup_i18n, tr
-from core.tv_chart import build_tv_chart_html
 
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -390,30 +387,21 @@ else:
         st.rerun()
 
 
-# ---------------------------------------------------------------- چارت کندل (خارج از فرگمنت)
+# ---------------------------------------------------------------- چارت کندل → چارت‌استودیو (صفحه‌ی اختصاصی)
 st.markdown("---")
-st.subheader(tr("📈 نمودار کندل — موتور کامل (تایم‌فریم · اندیکاتور · ابزار)",
-                "📈 Candle chart — full engine (timeframes · indicators · tools)"))
-_c1, _c2 = st.columns([2, 3])
-with _c1:
-    chart_sel = st.selectbox(tr("نمودار برای کدام ارز؟", "Chart which coin?"), selected,
-                             help=tr("کندل از Binance spot می‌آید — مرجعِ بازار؛ قیمتِ صرافی‌ها بالایی زنده است.",
-                                     "Candles come from Binance spot — the market reference; exchange prices above are live."))
-chart_base = parse_base(chart_sel, main_ex)
-_bundle = candles_bundle(chart_base)
-if not _bundle:
-    st.caption(tr(f"کندل برای {chart_base} از Binance گرفته نشد — احتمالاً این ارز روی Binance لیست نیست یا شبکه موقتاً کند است؛ مقایسه‌ی قیمت بالا همچنان کار می‌کند.",
-                  f"Could not fetch candles for {chart_base} from Binance — the coin may not be listed there, or the network is slow; the price comparison above still works."))
-else:
-    _base_tf = "1hour" if "1hour" in _bundle else next(iter(_bundle))
-    _last_px = _bundle[_base_tf][-1][4] if _bundle[_base_tf] else 0.0
-    iframe_html(
-        build_tv_chart_html(candles=_bundle[_base_tf], tfs=_bundle, base_tf=_base_tf,
-                            symbol=f"{chart_base}/USDT", zones=[], levels=[],
-                            title=f"{chart_base}/USDT · {_base_tf}",
-                            dec=crypto_decimals(_last_px), initial_bars=320),
-        height=700,
-    )
+st.subheader(tr("📈 چارتِ کندل — به چارت‌استودیو منتقل شد",
+                "📈 Candle chart — moved to the Chart Studio"))
+st.markdown(tr(
+    "→ صفحه‌ی **🎨 چارت‌استودیو** را از منوی کنار (یا نوارِ بالا) باز کن — همان موتورِ کامل در میزِ اختصاصی: "
+    "تایم‌فریم · اندیکاتور · ابزارِ رسم · پلنِ اتاق روی چارت.",
+    "→ Open **🎨 Chart Studio** from the sidebar (or top bar) — the same full engine at its dedicated desk: "
+    "timeframes · indicators · drawing tools · team plan on chart."))
+st.caption(tr(
+    "همان موتورِ کاملِ چارت حالا صفحه‌ی خودش را دارد: منبعِ کندل (Binance یا بومیِ هر ۸ صرافی)، "
+    "واچ‌لیستِ شخصی، خطوطِ ورود/حدضرر/هدفِ پلنِ اتاق روی چارت و نوارِ وضعیتِ بازار — سبک‌تر شدنِ این صفحه هم اتفاقی افتاد.",
+    "The full chart engine now has its own page: candle source (Binance or native from any of the 8 "
+    "venues), a personal watchlist, team-plan entry/stop/target lines on the chart, and a market "
+    "status strip — this page got lighter as a bonus."))
 
 # ---------------------------------------------------------------- عقیده‌ی میدان درباره‌ی همین ارز
 with st.expander(tr("🏟️ عقیده‌ی میدان درباره‌ی همین ارز — آخرین معامله‌ی هر ایجنت",

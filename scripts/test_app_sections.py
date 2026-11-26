@@ -61,9 +61,13 @@ _html = build_tv_chart_html(
     tfs={"1hour": [[1700000000, 1, 2, 0.5, 1.5, 10]]},
     base_tf="1hour", symbol="BTC-USDT", zones=[], levels=[],
     title="BTC-USDT · 1hour", dec=2)
-need = ("btnZin", "btnZout", "zoomStep", "btnFit", "btnFull", "btnNow")
+need = ("btnZin", "btnZout", "zoomStep", "btnFit", "btnFull", "btnNow",
+        "btnLive", "livePoll", "liveApply", "liveRepaint",
+        "btnPct", "PriceScaleMode.Percentage",
+        "btnGear", "pdlg", "IND_P_DEF", "clearCalc", "saveIndP",
+        "drawVP", "پروفایلِ حجمِ بازه‌ی دید")
 if all(k in _html for k in need):
-    print("✓ نوارِ زومِ ＋/－ + بازنشانی/تمام‌صفحه/پرشِ زنده در خروجیِ موتور هست")
+    print("✓ نوارِ زوم ＋/－ · داده‌ی زنده · ٪ · ⚙ پارامترها · پروفایلِ حجم — همه در خروجیِ موتور")
 else:
     missing = [k for k in need if k not in _html]
     print(f"✗ در HTMLِ موتور نیست: {missing}")

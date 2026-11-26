@@ -210,6 +210,12 @@ if(!TFS[S.tf]) S.tf = DATA.base_tf;
 /* اگر کاربر قبلاً بازه‌ی ثانیه‌ای انتخاب کرده بود، بعد از رندر اولیه همان را دوباره می‌گیریم */
 const WANT_SECS = (S.tf !== (localStorage.getItem(SK('tf'))||'') && SECS[localStorage.getItem(SK('tf'))||''] && !TFS[localStorage.getItem(SK('tf'))||''])
   ? localStorage.getItem(SK('tf')) : null;
+/* پارامترهای اندیکاتورها — قابلِ ویرایش از ⚙ (پیش‌فرض: مقادیرِ استاندارد) */
+const IND_P_DEF = { rsi:14, bbLen:20, bbMult:2.0, macdF:12, macdS:26, macdSig:9,
+                    atr:14, cci:20, emaF:9, emaM:21, emaL:50 };
+S.indP = Object.assign({}, IND_P_DEF, safeParse(localStorage.getItem(SK('indp'))) || {});
+function saveIndP(){ try{ localStorage.setItem(SK('indp'), JSON.stringify(S.indP)); }catch(e){} }
+function clearCalc(){ for(const k in CALC) delete CALC[k]; }
 let DRAWINGS = [];
 let UNDOS = [], REDOS = [];
 
@@ -237,10 +243,11 @@ function rsiArr(c, n){ const o=new Array(c.length).fill(null); if(c.length<=n) r
   for(let i=n+1;i<c.length;i++){ const ch=c[i]-c[i-1];
     ag=(ag*(n-1)+Math.max(ch,0))/n; al=(al*(n-1)+Math.max(-ch,0))/n;
     o[i]= al===0?100:100-100/(1+ag/al); } return o; }
-function macdCalc(c){ const e12=emaArr(c,12), e26=emaArr(c,26);
+function macdCalc(c, f, s, sg){ f=f||12; s=s||26; sg=sg||9;
+  const e12=emaArr(c,f), e26=emaArr(c,s);
   const m=c.map((_,i)=> (e12[i]!=null&&e26[i]!=null)? e12[i]-e26[i] : null);
   const first=m.findIndex(v=>v!=null); const sig=new Array(c.length).fill(null);
-  if(first>=0){ const seq=m.slice(first).map(v=>v==null?0:v); const e9=emaArr(seq,9);
+  if(first>=0){ const seq=m.slice(first).map(v=>v==null?0:v); const e9=emaArr(seq,sg);
     for(let i=0;i<e9.length;i++) if(e9[i]!=null) sig[first+i]=e9[i]; }
   const h=m.map((v,i)=> (v!=null&&sig[i]!=null)? v-sig[i] : null);
   return {m:m, sig:sig, h:h}; }
@@ -387,10 +394,11 @@ function ichiCalc(cd, sec){
 const CALC = {};
 function calcFor(tf){
   if(CALC[tf]) return CALC[tf];
+  const P = S.indP || IND_P_DEF;
   const c = TFS[tf]; const t = c.map(a=>a[0]);
   const closes = c.map(a=>a[4]); const vols = c.map(a=>a[5]||0);
-  const mid = smaArr(closes,20), sd = stdArr(closes,20,mid);
-  const M = macdCalc(closes);
+  const mid = smaArr(closes,P.bbLen), sd = stdArr(closes,P.bbLen,mid);
+  const M = macdCalc(closes, P.macdF, P.macdS, P.macdSig);
   const sec = c.length>1? (c[1][0]-c[0][0]) : 900;
   const ps = psarCalc(c, 0.02, 0.2);
   const stx = stCalc(c, 10, 3);
@@ -398,18 +406,18 @@ function calcFor(tf){
   const sc = stochCalc(c, 14, 3, 3);
   const sr = srsiCalc(c, 14, 14, 3, 3);
   CALC[tf] = { t:t, sec:sec,
-    e9:emaArr(closes,9), e20:emaArr(closes,20), e21:emaArr(closes,21),
-    e50:emaArr(closes,50), e200:emaArr(closes,200),
+    e9:emaArr(closes,P.emaF), e20:emaArr(closes,20), e21:emaArr(closes,P.emaM),
+    e50:emaArr(closes,P.emaL), e200:emaArr(closes,200),
     s20:mid, s50:smaArr(closes,50), s100:smaArr(closes,100), s200:smaArr(closes,200),
-    bbU:mid.map((v,i)=> v==null||sd[i]==null? null : v+2*sd[i]),
-    bbM:mid, bbL:mid.map((v,i)=> v==null||sd[i]==null? null : v-2*sd[i]),
+    bbU:mid.map((v,i)=> v==null||sd[i]==null? null : v+P.bbMult*sd[i]),
+    bbM:mid, bbL:mid.map((v,i)=> v==null||sd[i]==null? null : v-P.bbMult*sd[i]),
     vw:vwapCalc(c), volma:smaArr(vols,20),
     psar:ps.v, psarS:ps.s, stU:stx.u, stD:stx.d,
-    rsi:rsiArr(closes,14), m:M.m, sig:M.sig, h:M.h,
+    rsi:rsiArr(closes,P.rsi), m:M.m, sig:M.sig, h:M.h,
     stoK:sc.k, stoD:sc.d, srK:sr.k, srD:sr.d,
-    cci:cciCalc(c,20), wr:wrCalc(c,14),
+    cci:cciCalc(c,P.cci), wr:wrCalc(c,14),
     adx:ad.adx, pdi:ad.pdi, mdi:ad.mdi,
-    atr:atrCalc(c,14), obv:obvCalc(c), mfi:mfiCalc(c,14),
+    atr:atrCalc(c,P.atr), obv:obvCalc(c), mfi:mfiCalc(c,14),
     piv:pivCalc(c), ichi:ichiCalc(c, sec) };
   return CALC[tf];
 }
@@ -574,6 +582,7 @@ const IND_MENU = [
   ['adx','ADX / DMI (14)','#b2b5be'], ['atr','ATR (14)','#f59e0b'],
   ['_g','حجم'],
   ['vol','هیستوگرام حجم','#26a69a'], ['volma','میانگین حجم ۲۰','#8ea1c0'],
+  ['vp','پروفایلِ حجمِ بازه‌ی دید','#8b5cf6'],
   ['obv','OBV — پنل جداگانه','#2962ff'], ['mfi','MFI (14) — پنل جداگانه','#a855f7'],
 ];
 const VIS = { e9:'ema9', e20:'ema20', e21:'ema21', e50:'ema50', e200:'ema200',
@@ -1174,10 +1183,41 @@ window.__nqPlaceSelX = function(){
   selXBtn.style.top  = Math.max(4, Math.min(a.y-29, r.height-26)) + 'px';
 };
 __ZONES_JS__
+/* ---------- پروفایلِ حجمِ بازه‌ی دید (VRVP سبک — سمت راست چارت) ---------- */
+function drawVP(){
+  if(!S.ind.vp || !mainSeries) return;
+  const c = CAND(); if(c.length<10) return;
+  const vr = chartMain.timeScale().getVisibleLogicalRange(); if(!vr) return;
+  const i0 = Math.max(0, Math.floor(vr.from)), i1 = Math.min(c.length-1, Math.ceil(vr.to)+1);
+  if(i1-i0 < 5) return;
+  let lo=Infinity, hi=-Infinity;
+  for(let i=i0;i<=i1;i++){ if(c[i][3]<lo) lo=c[i][3]; if(c[i][2]>hi) hi=c[i][2]; }
+  const N=30, bh=(hi-lo)/N; if(!(bh>0)) return;
+  const bins=new Array(N).fill(0);
+  for(let i=i0;i<=i1;i++){ const tp=(c[i][2]+c[i][3]+c[i][4])/3;
+    let b=Math.floor((tp-lo)/bh); if(b<0)b=0; if(b>=N)b=N-1; bins[b]+=(c[i][5]||0); }
+  let mi=0; for(let b=1;b<N;b++) if(bins[b]>bins[mi]) mi=b;
+  const vmax=bins[mi]||1;
+  const W=chartMain.timeScale().width(); const maxW=W*0.18;
+  const yHi=mainSeries.priceToCoordinate(hi), yLo=mainSeries.priceToCoordinate(lo);
+  if(yHi==null||yLo==null) return;
+  const bhPx=Math.abs(yHi-yLo)/N;
+  for(let b=0;b<N;b++){
+    const y=mainSeries.priceToCoordinate(lo+bh*(b+1));
+    if(y==null) continue;
+    const w=maxW*(bins[b]/vmax);
+    octx.fillStyle = b===mi ? 'rgba(139,92,246,0.5)' : 'rgba(139,92,246,0.26)';
+    octx.fillRect(W-w, y-bhPx+1, w, Math.max(1.5, bhPx-2));
+  }
+  const yp=mainSeries.priceToCoordinate(lo+bh*(mi+0.5));
+  if(yp!=null){ octx.save(); octx.strokeStyle='rgba(139,92,246,0.8)'; octx.setLineDash([4,3]);
+    octx.beginPath(); octx.moveTo(0,yp); octx.lineTo(W,yp); octx.stroke(); octx.restore(); }
+}
 function renderLoop(){
   const r = mainPane.getBoundingClientRect();
   octx.clearRect(0,0,r.width,r.height);
   drawZones();
+  if(S.ind.vp) drawVP();
   for(const d of DRAWINGS) drawOne(d,false);
   if(selIdx>=0 && DRAWINGS[selIdx]) drawSel(DRAWINGS[selIdx]);
   if(window.__nqDrawAlerts) window.__nqDrawAlerts();
@@ -1435,6 +1475,7 @@ function toggleInd(k){
   S.ind[k] = !S.ind[k]; saveInd();
   if(k==='plines'){ applySigLines(); return; }
   if(k==='zones'){ return; }   /* renderLoop هر فریم با S.ind.zones می‌کشد — فریم بعد خودش می‌رود */
+  if(k==='vp'){ return; }      /* پروفایلِ حجم هم کانواسی است — فریمِ بعد خودش می‌آید */
   if(PANE[k]){ FILL[k](); applyPanes(); return; }
   const grp = (keys)=>{ for(const s of keys) if(IND[s]) IND[s].applyOptions({visible:S.ind[k]}); };
   if(k==='bb'){ grp(['bbU','bbM','bbL']); return; }
@@ -1566,11 +1607,107 @@ btnFull.onclick = ()=>{
 };
 const btnLog = document.getElementById('btnLog');
 function applyLog(){
-  try{ chartMain.priceScale('right').applyOptions({ mode: S.ind.log?
-    LightweightCharts.PriceScaleMode.Logarithmic : LightweightCharts.PriceScaleMode.Normal }); }catch(e){}
-  btnLog.classList.toggle('active', !!S.ind.log);
+  const mode = S.ind.pct ? LightweightCharts.PriceScaleMode.Percentage
+             : S.ind.log ? LightweightCharts.PriceScaleMode.Logarithmic
+             : LightweightCharts.PriceScaleMode.Normal;
+  try{ chartMain.priceScale('right').applyOptions({ mode:mode }); }catch(e){}
+  btnLog.classList.toggle('active', !!S.ind.log && !S.ind.pct);
+  const bp=document.getElementById('btnPct'); if(bp) bp.classList.toggle('active', !!S.ind.pct);
 }
-btnLog.onclick = ()=>{ S.ind.log = !S.ind.log; saveInd(); applyLog(); };
+btnLog.onclick = ()=>{ S.ind.log = !S.ind.log; if(S.ind.log) S.ind.pct=false; saveInd(); applyLog(); };
+document.getElementById('btnPct').onclick = ()=>{ S.ind.pct = !S.ind.pct; if(S.ind.pct) S.ind.log=false; saveInd(); applyLog(); };
+
+/* ---------- دیالوگِ پارامترِ اندیکاتورها (⚙) ---------------------------- */
+const btnGear = document.getElementById('btnGear');
+function pdOpen(){ for(const k in IND_P_DEF){ const el=document.getElementById('p_'+k); if(el) el.value=S.indP[k]; }
+  document.getElementById('pdlgBk').style.display='block';
+  document.getElementById('pdlg').style.display='block'; }
+function pdClose(){ document.getElementById('pdlgBk').style.display='none';
+  document.getElementById('pdlg').style.display='none'; }
+btnGear.onclick = pdOpen;
+document.getElementById('pdNo').onclick = pdClose;
+document.getElementById('pdlgBk').onclick = pdClose;
+document.getElementById('pdOk').onclick = ()=>{
+  for(const k in IND_P_DEF){ const el=document.getElementById('p_'+k);
+    if(!el) continue; const v=parseFloat(el.value);
+    if(isFinite(v) && v>0) S.indP[k] = (k==='bbMult')? v : Math.round(v); }
+  saveIndP(); clearCalc(); pdClose();
+  rebuildMain(true); rebuildAllPanes();
+  const c=CAND(); const a=c[c.length-1];
+  if(a){ setLegend({t:a[0],o:a[1],h:a[2],l:a[3],c:a[4],v:a[5]}); setIndLegend(a[0]); updatePaneLegends(a[0]); }
+  toast('⚙ پارامترها اعمال و در مرورگر ذخیره شد');
+};
+
+/* ---------- داده‌ی زنده: آخرین کندل هر ۱۰ ثانیه از صرافی ------------------
+   مثل تریدینگ‌ویو چارت نفس می‌کشد: کندلِ در حالِ شکل‌گرفتن به‌روز و کندلِ تازه
+   اضافه می‌شود؛ اندیکاتورها و لجند هم دوباره محاسبه می‌شوند. منابع عمومیِ
+   Binance (میرور بدون محدودیت جغرافیایی + اصلی) — بدونِ کلید. */
+const LIVE_HOSTS = ['https://data-api.binance.vision', 'https://api.binance.com'];
+const IV_BIN = {'15min':'15m','1hour':'1h','2hour':'2h','4hour':'4h','6hour':'6h','8hour':'8h','12hour':'12h','1day':'1d','1week':'1w'};
+const AGG_BIN = {'2min':['1m',2],'10min':['5m',2],'45min':['15m',3],'3hour':['1h',3],'2day':['1d',2],'3day':['1d',3]};
+const BIN_SYM = () => (DATA.symbol||'').split('/')[0].split('-').join('').toUpperCase();
+async function liveFetch(iv, limit){
+  for(const h of LIVE_HOSTS){
+    try{ const r = await fetch(h+'/api/v3/klines?symbol='+BIN_SYM()+'&interval='+iv+'&limit='+limit);
+      if(!r.ok) continue;
+      const j = await r.json();
+      if(Array.isArray(j) && j.length)
+        return j.map(k=>[Math.floor(k[0]/1000), parseFloat(k[1]), parseFloat(k[2]),
+                          parseFloat(k[3]), parseFloat(k[4]), parseFloat(k[5])]);
+    }catch(e){}
+  }
+  return null;
+}
+function liveApply(rows){
+  const cur = TFS[S.tf];
+  const sec = SEC();
+  if(!cur || !cur.length || !rows || !rows.length || !sec) return false;
+  const m = new Map();
+  for(const r of rows){ const t = Math.floor(r[0]/sec)*sec; const b = m.get(t);
+    if(!b) m.set(t, [t, r[1], r[2], r[3], r[4], r[5]]);
+    else { if(r[2]>b[2]) b[2]=r[2]; if(r[3]<b[3]) b[3]=r[3]; b[4]=r[4]; b[5]+=(r[5]||0); } }
+  const buckets = Array.from(m.values()).sort((a,b)=>a[0]-b[0]);
+  const last = cur[cur.length-1]; let changed = false;
+  for(const b of buckets){
+    if(b[0] === last[0]){
+      if(b[1]!==last[1]||b[2]!==last[2]||b[3]!==last[3]||b[4]!==last[4]||b[5]!==last[5]){
+        cur[cur.length-1] = b; changed = true; }
+    } else if(b[0] > last[0] && b[0] <= last[0] + sec*2){
+      cur.push(b); changed = true; }   /* کلوزِ کندل و باز شدنِ کندلِ تازه */
+  }
+  return changed;
+}
+function liveRepaint(){
+  clearCalc();
+  buildIdx();
+  rebuildMain(true);
+  rebuildAllPanes();
+  const c = CAND(); const a = c[c.length-1];
+  if(a){ setLegend({t:a[0],o:a[1],h:a[2],l:a[3],c:a[4],v:a[5]}); setIndLegend(a[0]); updatePaneLegends(a[0]); }
+  const bl = document.getElementById('btnLive');
+  if(bl){ bl.classList.remove('flash'); void bl.offsetWidth; bl.classList.add('flash');
+    bl.title = 'داده‌ی زنده روشن — آخرین به‌روزرسانی: ' + new Date().toLocaleTimeString('fa-IR'); }
+}
+async function livePoll(){
+  if(!S.live || DATA.fx || !TFS[S.tf] || !TFS[S.tf].length) return;
+  try{
+    let rows = null;
+    if(SECS[S.tf])                 rows = await liveFetch('1s', Math.max(3, SECS[S.tf]*3));
+    else if(IV_BIN[S.tf])          rows = await liveFetch(IV_BIN[S.tf], 3);
+    else if(AGG_BIN[S.tf])         rows = await liveFetch(AGG_BIN[S.tf][0], AGG_BIN[S.tf][1]*3);
+    if(rows && liveApply(rows)) liveRepaint();
+  }catch(e){}
+}
+const btnLive = document.getElementById('btnLive');
+S.live = (localStorage.getItem(SK('live')) !== '0');   /* پیش‌فرض: روشن */
+btnLive.classList.toggle('live', S.live);
+btnLive.onclick = ()=>{ S.live = !S.live;
+  btnLive.classList.toggle('live', S.live);
+  try{ localStorage.setItem(SK('live'), S.live?'1':'0'); }catch(e){}
+  toast(S.live ? '🟢 داده‌ی زنده روشن شد — هر ۱۰ ثانیه' : 'داده‌ی زنده خاموش شد');
+  if(S.live) livePoll(); };
+setInterval(livePoll, 10000);
+setTimeout(livePoll, 2500);
 
 /* ---------- نوار پایین به سبک تریدینگ‌ویو: رنج‌های سریع + SELL/BUY + ساعت زنده ------ */
 const BRANGES = [['1D',86400],['5D',432000],['1M',2592000],['3M',7776000],['6M',15552000],['YTD','ytd'],['همه',0]];
@@ -2124,6 +2261,25 @@ a[href*="tradingview.com"]:hover{opacity:0.7;}
 #btnSync.busy{color:#f59e0b;}
 #btnSync.ok{color:#26a69a;}
 #btnSync.err{color:#ef5350;}
+#btnLive{font-size:12px;}
+#btnLive.live{color:#26a69a;}
+#btnLive.live::before{content:'●';font-size:8px;margin-left:3px;animation:nqpulse 1.6s infinite;}
+#btnLive.flash{color:#f59e0b;}
+@keyframes nqpulse{0%,100%{opacity:1}50%{opacity:.25}}
+#pdlgBk{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:398;}
+#pdlg{display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:399;
+  background:#161b26;border:1px solid rgba(148,163,184,.3);border-radius:10px;padding:14px 16px;
+  width:min(420px,92vw);max-height:86vh;overflow:auto;color:#d1d5db;}
+.pd-t{font-size:13.5px;font-weight:700;margin-bottom:10px;color:#e5e7eb;}
+.pd-g{display:grid;grid-template-columns:1fr 1fr;gap:7px 12px;}
+.pd-g label{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:11.5px;color:#b2b5be;}
+.pd-g input{width:78px;background:#0e1117;border:1px solid rgba(148,163,184,.35);border-radius:6px;
+  color:#e5e7eb;padding:4px 6px;font-family:inherit;font-size:12px;}
+.pd-note{font-size:10.5px;color:#8ea1c0;margin-top:9px;line-height:1.7;}
+.pd-b{display:flex;gap:8px;margin-top:10px;}
+.pd-b button{flex:1;padding:6px 0;border-radius:7px;border:1px solid rgba(148,163,184,.4);
+  background:#1f2a3d;color:#e5e7eb;cursor:pointer;font-family:inherit;font-size:12px;}
+.pd-b button#pdOk{background:#143d2e;border-color:#26a69a;color:#7ee2c3;}
 #btnAlert{font-size:12.5px;line-height:1;}
 #selX{position:absolute;z-index:9;display:none;width:22px;height:22px;padding:0;
   text-align:center;border-radius:50%;border:1px solid rgba(239,83,80,0.75);cursor:pointer;
@@ -2187,7 +2343,10 @@ def build_tv_chart_html(*, candles: List[List[Any]], tfs: Dict[str, List[List[An
         '<button class="tb-btn" id="btnType">🕯 <span class="tb-label" id="typeLbl">کندل</span> ▾</button>'
         '<button class="tb-btn" id="btnInd">ƒ<span class="tb-label"> اندیکاتورها</span> ▾</button>'
         '<button class="tb-btn" id="btnTools">📐<span class="tb-label"> ابزارها</span> ▾</button>'
+        '<button class="tb-btn live" id="btnLive" title="داده‌ی زنده — آخرین کندل هر ۱۰ ثانیه از صرافی به‌روز می‌شود">زنده</button>'
         '<button class="tb-btn" id="btnLog" title="مقیاس لگاریتمی">log</button>'
+        '<button class="tb-btn" id="btnPct" title="مقیاسِ درصدی — نسبت به اولین قیمتِ بازه">٪</button>'
+        '<button class="tb-btn" id="btnGear" title="پارامترِ اندیکاتورها (EMA، RSI، BB، MACD، ATR، CCI)">⚙</button>'
         '<input id="txtIn" placeholder="متن یادداشت…">'
         '<div class="tb-spacer"></div>'
         + '<button class="tb-btn" id="btnAlert" title="هشدار قیمتی — از منوی ابزارها؛ کلیک روی خط = حذف">🔔</button>'
@@ -2199,6 +2358,25 @@ def build_tv_chart_html(*, candles: List[List[Any]], tfs: Dict[str, List[List[An
         '<button class="tb-btn" id="btnNow" title="پرش به کندل آخر">▶▏</button>'
         '<button class="tb-btn" id="btnFull" title="تمام‌صفحه">⛶</button>'
         '<button class="tb-btn" id="btnShot" title="دانلود اسکرین‌شات PNG">📷</button>'
+        '</div>'
+        '<div id="pdlgBk"></div>'
+        '<div id="pdlg" dir="rtl">'
+        '<div class="pd-t">⚙ پارامترِ اندیکاتورها</div>'
+        '<div class="pd-g">'
+        '<label>EMA کوتاه<input id="p_emaF" type="number" min="2" max="400"></label>'
+        '<label>EMA میانی<input id="p_emaM" type="number" min="2" max="400"></label>'
+        '<label>EMA بلند<input id="p_emaL" type="number" min="2" max="600"></label>'
+        '<label>RSI طول<input id="p_rsi" type="number" min="2" max="100"></label>'
+        '<label>BB طول<input id="p_bbLen" type="number" min="2" max="200"></label>'
+        '<label>BB ضریب<input id="p_bbMult" type="number" min="0.5" max="6" step="0.1"></label>'
+        '<label>MACD سریع<input id="p_macdF" type="number" min="2" max="60"></label>'
+        '<label>MACD کند<input id="p_macdS" type="number" min="3" max="120"></label>'
+        '<label>MACD سیگنال<input id="p_macdSig" type="number" min="2" max="60"></label>'
+        '<label>ATR طول<input id="p_atr" type="number" min="2" max="100"></label>'
+        '<label>CCI طول<input id="p_cci" type="number" min="2" max="100"></label>'
+        '</div>'
+        '<div class="pd-note">Stoch · SRSI · ADX · WR · MFI · SuperTrend · PSAR · ایچیموکو و SMAها با مقادیرِ استاندارد می‌مانند. ذخیره در مرورگرِ شما.</div>'
+        '<div class="pd-b"><button id="pdOk">ذخیره و اعمال</button><button id="pdNo">انصراف</button></div>'
         '</div>'
         '<div id="panes">'
         '<div id="mainPane">'

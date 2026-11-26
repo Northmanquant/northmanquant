@@ -395,7 +395,7 @@ const CALC = {};
 function calcFor(tf){
   if(CALC[tf]) return CALC[tf];
   const P = S.indP || IND_P_DEF;
-  const c = TFS[tf]; const t = c.map(a=>a[0]);
+  const c = (tf===S.tf && REPLAY && REPLAY_ARR) ? REPLAY_ARR : TFS[tf]; const t = c.map(a=>a[0]);
   const closes = c.map(a=>a[4]); const vols = c.map(a=>a[5]||0);
   const mid = smaArr(closes,P.bbLen), sd = stdArr(closes,P.bbLen,mid);
   const M = macdCalc(closes, P.macdF, P.macdS, P.macdSig);
@@ -422,7 +422,8 @@ function calcFor(tf){
   return CALC[tf];
 }
 function zip(t, arr){ const o=[]; for(let i=0;i<t.length;i++) if(arr[i]!=null) o.push({time:t[i], value:arr[i]}); return o; }
-function CAND(){ return TFS[S.tf] || []; }
+let REPLAY=null, REPLAY_ARR=null;   /* بازپخش: اندیسِ آخرین کندلِ نمایش + برشِ داده — TFS دست‌نخورده */
+function CAND(){ return REPLAY ? REPLAY_ARR : (TFS[S.tf] || []); }
 function SEC(){ const c=CAND(); return c.length>1? (c[1][0]-c[0][0]) : 900; }
 let IDX = new Map();
 function buildIdx(){ IDX = new Map(CAND().map((a,i)=>[a[0], i])); }
@@ -1231,7 +1232,7 @@ if(window.ResizeObserver) new ResizeObserver(()=>sizeOvl()).observe(mainPane);
 
 /* ---------- رویدادهای ماوس/لمس رسم ------------------------------------ */
 const CLICKS = { trend:2, rect:2, fib:2, posL:3, posS:3,
-                 hline:1, hray:1, vline:1, arrowU:1, arrowD:1, text:1 };
+                 hline:1, hray:1, vline:1, arrowU:1, arrowD:1, text:1, replay:1 };
 function evPos(e){
   const r = ovl.getBoundingClientRect();
   const x = e.clientX-r.left, y = e.clientY-r.top;
@@ -1273,6 +1274,9 @@ ovl.addEventListener('pointerdown', e=>{
   const p = evPos(e);
   if(S.tool==='measure'){ measure={p1:p, p2:p}; return; }
   if(S.tool==='brush'){ brush={pts:[p]}; return; }
+  if(S.tool==='replay'){ const i=(p.t!=null)? IDX.get(p.t) : null;
+    if(i!=null) rpStartAt(p.t); else toast('اینجا کندلی نیست — روی چارت کلیک کن');
+    oneShotDone(); return; }
   if(CLICKS[S.tool]===1){
     if(S.tool==='hline'){ if(p.price!=null) commit({type:'hline', p1:{t:null, price:p.price}}); }
     else if(S.tool==='vline'){ if(p.t!=null) commit({type:'vline', p1:{t:p.t, price:null}}); }
@@ -1324,6 +1328,12 @@ window.addEventListener('keydown', e=>{
   if((e.key==='+'||e.key==='='||e.key==='-') && !(_ae && (_ae.tagName==='INPUT' || _ae.tagName==='TEXTAREA'))){
     e.preventDefault();
     if(typeof zoomStep==='function') zoomStep(e.key==='-' ? 1.62 : 0.62);
+  }
+  /* بازپخش: → گامِ جلو · ← گامِ عقب · Space پخش/توقف */
+  if(REPLAY && !(_ae && (_ae.tagName==='INPUT' || _ae.tagName==='TEXTAREA'))){
+    if(e.key==='ArrowRight'){ e.preventDefault(); rpStep(1); return; }
+    if(e.key==='ArrowLeft'){ e.preventDefault(); rpStep(-1); return; }
+    if(e.key===' '){ e.preventDefault(); rpPlayPause(); return; }
   }
   /* Delete/Backspace = حذف رسم انتخاب‌شده (وقتی در حال تایپ نیستیم) */
   if((e.key==='Delete' || e.key==='Backspace') && selIdx>=0 && S.tool==='cursor' && !drag){
@@ -1422,6 +1432,7 @@ function buildTfBtns(){
 }
 function setTF(tf){
   if(!TFS[tf]){ toast('داده‌ی این تایم‌فریم در دسترس نیست'); return; }
+  if(REPLAY) rpReset();   /* خروجِ خودکار از بازپخش روی تغییرِ تایم‌فریم */
   S.tf = tf; localStorage.setItem(SK('tf'), tf);
   DRAWINGS = loadDraw().map(normDraw); UNDOS=[]; REDOS=[]; selIdx=-1; drag=null;
   buildIdx();
@@ -1515,6 +1526,8 @@ const TOOLS = [
   ['_g','یادداشت'],
   ['arrowU','⬆','فلش صعودی'], ['arrowD','⬇','فلش نزولی'],
   ['text','ℹ','متن'], ['brush','✎','قلم آزاد'],
+  ['_g','تمرین'],
+  ['replay','⏪','بازپخش کندل‌به‌کندل — کلیک روی کندلِ شروع (Bar Replay)'],
 ];
 function buildToolsMenu(){
   const m = document.getElementById('menuTools');
@@ -1616,6 +1629,8 @@ function applyLog(){
 }
 btnLog.onclick = ()=>{ S.ind.log = !S.ind.log; if(S.ind.log) S.ind.pct=false; saveInd(); applyLog(); };
 document.getElementById('btnPct').onclick = ()=>{ S.ind.pct = !S.ind.pct; if(S.ind.pct) S.ind.log=false; saveInd(); applyLog(); };
+document.getElementById('btnReplay').onclick = ()=>{ setTool('replay'); buildToolsMenu();
+  toast('⏪ بازپخش: روی کندلِ شروع کلیک کن — کلیدها: → گام جلو · ← گام عقب · Space پخش'); };
 
 /* ---------- دیالوگِ پارامترِ اندیکاتورها (⚙) ---------------------------- */
 const btnGear = document.getElementById('btnGear');
@@ -1689,7 +1704,7 @@ function liveRepaint(){
     bl.title = 'داده‌ی زنده روشن — آخرین به‌روزرسانی: ' + new Date().toLocaleTimeString('fa-IR'); }
 }
 async function livePoll(){
-  if(!S.live || DATA.fx || !TFS[S.tf] || !TFS[S.tf].length) return;
+  if(!S.live || REPLAY || DATA.fx || !TFS[S.tf] || !TFS[S.tf].length) return;
   try{
     let rows = null;
     if(SECS[S.tf])                 rows = await liveFetch('1s', Math.max(3, SECS[S.tf]*3));
@@ -1708,6 +1723,77 @@ btnLive.onclick = ()=>{ S.live = !S.live;
   if(S.live) livePoll(); };
 setInterval(livePoll, 10000);
 setTimeout(livePoll, 2500);
+
+/* ---------- بازپخشِ کندل‌به‌کندل (Bar Replay — سبک تریدینگ‌ویو) -------------
+   ابزار ⏪ → کلیک روی کندلِ شروع → چارت فقط تا همان کندل نشان داده می‌شود؛ با
+   گام/پخش جلو می‌روی و می‌توانی همان‌جا رسم کنی و پلن بسازی. داده‌ی اصلی (TFS)
+   دست‌نخورده می‌ماند و با «⏹» همه‌چیز برمی‌گردد. در حینِ پخش، داده‌ی زنده و
+   هشدارِ زنده موقتاً معلق‌اند و چیپِ قیمتِ زنده پنهان می‌شود. */
+let rpTimer=null;
+function rpShow(on){
+  const rb=document.getElementById('rbar'); if(rb) rb.style.display = on? 'flex':'none';
+  const cd=document.getElementById('cdown'); if(cd) cd.style.display = on? 'none':'';
+}
+function rpPaint(keepRange){
+  clearCalc(); buildIdx(); rebuildMain(keepRange); rebuildAllPanes();
+  const c=CAND(); const a=c[c.length-1];
+  if(a){ setLegend({t:a[0],o:a[1],h:a[2],l:a[3],c:a[4],v:a[5]}); setIndLegend(a[0]); updatePaneLegends(a[0]); }
+  const pos=document.getElementById('rpPos');
+  if(pos) pos.textContent = 'کندل '+c.length+' از '+((TFS[S.tf]||[]).length);
+}
+function rpStartAt(t){
+  const full=TFS[S.tf]||[];
+  if(!full.length || t==null) return;
+  /* جست‌وجوی دودویی در داده‌ی کامل — مستقل از فعال‌بودنِ بازپخش */
+  let i=-1, lo=0, hi=full.length-1;
+  while(lo<=hi){ const m=(lo+hi)>>1; if(full[m][0]<=t){ i=m; lo=m+1; } else hi=m-1; }
+  if(i<5){ toast('کندلِ شروع باید کمی عمق داشته باشد'); return; }
+  REPLAY={i:i, i0:i};
+  REPLAY_ARR=full.slice(0, i+1);
+  rpShow(true);
+  rpPaint(false);
+  const n=i+1;
+  chartMain.timeScale().setVisibleLogicalRange({from:Math.max(0,n-120), to:n+4});
+  toast('⏪ بازپخش از '+new Date(full[i][0]*1000).toLocaleString('en-GB')+' — داده‌ی زنده موقتاً متوقف');
+}
+function rpStep(d){
+  const full=TFS[S.tf]||[];
+  if(!REPLAY || !full.length) return;
+  const ni=Math.min(full.length-1, Math.max(REPLAY.i0, REPLAY.i+d));
+  if(ni===REPLAY.i){ if(d>0) rpPause(); return; }
+  REPLAY.i=ni;
+  REPLAY_ARR=full.slice(0, ni+1);
+  if(d>0){
+    const r=chartMain.timeScale().getVisibleLogicalRange();
+    const w=r? Math.round(r.to-r.from):120;
+    rpPaint(false);
+    chartMain.timeScale().setVisibleLogicalRange({from:Math.max(0,ni+4-w), to:ni+4});
+  } else rpPaint(true);
+}
+function rpPause(){
+  if(rpTimer){ clearInterval(rpTimer); rpTimer=null; }
+  const b=document.getElementById('rpPlay'); if(b) b.textContent='▶';
+}
+function rpPlayPause(){
+  if(rpTimer){ rpPause(); return; }
+  const sp=document.getElementById('rpSpd');
+  const ms=sp? (parseInt(sp.value,10)||450) : 450;
+  rpTimer=setInterval(()=>rpStep(1), ms);
+  const b=document.getElementById('rpPlay'); if(b) b.textContent='⏸';
+}
+function rpReset(){ rpPause(); REPLAY=null; REPLAY_ARR=null; rpShow(false); }
+function rpExit(){
+  rpReset(); clearCalc(); buildIdx(); rebuildMain(true); rebuildAllPanes();
+  const c=CAND(); const a=c[c.length-1];
+  if(a){ setLegend({t:a[0],o:a[1],h:a[2],l:a[3],c:a[4],v:a[5]}); setIndLegend(a[0]); updatePaneLegends(a[0]); }
+  toast('⏹ بازپخش پایان یافت — کلِ داده برگشت');
+}
+(function rpWire(){
+  const ex=document.getElementById('rpExit'); if(ex) ex.onclick=rpExit;
+  const fw=document.getElementById('rpFwd');  if(fw) fw.onclick=()=>rpStep(1);
+  const bk=document.getElementById('rpBack'); if(bk) bk.onclick=()=>rpStep(-1);
+  const pl=document.getElementById('rpPlay'); if(pl) pl.onclick=rpPlayPause;
+})();
 
 /* ---------- نوار پایین به سبک تریدینگ‌ویو: رنج‌های سریع + SELL/BUY + ساعت زنده ------ */
 const BRANGES = [['1D',86400],['5D',432000],['1M',2592000],['3M',7776000],['6M',15552000],['YTD','ytd'],['همه',0]];
@@ -2058,7 +2144,7 @@ _ALERT_JS = """
      هشدارهای تازه‌ی افزود‌شده در میانه‌ی چک هم پوشش داده می‌شوند. */
   let inFlight=null;
   function checkAlerts(){
-    if(inFlight) return inFlight;
+    if(inFlight || REPLAY) return inFlight;   /* در بازپخش، هشدارِ زنده معلق می‌شود */
     inFlight = (async()=>{
       try{
         /* همین یک میکروتیک: بدنه هرگز همگام تمام نمی‌شود — وگرنه finally
@@ -2280,6 +2366,16 @@ a[href*="tradingview.com"]:hover{opacity:0.7;}
 .pd-b button{flex:1;padding:6px 0;border-radius:7px;border:1px solid rgba(148,163,184,.4);
   background:#1f2a3d;color:#e5e7eb;cursor:pointer;font-family:inherit;font-size:12px;}
 .pd-b button#pdOk{background:#143d2e;border-color:#26a69a;color:#7ee2c3;}
+#rbar{display:none;position:fixed;bottom:34px;left:50%;transform:translateX(-50%);z-index:70;
+  align-items:center;gap:3px;background:rgba(28,35,51,0.97);border:1px solid rgba(148,163,184,0.35);
+  border-radius:10px;padding:5px 8px;box-shadow:0 8px 24px rgba(0,0,0,0.5);direction:ltr;}
+#rbar button{all:unset;cursor:pointer;font:700 12px/1 ui-monospace,monospace;color:#e2e8f0;
+  padding:5px 9px;border-radius:6px;user-select:none;}
+#rbar button:hover{background:rgba(148,163,184,0.15);}
+#rbar button#rpExit{color:#ef5350;}
+#rpSpd{background:#0e1117;border:1px solid rgba(148,163,184,0.35);border-radius:6px;color:#e2e8f0;
+  font:600 10.5px Tahoma,sans-serif;padding:3px 4px;cursor:pointer;}
+#rpPos{font:600 10.5px/1 ui-monospace,monospace;color:#8ea1c0;padding:0 6px;direction:rtl;white-space:nowrap;}
 #btnAlert{font-size:12.5px;line-height:1;}
 #selX{position:absolute;z-index:9;display:none;width:22px;height:22px;padding:0;
   text-align:center;border-radius:50%;border:1px solid rgba(239,83,80,0.75);cursor:pointer;
@@ -2347,6 +2443,7 @@ def build_tv_chart_html(*, candles: List[List[Any]], tfs: Dict[str, List[List[An
         '<button class="tb-btn" id="btnLog" title="مقیاس لگاریتمی">log</button>'
         '<button class="tb-btn" id="btnPct" title="مقیاسِ درصدی — نسبت به اولین قیمتِ بازه">٪</button>'
         '<button class="tb-btn" id="btnGear" title="پارامترِ اندیکاتورها (EMA، RSI، BB، MACD، ATR، CCI)">⚙</button>'
+        '<button class="tb-btn" id="btnReplay" title="بازپخش کندل‌به‌کندل — بعد از کلیک، روی کندلِ شروع بزن (Bar Replay)">⏪</button>'
         '<input id="txtIn" placeholder="متن یادداشت…">'
         '<div class="tb-spacer"></div>'
         + '<button class="tb-btn" id="btnAlert" title="هشدار قیمتی — از منوی ابزارها؛ کلیک روی خط = حذف">🔔</button>'
@@ -2377,6 +2474,17 @@ def build_tv_chart_html(*, candles: List[List[Any]], tfs: Dict[str, List[List[An
         '</div>'
         '<div class="pd-note">Stoch · SRSI · ADX · WR · MFI · SuperTrend · PSAR · ایچیموکو و SMAها با مقادیرِ استاندارد می‌مانند. ذخیره در مرورگرِ شما.</div>'
         '<div class="pd-b"><button id="pdOk">ذخیره و اعمال</button><button id="pdNo">انصراف</button></div>'
+        '</div>'
+        '<div id="rbar">'
+        '<button id="rpExit" title="پایانِ بازپخش — برگشتِ کلِ داده">⏹</button>'
+        '<button id="rpBack" title="گام به عقب — کلید ←">◀</button>'
+        '<button id="rpPlay" title="پخش خودکار/توقف — کلید Space">▶</button>'
+        '<button id="rpFwd" title="گام به جلو — کلید →">➤</button>'
+        '<select id="rpSpd" title="سرعتِ پخش">'
+        '<option value="900">۰.۵×</option><option value="450" selected>۱×</option>'
+        '<option value="220">۲×</option><option value="90">۴×</option>'
+        '</select>'
+        '<span id="rpPos">—</span>'
         '</div>'
         '<div id="panes">'
         '<div id="mainPane">'

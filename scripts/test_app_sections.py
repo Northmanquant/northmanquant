@@ -65,9 +65,11 @@ need = ("btnZin", "btnZout", "zoomStep", "btnFit", "btnFull", "btnNow",
         "btnLive", "livePoll", "liveApply", "liveRepaint",
         "btnPct", "PriceScaleMode.Percentage",
         "btnGear", "pdlg", "IND_P_DEF", "clearCalc", "saveIndP",
-        "drawVP", "پروفایلِ حجمِ بازه‌ی دید")
+        "drawVP", "پروفایلِ حجمِ بازه‌ی دید",
+        "btnReplay", "rpStartAt", "rpStep", "rpPlayPause", "rpExit", "rpReset",
+        "rbar", "rpSpd", "rpPos", "REPLAY_ARR", "بازپخش")
 if all(k in _html for k in need):
-    print("✓ نوارِ زوم ＋/－ · داده‌ی زنده · ٪ · ⚙ پارامترها · پروفایلِ حجم — همه در خروجیِ موتور")
+    print("✓ زوم ＋/－ · داده‌ی زنده · ٪ · ⚙ پارامترها · پروفایلِ حجم · ⏪ بازپخش — همه در خروجیِ موتور")
 else:
     missing = [k for k in need if k not in _html]
     print(f"✗ در HTMLِ موتور نیست: {missing}")

@@ -4189,7 +4189,67 @@ def main() -> None:
         # کلِ موتورِ تریدینگ‌ویو در بخشِ خودش — از «تحلیل زنده» به اینجا منتقل شد
         # (درخواست کاربر: چارت از آن صفحه برداشته شود و بخشِ خصوصیِ خودش را در منو داشته باشد)
         st.subheader("🎨 چارتِ خصوصی — میزِ تحلیلِ اختصاصی")
-        st.caption("موتورِ کامل: تایم‌فریم‌سوئیچر (حتی ثانیه‌ای از مرورگر) · انواع چارت · اندیکاتورها (EMA/BB/VWAP/RSI/MACD و…) · "
+        _mode = st.radio(
+            "موتورِ چارت",
+            ["🌐 تریدینگ‌ویوِ واقعی", "🛠 موتورِ خودم — با خطوطِ پلن و FVG"],
+            index=0, horizontal=True,
+            help="حالتِ اول خودِ ویجتِ رسمیِ TradingView با همه‌ی ابزارش است؛ حالتِ دوم موتورِ سبکِ داخلِ اپ که خطوطِ پلن و نواحی FVG/BVG را خودش می‌کشد.",
+        )
+
+        if _mode == "🌐 تریدینگ‌ویوِ واقعی":
+            # ---- خودِ تریدینگ‌ویو: ویجتِ رسمیِ Advanced Chart -------------------
+            # (درخواست کاربر: «جوری باشه که انگار تریدینگ‌ویو رو باز کردیم»)
+            # نماد/صرافی از «🏦 بازار و نماد» و تایم‌فریم از همان منو می‌آید؛ بقیه با خودِ TV.
+            _tv_iv = {"15min": "15", "1hour": "60", "4hour": "240",
+                      "1day": "D", "1week": "W"}.get(interval, "60")
+
+            def _tv_symbol_of(sym: str, ex: str):
+                _b, _, _q = sym.upper().strip().partition("-")
+                _tv_ex = {"Binance": "BINANCE", "KuCoin": "KUCOIN", "OKX": "OKX",
+                          "Bybit": "BYBIT", "XT": "XT"}.get(ex)
+                if _tv_ex is None:   # لایتر · KCEX · LBank · صرافیِ دلخواهِ CCXT — روی TV نیست
+                    return None
+                return f"{_tv_ex}:{_b}{'-' if _tv_ex == 'OKX' else ''}{_q or 'USDT'}"
+
+            _tv_sym = _tv_symbol_of(symbol, exchange)
+            if _tv_sym is None:
+                _b, _, _q = symbol.upper().strip().partition("-")
+                _tv_sym = f"BINANCE:{_b}{_q or 'USDT'}"
+                st.caption(f"ℹ️ «{exchange}» در تریدینگ‌ویو فهرست نیست — نمادِ معادلِ {_tv_sym} باز می‌شود؛ "
+                           "از داخلِ چارت (کلیک روی نامِ نماد) هر نمادِ دیگری هم می‌توانید بگذارید.")
+            components.html(
+                f"""
+<div class="tradingview-widget-container">
+  <div id="tv_priv_chart" style="height:880px"></div>
+  <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+  <script type="text/javascript">
+  new TradingView.widget({{
+    "container_id": "tv_priv_chart",
+    "symbol": "{_tv_sym}",
+    "interval": "{_tv_iv}",
+    "timezone": "Asia/Tehran",
+    "theme": "dark",
+    "style": "1",
+    "locale": "en",
+    "toolbar_bg": "#131722",
+    "enable_publishing": false,
+    "allow_symbol_change": true,
+    "withdateranges": true,
+    "hide_side_toolbar": false,
+    "details": true
+  }});
+  </script>
+</div>
+""",
+                height=920, scrolling=False,
+            )
+            st.caption("🌐 این خودِ تریدینگ‌ویو است: تایم‌فریم و انواع چارت از نوارِ بالا، صدها اندیکاتور و ابزارِ رسم از نوارِ چپ، "
+                       "جستجوی نماد با کلیک روی نامِ نماد. محیطِ تریدینگ‌ویو فارسی ندارد (انگلیسی)؛ چند قابلیتِ حساب‌دار "
+                       "(ذخیره‌ی چیدمان، آلرتِ ابری) مثلِ حالتِ مهمانِ خودِ TV رفتار می‌کند.")
+            st.stop()   # این بخش آخرین بلاکِ main() است — در حالتِ TV ادامه لازم نیست
+
+        # حالتِ دوم: موتورِ سبکِ داخلِ اپ — خطوطِ پلن و FVG/BVG را خودش می‌کشد
+        st.caption("🛠 موتورِ داخلِ اپ: تایم‌فریم‌سوئیچر (حتی ثانیه‌ای از مرورگر) · انواع چارت · اندیکاتورها (EMA/BB/VWAP/RSI/MACD و…) · "
                    "ابزارِ رسم (روند/فیبوناچی/خط‌کش/پوزیشن با RR) · آلرت · اسکرین‌شات — رسم‌های شما در مرورگرِ خودتان "
                    "به تفکیکِ نماد+تایم‌فریم ذخیره می‌ماند. نماد و صرافی از «🏦 بازار و نماد» در منو می‌آید.")
         # تنظیماتِ چارت — از «بازار و نماد» به اینجا منتقل شد (مالکیتِ همین بخش)

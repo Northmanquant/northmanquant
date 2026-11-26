@@ -3429,7 +3429,7 @@ def main() -> None:
     # «ثبت تحلیل شخصی» + «تصویر تحلیل» + «تحلیل‌های کاربران» → one combined section (tabs)
     ANALYSES_SECTION = "🧑‍💻 تحلیل‌ها (ثبت · تصویر · کاربران)"
     SECTIONS = ["📊 تحلیل زنده", "💎 فرصت‌های سودده", ANALYSES_SECTION,
-                "🏆 برترین‌ها", "📰 اخبار", "📚 منابع داده"]
+                "🏆 برترین‌ها", "📰 اخبار", "📚 منابع داده", "🎨 چارت خصوصی"]
 
     with st.sidebar:
         st.header("⚙️ تنظیمات")
@@ -3486,13 +3486,8 @@ def main() -> None:
                 exchange = exch_choice
             interval = st.selectbox("تایم‌فریم", list(INTERVAL_MINUTES.keys()), index=1)
 
-            # --- chart settings (merged into «بازار و نماد») -----------------
-            st.markdown("**📈 تنظیمات چارت**")
-            candle_count = st.slider("تعداد کندل روی چارت", min_value=40, max_value=500,
-                                     value=160, step=20,
-                                     help="پنجره‌ی اولیه‌ی لود — روی چارت با اسکرول/درگ آزاد زوم و پن کن (مثل تریدینگ‌ویو)")
-            show_fvg = st.checkbox("🟪 نمایش نواحی FVG / BVG روی چارت", value=True)
             live_on = st.checkbox("🔴 حالت زنده (قیمت لحظه‌ای)", value=True)
+            # تنظیماتِ چارت (تعداد کندل · FVG) به بخشِ «🎨 چارت خصوصی» منتقل شد
 
         # --- appearance ------------------------------------------------------
         with st.expander("🎨 شخصی‌سازی ظاهر", expanded=False):
@@ -3593,53 +3588,9 @@ def main() -> None:
                 st.caption("🟪 " + fvg_info["text"])
             st.divider()
 
-            # ---- TradingView engine chart (lightweight-charts) ------------
-            # موتور واقعی تریدینگ‌ویو: تایم‌فریم‌سوئیچر · انواع چارت · اندیکاتورها
-            # (EMA/BB/VWAP/RSI/MACD) · ابزار رسم (روند/خط افقی/مستطیل/فیبو/خط‌کش)
-            def _n(x):
-                try:
-                    v = float(x)
-                except (TypeError, ValueError):
-                    return None
-                return None if v != v else v          # NaN → None
-
-            def _raw_candles(dd: pd.DataFrame) -> list:
-                return [[int(r.dt.timestamp()), _n(r.open), _n(r.high), _n(r.low),
-                         _n(r.close), _n(r.volume)] for r in dd.itertuples(index=False)]
-
-            _tfs = {interval: _raw_candles(d)}
-            # همه‌ی تایم‌فریم‌های چارت: بومی + تجمیعی (2m/10m/45m/3h/2D/3D) — ثانیه‌ای‌ها سمت مرورگر از Binance
-            _chart_tfs = tuple(CHART_TFS) + tuple(CHART_TF_AGG.keys())
-            _tfs.update(tf_bundle(exchange, symbol, tuple(
-                tf for tf in _chart_tfs if tf != interval)))
-
-            _tv_zones = []
-            if show_fvg:
-                def _zone(z, kind, tag):
-                    return {"t0": int(pd.Timestamp(z["dt"]).timestamp()),
-                            "top": _n(z["top"]), "bottom": _n(z["bottom"]),
-                            "kind": kind, "tag": tag}
-                _tv_zones = ([_zone(z, "bull", "FVG▲") for z in fvg_info["bulls"][:4]]
-                             + [_zone(z, "bear", "FVG▼") for z in fvg_info["bears"][:4]]
-                             + [_zone(z, "bvg", "BVG") for z in fvg_info["bvgs"][:3]])
-
-            _tv_levels = []
-            if plan.get("entry") is not None:
-                _tv_levels = [{"price": _n(plan["entry"]), "name": "ورود", "color": "#f59e0b", "dash": False},
-                              {"price": _n(plan["stop"]), "name": "حد ضرر", "color": "#ef5350", "dash": True}]
-                for _i, (_tp, _rr) in enumerate(plan["targets"]):
-                    _tv_levels.append({"price": _n(_tp), "name": f"هدف{_i + 1} · {_rr}R",
-                                       "color": "#2962ff", "dash": True})
-
-            components.html(
-                build_tv_chart_html(candles=_tfs[interval], tfs=_tfs, base_tf=interval,
-                                    symbol=symbol, zones=_tv_zones, levels=_tv_levels,
-                                    title=f"{symbol} · {interval}", dec=dec,
-                                    initial_bars=candle_count),
-                height=760, scrolling=False,
-            )
-
-            # (floating share button removed by request)
+            # ---- چارت به بخشِ «🎨 چارت خصوصی» منتقل شد (درخواست کاربر) -------
+            st.info("📈 چارتِ کامل — با تایم‌فریم‌سوئیچر، اندیکاتورها و ابزارِ رسم — حالا در بخشِ **🎨 چارت خصوصی** "
+                    "در منوی چپ زندگی می‌کند؛ اینجا متمرکز بر تحلیل و طرحِ معامله. نماد را همان‌جا با «🏦 بازار و نماد» عوض کن.")
 
             # ===== THE AGENTS — full-width strategy backtest row =============
             st.divider()
@@ -4232,6 +4183,98 @@ def main() -> None:
 - اگر یک صرافی در منطقه‌ات مسدود باشد، کد به‌ترتیب بقیه‌ی صرافی‌ها fallback می‌کند.
 """
         )
+
+    if section == "🎨 چارت خصوصی":
+        # ================================================== چارتِ خصوصی =====
+        # کلِ موتورِ تریدینگ‌ویو در بخشِ خودش — از «تحلیل زنده» به اینجا منتقل شد
+        # (درخواست کاربر: چارت از آن صفحه برداشته شود و بخشِ خصوصیِ خودش را در منو داشته باشد)
+        st.subheader("🎨 چارتِ خصوصی — میزِ تحلیلِ اختصاصی")
+        st.caption("موتورِ کامل: تایم‌فریم‌سوئیچر (حتی ثانیه‌ای از مرورگر) · انواع چارت · اندیکاتورها (EMA/BB/VWAP/RSI/MACD و…) · "
+                   "ابزارِ رسم (روند/فیبوناچی/خط‌کش/پوزیشن با RR) · آلرت · اسکرین‌شات — رسم‌های شما در مرورگرِ خودتان "
+                   "به تفکیکِ نماد+تایم‌فریم ذخیره می‌ماند. نماد و صرافی از «🏦 بازار و نماد» در منو می‌آید.")
+        # تنظیماتِ چارت — از «بازار و نماد» به اینجا منتقل شد (مالکیتِ همین بخش)
+        _cc1, _cc2 = st.columns(2)
+        with _cc1:
+            candle_count = st.slider("تعداد کندل روی چارت", min_value=40, max_value=500,
+                                     value=160, step=20,
+                                     help="پنجره‌ی اولیه‌ی لود — روی چارت با اسکرول/درگ آزاد زوم و پن کن (مثل تریدینگ‌ویو)")
+        with _cc2:
+            show_fvg = st.checkbox("🟪 نمایش نواحی FVG / BVG روی چارت", value=True)
+        try:
+            df = fetch_candles(exchange, symbol, interval)
+            d = add_indicators(df)
+            price = float(d["close"].iloc[-1])
+            dec = 2 if price >= 1000 else 4 if price >= 1 else 6
+
+            # نوارِ وضعیتِ سریع بالای چارت
+            _m1, _m2, _m3, _m4 = st.columns(4)
+            _m1.metric(f"{symbol} · {exchange}", f"{price:,.{dec}f}")
+            _rsi = d["rsi"].iloc[-1] if "rsi" in d.columns else None
+            _e50 = d["ema50"].iloc[-1] if "ema50" in d.columns else None
+            _atr = d["atr"].iloc[-1] if "atr" in d.columns else None
+            _m2.metric("RSI 14", f"{_rsi:.1f}" if _rsi is not None and pd.notna(_rsi) else "—")
+            _m3.metric("فاصله از EMA50",
+                       f"{(price - _e50) / _e50 * 100.0:+.2f}٪"
+                       if _e50 is not None and pd.notna(_e50) and _e50 else "—")
+            _m4.metric("ATR", f"{_atr:,.{dec}f}" if _atr is not None and pd.notna(_atr) else "—")
+
+            def _n(x):
+                try:
+                    v = float(x)
+                except (TypeError, ValueError):
+                    return None
+                return None if v != v else v          # NaN → None
+
+            def _raw_candles(dd: pd.DataFrame) -> list:
+                return [[int(r.dt.timestamp()), _n(r.open), _n(r.high), _n(r.low),
+                         _n(r.close), _n(r.volume)] for r in dd.itertuples(index=False)]
+
+            _tfs = {interval: _raw_candles(d)}
+            # همه‌ی تایم‌فریم‌های چارت: بومی + تجمیعی (2m/10m/45m/3h/2D/3D) — ثانیه‌ای‌ها سمت مرورگر از Binance
+            _chart_tfs = tuple(CHART_TFS) + tuple(CHART_TF_AGG.keys())
+            _tfs.update(tf_bundle(exchange, symbol, tuple(
+                tf for tf in _chart_tfs if tf != interval)))
+
+            _tv_zones = []
+            if show_fvg:
+                try:
+                    _fvg_info = fvg_summary(d)
+                except Exception:  # noqa: BLE001
+                    _fvg_info = {"bulls": [], "bears": [], "bvgs": []}
+
+                def _zone(z, kind, tag):
+                    return {"t0": int(pd.Timestamp(z["dt"]).timestamp()),
+                            "top": _n(z["top"]), "bottom": _n(z["bottom"]),
+                            "kind": kind, "tag": tag}
+                _tv_zones = ([_zone(z, "bull", "FVG▲") for z in _fvg_info["bulls"][:4]]
+                             + [_zone(z, "bear", "FVG▼") for z in _fvg_info["bears"][:4]]
+                             + [_zone(z, "bvg", "BVG") for z in _fvg_info["bvgs"][:3]])
+
+            # خطوطِ ورود/حدضرر/هدف — همان موتورِ validated-setup؛ بدونِ ادعای تازه
+            _tv_levels = []
+            try:
+                _score_series, _ = confluence(d)
+                _plan = make_plan(d, float(_score_series.iloc[-1]), swing_levels(d))
+                if _plan.get("entry") is not None:
+                    _tv_levels = [{"price": _n(_plan["entry"]), "name": "ورود", "color": "#f59e0b", "dash": False},
+                                  {"price": _n(_plan["stop"]), "name": "حد ضرر", "color": "#ef5350", "dash": True}]
+                    for _i, (_tp, _rr) in enumerate(_plan["targets"]):
+                        _tv_levels.append({"price": _n(_tp), "name": f"هدف{_i + 1} · {_rr}R",
+                                           "color": "#2962ff", "dash": True})
+            except Exception:  # noqa: BLE001 — پلن نمایشی است؛ خرابی‌اش چارت را نمی‌بُرد
+                pass
+
+            components.html(
+                build_tv_chart_html(candles=_tfs[interval], tfs=_tfs, base_tf=interval,
+                                    symbol=symbol, zones=_tv_zones, levels=_tv_levels,
+                                    title=f"{symbol} · {interval}", dec=dec,
+                                    initial_bars=candle_count),
+                height=820, scrolling=False,
+            )
+            st.caption("💡 خطوطِ ورود/حدضرر/هدف از ستاپِ اعتبارسنجی‌شده می‌آیند (فقط وقتی ستاپ فعال باشد)؛ "
+                       "FVG/BVG با کلیدِ بالا خاموش/روشن می‌شود.")
+        except Exception as _cs_e:  # noqa: BLE001
+            st.warning("چارت برای این نماد/صرافی ساخته نشد: " + str(_cs_e)[:180])
 
 
 if __name__ == "__main__":
